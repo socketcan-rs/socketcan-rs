@@ -10,11 +10,58 @@ extern crate libc;
 extern crate nix;
 
 use libc::{c_int, c_short, c_void, c_uint, socket, SOCK_RAW, close, bind,
-           sockaddr, read, write};
+           sockaddr, read, write, setsockopt, SOL_SOCKET, SO_RCVTIMEO,
+           timeval, EINPROGRESS};
 use itertools::Itertools;
-use std::{io, error, fmt};
+use std::{error, fmt, io, time};
 use std::mem::size_of;
 use nix::net::if_::if_nametoindex;
+
+/// Check an error return value for timeouts.
+///
+/// Due to the fact that timeouts are reported as errors, calling `read_frame`
+/// on a socket with a timeout that does not receive a frame in time will
+/// result in an error being returned. This trait adds a `should_retry` method
+/// to `Error` and `Result` to check for this condition.
+trait ShouldRetry {
+    /// Check for timeout
+    ///
+    /// If `true`, the error is probably due to a timeout.
+    fn should_retry(&self) -> bool;
+}
+
+impl ShouldRetry for io::Error {
+    fn should_retry(&self) -> bool {
+        match self.kind() {
+            // EAGAIN, EINPROGRESS and EWOULDBLOCK are the three possible codes
+            // returned when a timeout occurs. the stdlib already maps EAGAIN
+            // and EWOULDBLOCK os WouldBlock
+            io::ErrorKind::WouldBlock => true,
+            // however, EINPROGRESS is also valid
+            io::ErrorKind::Other => {
+                if let Some(i) = self.raw_os_error() {
+                    i == EINPROGRESS
+                } else {
+                    false
+                }
+            },
+            _ => false,
+        }
+    }
+}
+
+impl<E: fmt::Debug> ShouldRetry for io::Result<E> {
+    fn should_retry(&self) -> bool {
+        if let &Err(ref e) = self {
+            e.should_retry()
+        } else {
+            false
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;
 
 // constants stolen from C headers
 const AF_CAN: c_int = 29;
@@ -38,6 +85,13 @@ pub const EFF_MASK: u32 = 0x1fffffff;
 
 /// valid bits in error frame
 pub const ERR_MASK: u32 = 0x1fffffff;
+
+fn c_timeval_new(t: time::Duration) -> timeval {
+    timeval {
+        tv_sec: t.as_secs() as i64,
+        tv_usec: (t.subsec_nanos() / 1000) as i64,
+    }
+}
 
 #[derive(Debug)]
 #[repr(C)]
@@ -194,6 +248,25 @@ impl CANSocket {
                 return Err(io::Error::last_os_error());
             }
         }
+        Ok(())
+    }
+
+    /// Sets the read timeout on the socket
+    ///
+    /// For convenience, the result value can be checked using
+    /// `ShouldRetry::should_retry` when a timeout is set.
+    pub fn set_read_timeout(&self, duration: time::Duration) -> io::Result<()> {
+        let rv = unsafe {
+            let tv = c_timeval_new(duration);
+            let tv_ptr: *const timeval = &tv as *const timeval;
+            setsockopt(self.fd, SOL_SOCKET, SO_RCVTIMEO,
+                       tv_ptr as *const c_void, size_of::<timeval>() as u32)
+        };
+
+        if rv != 0 {
+            return Err(io::Error::last_os_error());
+        }
+
         Ok(())
     }
 
