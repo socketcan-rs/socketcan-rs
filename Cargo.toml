@@ -1,6 +1,6 @@
 [package]
 name = "socketcan"
-version = "0.1.0"
+version = "1.0.0"
 authors = ["Marc Brinkmann <git@marcbrinkmann.de>"]
 license = "MIT"
 description = "Linux SocketCAN library"
