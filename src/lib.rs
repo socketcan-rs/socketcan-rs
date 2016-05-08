@@ -1,6 +1,6 @@
 //! socketCAN support.
 //!
-//! The Linux kernel supports using CAN-devices using a network-like API
+//! The Linux kernel supports using CAN-devices through a network-like API
 //! (see https://www.kernel.org/doc/Documentation/networking/can.txt). This
 //! crate allows easy access to this functionality without having to wrestle
 //! libc calls.
@@ -21,7 +21,7 @@ const AF_CAN: c_int = 29;
 const PF_CAN: c_int = 29;
 const CAN_RAW: c_int = 1;
 
-/// if set, uses 29 bit extended format
+/// if set, indicate 29 bit extended format
 pub const EFF_FLAG: u32 = 0x80000000;
 
 /// remote transmission request flag
@@ -49,6 +49,7 @@ struct CANAddr {
 }
 
 #[derive(Debug)]
+/// Errors opening socket
 pub enum CANSocketOpenError {
     /// Device could not be found
     LookupError(nix::Error),
@@ -87,10 +88,11 @@ impl error::Error for CANSocketOpenError {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
+/// Error that occurs when creating CAN packets
 pub enum ConstructionError {
-    IDTooLarge,
-    TooMuchData,
+    IDTooLarge,  /// CAN ID was outside the range of valid IDs
+    TooMuchData, /// More than 8 Bytes of payload data were passed in
 }
 
 impl fmt::Display for ConstructionError {
@@ -125,9 +127,10 @@ impl From<io::Error> for CANSocketOpenError {
     }
 }
 
-/// A socket for a CAN device. Just a wrapped file descriptor.
+/// A socket for a CAN device.
 ///
 /// Will be closed upon deallocation. To close manually, use std::drop::Drop.
+/// Internally this is just a wrapped file-descriptor.
 pub struct CANSocket {
     fd: c_int,
 }
@@ -215,6 +218,7 @@ impl CANSocket {
         Ok(frame)
     }
 
+    /// Blocking write a single can frame.
     pub fn write_frame(&self, frame: &CANFrame) -> io::Result<()> {
         // not a mutable reference needed (see std::net::UdpSocket) for
         // a comparison
@@ -241,7 +245,8 @@ impl Drop for CANSocket {
 
 /// CANFrame
 ///
-/// Same memory layout as the underlying kernel struct.
+/// Uses the same memory layout as the underlying kernel struct for performance
+/// reasons.
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct CANFrame {
