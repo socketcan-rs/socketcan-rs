@@ -4,6 +4,8 @@ version = "1.1.0"
 authors = ["Marc Brinkmann <git@marcbrinkmann.de>"]
 license = "MIT"
 description = "Linux SocketCAN library"
+docs = "https://mbr.github.io/socketcan-rs/socketcan"
+repo = "https://github.com/mbr/socketcan-rs"
 
 [dependencies]
 nix = "^0.5"
