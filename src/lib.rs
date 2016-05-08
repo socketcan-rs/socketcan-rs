@@ -11,7 +11,7 @@ extern crate nix;
 
 use libc::{c_int, c_short, c_void, c_uint, socket, SOCK_RAW, close, bind,
            sockaddr, read, write, setsockopt, SOL_SOCKET, SO_RCVTIMEO,
-           timeval, EINPROGRESS};
+           timeval, EINPROGRESS, SO_SNDTIMEO};
 use itertools::Itertools;
 use std::{error, fmt, io, time};
 use std::mem::size_of;
@@ -260,6 +260,22 @@ impl CANSocket {
             let tv = c_timeval_new(duration);
             let tv_ptr: *const timeval = &tv as *const timeval;
             setsockopt(self.fd, SOL_SOCKET, SO_RCVTIMEO,
+                       tv_ptr as *const c_void, size_of::<timeval>() as u32)
+        };
+
+        if rv != 0 {
+            return Err(io::Error::last_os_error());
+        }
+
+        Ok(())
+    }
+
+    /// Sets the write timeout on the socket
+    pub fn set_write_timeout(&self, duration: time::Duration) -> io::Result<()> {
+        let rv = unsafe {
+            let tv = c_timeval_new(duration);
+            let tv_ptr: *const timeval = &tv as *const timeval;
+            setsockopt(self.fd, SOL_SOCKET, SO_SNDTIMEO,
                        tv_ptr as *const c_void, size_of::<timeval>() as u32)
         };
 
