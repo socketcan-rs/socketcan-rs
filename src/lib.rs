@@ -251,7 +251,7 @@ impl Drop for CANSocket {
 #[repr(C)]
 pub struct CANFrame {
     /// 32 bit CAN_ID + EFF/RTR/ERR flags
-    pub _id: u32,
+    _id: u32,
 
     /// data length. Bytes beyond are not valid
     _data_len: u8,
