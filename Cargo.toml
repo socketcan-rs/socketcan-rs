@@ -1,0 +1,11 @@
+[package]
+name = "socketcan"
+version = "0.1.0"
+authors = ["Marc Brinkmann <git@marcbrinkmann.de>"]
+license = "MIT"
+description = "Linux SocketCAN library"
+
+[dependencies]
+nix = "^0.5"
+libc = "^0.2.11"
+itertools = "^0.4.13"
