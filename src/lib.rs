@@ -91,8 +91,10 @@ impl error::Error for CANSocketOpenError {
 #[derive(Debug, Copy, Clone)]
 /// Error that occurs when creating CAN packets
 pub enum ConstructionError {
-    IDTooLarge,  /// CAN ID was outside the range of valid IDs
-    TooMuchData, /// More than 8 Bytes of payload data were passed in
+    /// CAN ID was outside the range of valid IDs
+    IDTooLarge,
+    /// More than 8 Bytes of payload data were passed in
+    TooMuchData,
 }
 
 impl fmt::Display for ConstructionError {
