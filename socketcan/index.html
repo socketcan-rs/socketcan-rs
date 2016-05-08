@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="generator" content="rustdoc">
+    <meta name="description" content="API documentation for the Rust `socketcan` crate.">
+    <meta name="keywords" content="rust, rustlang, rust-lang, socketcan">
+
+    <title>socketcan - Rust</title>
+
+    <link rel="stylesheet" type="text/css" href="../rustdoc.css">
+    <link rel="stylesheet" type="text/css" href="../main.css">
+
+    
+    
+</head>
+<body class="rustdoc">
+    <!--[if lte IE 8]>
+    <div class="warning">
+        This old browser is unsupported and will most likely display funky
+        things.
+    </div>
+    <![endif]-->
+
+    
+
+    <nav class="sidebar">
+        
+        <p class='location'></p><script>window.sidebarCurrent = {name: 'socketcan', ty: 'mod', relpath: '../'};</script>
+    </nav>
+
+    <nav class="sub">
+        <form class="search-form js-only">
+            <div class="search-container">
+                <input class="search-input" name="search"
+                       autocomplete="off"
+                       placeholder="Click or press ‘S’ to search, ‘?’ for more options…"
+                       type="search">
+            </div>
+        </form>
+    </nav>
+
+    <section id='main' class="content mod">
+<h1 class='fqn'><span class='in-band'>Crate <a class='mod' href=''>socketcan</a></span><span class='out-of-band'><span id='render-detail'>
+            <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
+                [<span class='inner'>&#x2212;</span>]
+            </a>
+        </span><a id='src-0' class='srclink' href='../src/socketcan/src/lib.rs.html#1-450' title='goto source code'>[src]</a></span></h1>
+<div class='docblock'><p>socketCAN support.</p>
+
+<p>The Linux kernel supports using CAN-devices through a network-like API
+(see <a href="https://www.kernel.org/doc/Documentation/networking/can.txt">https://www.kernel.org/doc/Documentation/networking/can.txt</a>). This
+crate allows easy access to this functionality without having to wrestle
+libc calls.</p>
+</div><h2 id='structs' class='section-header'><a href="#structs">Structs</a></h2>
+<table>
+                    <tr class=' module-item'>
+                        <td><a class='struct' href='struct.CANFrame.html'
+                               title='socketcan::CANFrame'>CANFrame</a></td>
+                        <td class='docblock short'>
+                             <p>CANFrame</p>
+                        </td>
+                    </tr>
+                
+                    <tr class=' module-item'>
+                        <td><a class='struct' href='struct.CANSocket.html'
+                               title='socketcan::CANSocket'>CANSocket</a></td>
+                        <td class='docblock short'>
+                             <p>A socket for a CAN device.</p>
+                        </td>
+                    </tr>
+                </table><h2 id='enums' class='section-header'><a href="#enums">Enums</a></h2>
+<table>
+                    <tr class=' module-item'>
+                        <td><a class='enum' href='enum.CANSocketOpenError.html'
+                               title='socketcan::CANSocketOpenError'>CANSocketOpenError</a></td>
+                        <td class='docblock short'>
+                             <p>Errors opening socket</p>
+                        </td>
+                    </tr>
+                
+                    <tr class=' module-item'>
+                        <td><a class='enum' href='enum.ConstructionError.html'
+                               title='socketcan::ConstructionError'>ConstructionError</a></td>
+                        <td class='docblock short'>
+                             <p>Error that occurs when creating CAN packets</p>
+                        </td>
+                    </tr>
+                </table><h2 id='constants' class='section-header'><a href="#constants">Constants</a></h2>
+<table>
+                    <tr class=' module-item'>
+                        <td><a class='constant' href='constant.EFF_FLAG.html'
+                               title='socketcan::EFF_FLAG'>EFF_FLAG</a></td>
+                        <td class='docblock short'>
+                             <p>if set, indicate 29 bit extended format</p>
+                        </td>
+                    </tr>
+                
+                    <tr class=' module-item'>
+                        <td><a class='constant' href='constant.EFF_MASK.html'
+                               title='socketcan::EFF_MASK'>EFF_MASK</a></td>
+                        <td class='docblock short'>
+                             <p>valid bits in extended frame id</p>
+                        </td>
+                    </tr>
+                
+                    <tr class=' module-item'>
+                        <td><a class='constant' href='constant.ERR_FLAG.html'
+                               title='socketcan::ERR_FLAG'>ERR_FLAG</a></td>
+                        <td class='docblock short'>
+                             <p>error flag</p>
+                        </td>
+                    </tr>
+                
+                    <tr class=' module-item'>
+                        <td><a class='constant' href='constant.ERR_MASK.html'
+                               title='socketcan::ERR_MASK'>ERR_MASK</a></td>
+                        <td class='docblock short'>
+                             <p>valid bits in error frame</p>
+                        </td>
+                    </tr>
+                
+                    <tr class=' module-item'>
+                        <td><a class='constant' href='constant.RTR_FLAG.html'
+                               title='socketcan::RTR_FLAG'>RTR_FLAG</a></td>
+                        <td class='docblock short'>
+                             <p>remote transmission request flag</p>
+                        </td>
+                    </tr>
+                
+                    <tr class=' module-item'>
+                        <td><a class='constant' href='constant.SFF_MASK.html'
+                               title='socketcan::SFF_MASK'>SFF_MASK</a></td>
+                        <td class='docblock short'>
+                             <p>valid bits in standard frame id</p>
+                        </td>
+                    </tr>
+                </table></section>
+    <section id='search' class="content hidden"></section>
+
+    <section class="footer"></section>
+
+    <aside id="help" class="hidden">
+        <div>
+            <h1 class="hidden">Help</h1>
+
+            <div class="shortcuts">
+                <h2>Keyboard Shortcuts</h2>
+
+                <dl>
+                    <dt>?</dt>
+                    <dd>Show this help dialog</dd>
+                    <dt>S</dt>
+                    <dd>Focus the search field</dd>
+                    <dt>&larrb;</dt>
+                    <dd>Move up in search results</dd>
+                    <dt>&rarrb;</dt>
+                    <dd>Move down in search results</dd>
+                    <dt>&#9166;</dt>
+                    <dd>Go to active search result</dd>
+                </dl>
+            </div>
+
+            <div class="infos">
+                <h2>Search Tricks</h2>
+
+                <p>
+                    Prefix searches with a type followed by a colon (e.g.
+                    <code>fn:</code>) to restrict the search to a given type.
+                </p>
+
+                <p>
+                    Accepted types are: <code>fn</code>, <code>mod</code>,
+                    <code>struct</code>, <code>enum</code>,
+                    <code>trait</code>, <code>type</code>, <code>macro</code>,
+                    and <code>const</code>.
+                </p>
+
+                <p>
+                    Search functions by type signature (e.g.
+                    <code>vec -> usize</code> or <code>* -> vec</code>)
+                </p>
+            </div>
+        </div>
+    </aside>
+
+    
+
+    <script>
+        window.rootPath = "../";
+        window.currentCrate = "socketcan";
+        window.playgroundUrl = "";
+    </script>
+    <script src="../jquery.js"></script>
+    <script src="../main.js"></script>
+    
+    <script defer src="../search-index.js"></script>
+</body>
+</html>
