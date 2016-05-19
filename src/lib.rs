@@ -83,10 +83,19 @@ pub const EFF_MASK: u32 = 0x1fffffff;
 /// valid bits in error frame
 pub const ERR_MASK: u32 = 0x1fffffff;
 
+#[cfg(target_pointer_width = "64")]
 fn c_timeval_new(t: time::Duration) -> timeval {
     timeval {
         tv_sec: t.as_secs() as i64,
         tv_usec: (t.subsec_nanos() / 1000) as i64,
+    }
+}
+
+#[cfg(target_pointer_width = "32")]
+fn c_timeval_new(t: time::Duration) -> timeval {
+    timeval {
+        tv_sec: t.as_secs() as i32,
+        tv_usec: (t.subsec_nanos() / 1000) as i32,
     }
 }
 
