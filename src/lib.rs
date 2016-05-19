@@ -60,9 +60,6 @@ impl<E: fmt::Debug> ShouldRetry for io::Result<E> {
     }
 }
 
-#[cfg(test)]
-mod tests;
-
 // constants stolen from C headers
 const AF_CAN: c_int = 29;
 const PF_CAN: c_int = 29;
