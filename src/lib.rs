@@ -23,7 +23,7 @@ use nix::net::if_::if_nametoindex;
 /// on a socket with a timeout that does not receive a frame in time will
 /// result in an error being returned. This trait adds a `should_retry` method
 /// to `Error` and `Result` to check for this condition.
-trait ShouldRetry {
+pub trait ShouldRetry {
     /// Check for timeout
     ///
     /// If `true`, the error is probably due to a timeout.
