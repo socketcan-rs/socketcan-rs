@@ -9,9 +9,8 @@ extern crate itertools;
 extern crate libc;
 extern crate nix;
 
-use libc::{c_int, c_short, c_void, c_uint, socket, SOCK_RAW, close, bind,
-           sockaddr, read, write, setsockopt, SOL_SOCKET, SO_RCVTIMEO,
-           timeval, EINPROGRESS, SO_SNDTIMEO};
+use libc::{c_int, c_short, c_void, c_uint, socket, SOCK_RAW, close, bind, sockaddr, read, write,
+           setsockopt, SOL_SOCKET, SO_RCVTIMEO, timeval, EINPROGRESS, SO_SNDTIMEO};
 use itertools::Itertools;
 use std::{error, fmt, io, time};
 use std::mem::size_of;
@@ -44,7 +43,7 @@ impl ShouldRetry for io::Error {
                 } else {
                     false
                 }
-            },
+            }
             _ => false,
         }
     }
@@ -103,7 +102,7 @@ fn c_timeval_new(t: time::Duration) -> timeval {
 #[repr(C)]
 struct CANAddr {
     _af_can: c_short,
-    if_index: c_int,  // address familiy,
+    if_index: c_int, // address familiy,
     rx_id: u32,
     tx_id: u32,
 }
@@ -121,10 +120,8 @@ pub enum CANSocketOpenError {
 impl fmt::Display for CANSocketOpenError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            CANSocketOpenError::LookupError(ref e) =>
-                write!(f, "CAN Device not found: {}", e),
-            CANSocketOpenError::IOError(ref e) =>
-                write!(f, "IO: {}", e),
+            CANSocketOpenError::LookupError(ref e) => write!(f, "CAN Device not found: {}", e),
+            CANSocketOpenError::IOError(ref e) => write!(f, "IO: {}", e),
         }
     }
 }
@@ -132,10 +129,8 @@ impl fmt::Display for CANSocketOpenError {
 impl error::Error for CANSocketOpenError {
     fn description(&self) -> &str {
         match *self {
-            CANSocketOpenError::LookupError(_)
-                => "can device not found",
-            CANSocketOpenError::IOError(ref e)
-                => e.description(),
+            CANSocketOpenError::LookupError(_) => "can device not found",
+            CANSocketOpenError::IOError(ref e) => e.description(),
         }
     }
 
@@ -160,10 +155,10 @@ pub enum ConstructionError {
 impl fmt::Display for ConstructionError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            ConstructionError::IDTooLarge
-                => write!(f, "CAN ID too large"),
-            ConstructionError::TooMuchData
-                => write!(f, "Payload is larger than CAN maximum of 8 bytes")
+            ConstructionError::IDTooLarge => write!(f, "CAN ID too large"),
+            ConstructionError::TooMuchData => {
+                write!(f, "Payload is larger than CAN maximum of 8 bytes")
+            }
         }
     }
 }
@@ -211,7 +206,7 @@ impl CANSocket {
     ///
     /// Opens a CAN device by kernel interface number.
     pub fn open_if(if_index: c_uint) -> Result<CANSocket, CANSocketOpenError> {
-        let addr = CANAddr{
+        let addr = CANAddr {
             _af_can: AF_CAN as c_short,
             if_index: if_index as c_int,
             rx_id: 0, // ?
@@ -232,8 +227,9 @@ impl CANSocket {
         let bind_rv;
         unsafe {
             let sockaddr_ptr = &addr as *const CANAddr;
-            bind_rv = bind(sock_fd, sockaddr_ptr as *const sockaddr,
-                size_of::<CANAddr> () as u32);
+            bind_rv = bind(sock_fd,
+                           sockaddr_ptr as *const sockaddr,
+                           size_of::<CANAddr>() as u32);
         }
 
         if bind_rv == -1 {
@@ -241,10 +237,10 @@ impl CANSocket {
             unsafe {
                 close(sock_fd);
             }
-            return Err(CANSocketOpenError::from(e))
+            return Err(CANSocketOpenError::from(e));
         }
 
-        Ok(CANSocket{fd: sock_fd})
+        Ok(CANSocket { fd: sock_fd })
     }
 
     fn close(&mut self) -> io::Result<()> {
@@ -265,8 +261,11 @@ impl CANSocket {
         let rv = unsafe {
             let tv = c_timeval_new(duration);
             let tv_ptr: *const timeval = &tv as *const timeval;
-            setsockopt(self.fd, SOL_SOCKET, SO_RCVTIMEO,
-                       tv_ptr as *const c_void, size_of::<timeval>() as u32)
+            setsockopt(self.fd,
+                       SOL_SOCKET,
+                       SO_RCVTIMEO,
+                       tv_ptr as *const c_void,
+                       size_of::<timeval>() as u32)
         };
 
         if rv != 0 {
@@ -281,8 +280,11 @@ impl CANSocket {
         let rv = unsafe {
             let tv = c_timeval_new(duration);
             let tv_ptr: *const timeval = &tv as *const timeval;
-            setsockopt(self.fd, SOL_SOCKET, SO_SNDTIMEO,
-                       tv_ptr as *const c_void, size_of::<timeval>() as u32)
+            setsockopt(self.fd,
+                       SOL_SOCKET,
+                       SO_SNDTIMEO,
+                       tv_ptr as *const c_void,
+                       size_of::<timeval>() as u32)
         };
 
         if rv != 0 {
@@ -294,7 +296,7 @@ impl CANSocket {
 
     /// Blocking read a single can frame.
     pub fn read_frame(&self) -> io::Result<CANFrame> {
-        let mut frame = CANFrame{
+        let mut frame = CANFrame {
             _id: 0,
             _data_len: 0,
             _pad: 0,
@@ -367,16 +369,15 @@ pub struct CANFrame {
 }
 
 impl CANFrame {
-    pub fn new(id: u32, data: &[u8], rtr: bool, err: bool) -> Result<CANFrame,
-    ConstructionError> {
+    pub fn new(id: u32, data: &[u8], rtr: bool, err: bool) -> Result<CANFrame, ConstructionError> {
         let mut _id = id;
 
         if data.len() > 8 {
-            return Err(ConstructionError::TooMuchData)
+            return Err(ConstructionError::TooMuchData);
         }
 
         if id > EFF_MASK {
-            return Err(ConstructionError::IDTooLarge)
+            return Err(ConstructionError::IDTooLarge);
         }
 
         // set EFF_FLAG on large message
@@ -399,7 +400,7 @@ impl CANFrame {
             full_data[n] = *c;
         }
 
-        Ok(CANFrame{
+        Ok(CANFrame {
             _id: _id,
             _data_len: data.len() as u8,
             _pad: 0,
@@ -422,7 +423,7 @@ impl CANFrame {
     /// Return the error message
     #[inline(always)]
     pub fn err(&self) -> u32 {
-        return self._id & ERR_MASK
+        return self._id & ERR_MASK;
     }
 
     /// Check if frame uses 29 bit extended frame format
