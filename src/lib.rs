@@ -410,6 +410,7 @@ impl CANFrame {
     }
 
     /// Return the actual CAN ID (without EFF/RTR/ERR flags)
+    #[inline(always)]
     pub fn id(&self) -> u32 {
         if self.is_extended() {
             self._id & EFF_MASK
@@ -419,26 +420,31 @@ impl CANFrame {
     }
 
     /// Return the error message
+    #[inline(always)]
     pub fn err(&self) -> u32 {
         return self._id & ERR_MASK
     }
 
     /// Check if frame uses 29 bit extended frame format
+    #[inline(always)]
     pub fn is_extended(&self) -> bool {
         self._id & EFF_FLAG != 0
     }
 
     /// Check if frame is an error message
+    #[inline(always)]
     pub fn is_error(&self) -> bool {
         self._id & ERR_FLAG != 0
     }
 
     /// Check if frame is a remote transmission request
+    #[inline(always)]
     pub fn is_rtr(&self) -> bool {
         self._id & RTR_FLAG != 0
     }
 
     /// A slice into the actual data. Slice will always be <= 8 bytes in length
+    #[inline(always)]
     pub fn data(&self) -> &[u8] {
         &self._data[..(self._data_len as usize)]
     }
