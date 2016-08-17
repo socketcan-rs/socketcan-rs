@@ -1,3 +1,17 @@
+//! candump format parsing
+//!
+//! Parses the text format emitted by the `candump` utility, which is part of
+//! [can-utils](https://github.com/linux-can/can-utils).
+//!
+//! Example:
+//!
+//! ```text
+//! (1469439874.299654) can1 701#7F
+//! ```
+//!
+//! Can be parsed by a `Reader` object. The API is inspired by the
+//! [csv](https://crates.io/crates/csv) crate.
+
 use std::{fs, io, path};
 use hex::FromHex;
 
@@ -9,6 +23,7 @@ fn parse_raw(bytes: &[u8], radix: u32) -> Option<u64> {
 }
 
 #[derive(Debug)]
+/// A CAN log reader.
 pub struct Reader<R> {
     rdr: R,
     line_buf: Vec<u8>,
@@ -29,11 +44,13 @@ impl Reader<fs::File> {
     }
 }
 
+/// Record iterator
 #[derive(Debug)]
 pub struct CanDumpRecords<'a, R: 'a> {
     src: &'a mut Reader<R>,
 }
 
+/// Recorded CAN frame.
 #[derive(Debug)]
 pub struct CanDumpRecord<'a> {
     pub t_us: u64,
@@ -42,6 +59,7 @@ pub struct CanDumpRecord<'a> {
 }
 
 #[derive(Debug)]
+/// candump line parse error
 pub enum ParseError {
     Io(io::Error),
     UnexpectedEndOfLine,
@@ -64,10 +82,12 @@ impl From<super::ConstructionError> for ParseError {
 }
 
 impl<R: io::BufRead> Reader<R> {
+    /// Returns an iterator over all records
     pub fn records<'a>(&'a mut self) -> CanDumpRecords<'a, R> {
         CanDumpRecords { src: self }
     }
 
+    /// Advance state, returning next record.
     pub fn next_record(&mut self) -> Result<Option<CanDumpRecord>, ParseError> {
         self.line_buf.clear();
         let bytes_read = try!(self.rdr.read_until(b'\n', &mut self.line_buf));
