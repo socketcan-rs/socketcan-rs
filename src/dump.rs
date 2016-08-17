@@ -1,13 +1,14 @@
 use std::{fs, io, path};
-use std::str::FromStr;
 use hex::FromHex;
 
-fn parse_raw<T: FromStr>(bytes: &[u8]) -> Option<T> {
+// cannot be generic, because from_str_radix is not part of any Trait
+fn parse_raw(bytes: &[u8], radix: u32) -> Option<u64> {
     ::std::str::from_utf8(bytes)
         .ok()
-        .and_then(|s| T::from_str(s).ok())
+        .and_then(|s| u64::from_str_radix(s, radix).ok())
 }
 
+#[derive(Debug)]
 pub struct Reader<R> {
     rdr: R,
     line_buf: Vec<u8>,
@@ -28,16 +29,19 @@ impl Reader<fs::File> {
     }
 }
 
+#[derive(Debug)]
 pub struct CanDumpRecords<'a, R: 'a> {
     src: &'a mut Reader<R>,
 }
 
+#[derive(Debug)]
 pub struct CanDumpRecord<'a> {
     pub t_us: u64,
     pub device: &'a str,
     pub frame: super::CANFrame,
 }
 
+#[derive(Debug)]
 pub enum ParseError {
     Io(io::Error),
     UnexpectedEndOfLine,
@@ -65,6 +69,7 @@ impl<R: io::BufRead> Reader<R> {
     }
 
     pub fn next_record(&mut self) -> Result<Option<CanDumpRecord>, ParseError> {
+        self.line_buf.clear();
         let bytes_read = try!(self.rdr.read_until(b'\n', &mut self.line_buf));
 
         // reached EOF
@@ -81,15 +86,18 @@ impl<R: io::BufRead> Reader<R> {
             return Err(ParseError::InvalidTimestamp);
         }
 
+        let inner = &f[1..f.len() - 1];
+
         // split at dot, read both parts
-        let dot = try!(f.iter()
+        let dot = try!(inner.iter()
             .position(|&c| c == b'.')
             .ok_or(ParseError::InvalidTimestamp));
-        let (num, mant) = f.split_at(dot);
+
+        let (num, mant) = inner.split_at(dot);
 
         // parse number and multiply
-        let n_num: u64 = try!(parse_raw(num).ok_or(ParseError::InvalidTimestamp));
-        let n_mant: u64 = try!(parse_raw(mant).ok_or(ParseError::InvalidTimestamp));
+        let n_num: u64 = try!(parse_raw(num, 10).ok_or(ParseError::InvalidTimestamp));
+        let n_mant: u64 = try!(parse_raw(&mant[1..], 10).ok_or(ParseError::InvalidTimestamp));
         let t_us = n_num.saturating_mul(1_000_000).saturating_add(n_mant);
 
         let f = try!(field_iter.next().ok_or(ParseError::UnexpectedEndOfLine));
@@ -102,7 +110,13 @@ impl<R: io::BufRead> Reader<R> {
 
         let sep_idx =
             try!(can_raw.iter().position(|&c| c == b'#').ok_or(ParseError::InvalidCanFrame));
-        let (can_id, can_data) = can_raw.split_at(sep_idx);
+        let (can_id, mut can_data) = can_raw.split_at(sep_idx);
+
+        // cut of linefeed and skip seperator
+        can_data = &can_data[1..];
+        if let Some(&b'\n') = can_data.last() {
+            can_data = &can_data[..can_data.len() - 1];
+        };
 
         let rtr = b"R" == can_data;
 
@@ -111,8 +125,11 @@ impl<R: io::BufRead> Reader<R> {
         } else {
             try!(Vec::from_hex(&can_data).map_err(|_| ParseError::InvalidCanFrame))
         };
-        let frame = try!(super::CANFrame::new(try!(parse_raw(can_id)
-                                                  .ok_or(ParseError::InvalidCanFrame)),
+        let frame = try!(super::CANFrame::new(try!(parse_raw(can_id, 16)
+                                                  .ok_or
+
+                                                  (ParseError::InvalidCanFrame))
+                                              as u32,
                                               &data,
                                               rtr,
                                               // FIXME: how are error frames saved?
@@ -127,14 +144,54 @@ impl<R: io::BufRead> Reader<R> {
 }
 
 impl<'a, R: io::Read> Iterator for CanDumpRecords<'a, io::BufReader<R>> {
-    type Item = Result<(u64, ()), ParseError>;
+    type Item = Result<(u64, super::CANFrame), ParseError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         // lift Option:
         match self.src.next_record() {
-            Ok(Some(CanDumpRecord { t_us, .. })) => Some(Ok((t_us, ()))),
+            Ok(Some(CanDumpRecord { t_us, frame, .. })) => Some(Ok((t_us, frame))),
             Ok(None) => None,
             Err(e) => Some(Err(e)),
         }
     }
+}
+
+#[cfg(test)]
+mod test {
+    use super::Reader;
+
+    #[test]
+    fn test_simple_example() {
+        let input: &[u8] = b"(1469439874.299591) can1 080#\n\
+                             (1469439874.299654) can1 701#7F";
+
+        let mut reader = Reader::from_reader(input);
+
+        {
+            let rec1 = reader.next_record().unwrap().unwrap();
+
+            assert_eq!(rec1.t_us, 1469439874299591);
+            assert_eq!(rec1.device, "can1");
+            assert_eq!(rec1.frame.id(), 0x080);
+            assert_eq!(rec1.frame.is_rtr(), false);
+            assert_eq!(rec1.frame.is_error(), false);
+            assert_eq!(rec1.frame.is_extended(), false);
+            assert_eq!(rec1.frame.data(), &[]);
+        }
+
+        {
+            let rec2 = reader.next_record().unwrap().unwrap();
+            assert_eq!(rec2.t_us, 1469439874299654);
+            assert_eq!(rec2.device, "can1");
+            assert_eq!(rec2.frame.id(), 0x701);
+            assert_eq!(rec2.frame.is_rtr(), false);
+            assert_eq!(rec2.frame.is_error(), false);
+            assert_eq!(rec2.frame.is_extended(), false);
+            assert_eq!(rec2.frame.data(), &[0x7F]);
+        }
+
+        assert!(reader.next_record().unwrap().is_none());
+    }
+
+
 }

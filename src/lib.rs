@@ -388,6 +388,7 @@ impl CANFrame {
             _id |= EFF_FLAG;
         }
 
+
         if rtr {
             _id |= RTR_FLAG;
         }
