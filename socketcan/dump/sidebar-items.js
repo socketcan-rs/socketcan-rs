@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["ParseError","candump line parse error"]],"struct":[["CanDumpRecord","Recorded CAN frame."],["CanDumpRecords","Record iterator"],["Reader","A CAN log reader."]]});

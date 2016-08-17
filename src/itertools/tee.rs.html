@@ -4,13 +4,14 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="generator" content="rustdoc">
-    <meta name="description" content="Source to the Rust file `/home/marc/.cargo/registry/src/github.com-88ac128001ac3a9a/itertools-0.4.13/src/tee.rs`.">
+    <meta name="description" content="Source to the Rust file `/home/marc/.cargo/registry/src/github.com-1ecc6299db9ec823/itertools-0.4.13/src/tee.rs`.">
     <meta name="keywords" content="rust, rustlang, rust-lang">
 
     <title>tee.rs.html -- source</title>
 
     <link rel="stylesheet" type="text/css" href="../../rustdoc.css">
     <link rel="stylesheet" type="text/css" href="../../main.css">
+    
 
     
     
@@ -117,7 +118,7 @@
 <span id="74">74</span>
 <span id="75">75</span>
 </pre><pre class='rust '>
-<span class='kw'>use</span> <span class='ident'>super</span>::<span class='ident'>size_hint</span>;
+<span class='kw'>use</span> <span class='kw'>super</span>::<span class='ident'>size_hint</span>;
 
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>cell</span>::<span class='ident'>RefCell</span>;
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>collections</span>::<span class='ident'>VecDeque</span>;
@@ -144,9 +145,9 @@
 <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span><span class='op'>&lt;</span><span class='ident'>I</span><span class='op'>&gt;</span>(<span class='ident'>iter</span>: <span class='ident'>I</span>) <span class='op'>-&gt;</span> (<span class='ident'>Tee</span><span class='op'>&lt;</span><span class='ident'>I</span><span class='op'>&gt;</span>, <span class='ident'>Tee</span><span class='op'>&lt;</span><span class='ident'>I</span><span class='op'>&gt;</span>)
     <span class='kw'>where</span> <span class='ident'>I</span>: <span class='ident'>Iterator</span>
 {
-    <span class='kw'>let</span> <span class='ident'>buffer</span> <span class='op'>=</span> <span class='ident'>TeeBuffer</span>{<span class='ident'>backlog</span>: <span class='ident'>VecDeque</span>::<span class='ident'>new</span>(), <span class='ident'>iter</span>: <span class='ident'>iter</span>, <span class='ident'>owner</span>: <span class='boolval'>false</span>};
-    <span class='kw'>let</span> <span class='ident'>t1</span> <span class='op'>=</span> <span class='ident'>Tee</span>{<span class='ident'>rcbuffer</span>: <span class='ident'>Rc</span>::<span class='ident'>new</span>(<span class='ident'>RefCell</span>::<span class='ident'>new</span>(<span class='ident'>buffer</span>)), <span class='ident'>id</span>: <span class='boolval'>true</span>};
-    <span class='kw'>let</span> <span class='ident'>t2</span> <span class='op'>=</span> <span class='ident'>Tee</span>{<span class='ident'>rcbuffer</span>: <span class='ident'>t1</span>.<span class='ident'>rcbuffer</span>.<span class='ident'>clone</span>(), <span class='ident'>id</span>: <span class='boolval'>false</span>};
+    <span class='kw'>let</span> <span class='ident'>buffer</span> <span class='op'>=</span> <span class='ident'>TeeBuffer</span>{<span class='ident'>backlog</span>: <span class='ident'>VecDeque</span>::<span class='ident'>new</span>(), <span class='ident'>iter</span>: <span class='ident'>iter</span>, <span class='ident'>owner</span>: <span class='boolvalue'>false</span>};
+    <span class='kw'>let</span> <span class='ident'>t1</span> <span class='op'>=</span> <span class='ident'>Tee</span>{<span class='ident'>rcbuffer</span>: <span class='ident'>Rc</span>::<span class='ident'>new</span>(<span class='ident'>RefCell</span>::<span class='ident'>new</span>(<span class='ident'>buffer</span>)), <span class='ident'>id</span>: <span class='boolvalue'>true</span>};
+    <span class='kw'>let</span> <span class='ident'>t2</span> <span class='op'>=</span> <span class='ident'>Tee</span>{<span class='ident'>rcbuffer</span>: <span class='ident'>t1</span>.<span class='ident'>rcbuffer</span>.<span class='ident'>clone</span>(), <span class='ident'>id</span>: <span class='boolvalue'>false</span>};
     (<span class='ident'>t1</span>, <span class='ident'>t2</span>)
 }
 
@@ -216,6 +217,8 @@
                     <dd>Move down in search results</dd>
                     <dt>&#9166;</dt>
                     <dd>Go to active search result</dd>
+                    <dt>+</dt>
+                    <dd>Collapse/expand all sections</dd>
                 </dl>
             </div>
 

@@ -11,6 +11,7 @@
 
     <link rel="stylesheet" type="text/css" href="../rustdoc.css">
     <link rel="stylesheet" type="text/css" href="../main.css">
+    
 
     
     
@@ -43,17 +44,18 @@
 
     <section id='main' class="content struct">
 <h1 class='fqn'><span class='in-band'>Struct <a href='index.html'>socketcan</a>::<wbr><a class='struct' href=''>CANSocket</a></span><span class='out-of-band'><span id='render-detail'>
-            <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
-                [<span class='inner'>&#x2212;</span>]
-            </a>
-        </span><a id='src-108' class='srclink' href='../src/socketcan/src/lib.rs.html#190-192' title='goto source code'>[src]</a></span></h1>
+                   <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
+                       [<span class='inner'>&#x2212;</span>]
+                   </a>
+               </span><a id='src-261' class='srclink' href='../src/socketcan/src/lib.rs.html#224-226' title='goto source code'>[src]</a></span></h1>
 <pre class='rust struct'>pub struct CANSocket {
     // some fields omitted
 }</pre><div class='docblock'><p>A socket for a CAN device.</p>
 
 <p>Will be closed upon deallocation. To close manually, use std::drop::Drop.
 Internally this is just a wrapped file-descriptor.</p>
-</div><h2 id='methods'>Methods</h2><h3 class='impl'><code>impl <a class='struct' href='../socketcan/struct.CANSocket.html' title='socketcan::CANSocket'>CANSocket</a></code></h3><div class='impl-items'><h4 id='method.open' class='method'><code>fn <a href='#method.open' class='fnname'>open</a>(ifname: &amp;<a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.str.html'>str</a>) -&gt; <a class='enum' href='https://doc.rust-lang.org/nightly/core/result/enum.Result.html' title='core::result::Result'>Result</a>&lt;<a class='struct' href='../socketcan/struct.CANSocket.html' title='socketcan::CANSocket'>CANSocket</a>, <a class='enum' href='../socketcan/enum.CANSocketOpenError.html' title='socketcan::CANSocketOpenError'>CANSocketOpenError</a>&gt;</code></h4>
+</div><h2 id='methods'>Methods</h2><h3 class='impl'><span class='in-band'><code>impl <a class='struct' href='../socketcan/struct.CANSocket.html' title='socketcan::CANSocket'>CANSocket</a></code></span><span class='out-of-band'><div class='ghost'></div><a id='src-263' class='srclink' href='../src/socketcan/src/lib.rs.html#228-370' title='goto source code'>[src]</a></span></h3>
+<div class='impl-items'><h4 id='method.open' class='method'><code>fn <a href='#method.open' class='fnname'>open</a>(ifname: &amp;<a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.str.html'>str</a>) -&gt; <a class='enum' href='https://doc.rust-lang.org/nightly/core/result/enum.Result.html' title='core::result::Result'>Result</a>&lt;<a class='struct' href='../socketcan/struct.CANSocket.html' title='socketcan::CANSocket'>CANSocket</a>, <a class='enum' href='../socketcan/enum.CANSocketOpenError.html' title='socketcan::CANSocketOpenError'>CANSocketOpenError</a>&gt;</code></h4>
 <div class='docblock'><p>Open a named CAN device.</p>
 
 <p>Usually the more common case, opens a socket can device by name, such
@@ -73,8 +75,10 @@ as &quot;vcan0&quot; or &quot;socan0&quot;.</p>
 <div class='docblock'><p>Blocking read a single can frame.</p>
 </div><h4 id='method.write_frame' class='method'><code>fn <a href='#method.write_frame' class='fnname'>write_frame</a>(&amp;self, frame: &amp;<a class='struct' href='../socketcan/struct.CANFrame.html' title='socketcan::CANFrame'>CANFrame</a>) -&gt; <a class='type' href='https://doc.rust-lang.org/nightly/std/io/error/type.Result.html' title='std::io::error::Result'>Result</a>&lt;<a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.tuple.html'>()</a>&gt;</code></h4>
 <div class='docblock'><p>Blocking write a single can frame.</p>
-</div></div><h2 id='implementations'>Trait Implementations</h2><h3 class='impl'><code>impl <a class='trait' href='https://doc.rust-lang.org/nightly/core/ops/trait.Drop.html' title='core::ops::Drop'>Drop</a> for <a class='struct' href='../socketcan/struct.CANSocket.html' title='socketcan::CANSocket'>CANSocket</a></code></h3><div class='impl-items'><h4 id='method.drop' class='method'><code>fn <a href='https://doc.rust-lang.org/nightly/core/ops/trait.Drop.html#method.drop' class='fnname'>drop</a>(&amp;mut self)</code></h4>
-</div></section>
+</div></div><h2 id='implementations'>Trait Implementations</h2><h3 class='impl'><span class='in-band'><code>impl <a class='trait' href='https://doc.rust-lang.org/nightly/core/ops/trait.Drop.html' title='core::ops::Drop'>Drop</a> for <a class='struct' href='../socketcan/struct.CANSocket.html' title='socketcan::CANSocket'>CANSocket</a></code></span><span class='out-of-band'><div class='ghost'></div><a id='src-302' class='srclink' href='../src/socketcan/src/lib.rs.html#372-376' title='goto source code'>[src]</a></span></h3>
+<div class='impl-items'><h4 id='method.drop' class='method'><code>fn <a href='https://doc.rust-lang.org/nightly/core/ops/trait.Drop.html#tymethod.drop' class='fnname'>drop</a>(&amp;mut self)</code></h4>
+<div class='docblock'><p>A method called when the value goes out of scope. <a href="https://doc.rust-lang.org/nightly/core/ops/trait.Drop.html#tymethod.drop">Read more</a></p>
+</div></div></section>
     <section id='search' class="content hidden"></section>
 
     <section class="footer"></section>
@@ -97,6 +101,8 @@ as &quot;vcan0&quot; or &quot;socan0&quot;.</p>
                     <dd>Move down in search results</dd>
                     <dt>&#9166;</dt>
                     <dd>Go to active search result</dd>
+                    <dt>+</dt>
+                    <dd>Collapse/expand all sections</dd>
                 </dl>
             </div>
 

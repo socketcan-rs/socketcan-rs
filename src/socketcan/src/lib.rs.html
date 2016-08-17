@@ -11,6 +11,7 @@
 
     <link rel="stylesheet" type="text/css" href="../../../rustdoc.css">
     <link rel="stylesheet" type="text/css" href="../../../main.css">
+    
 
     
     
@@ -491,6 +492,53 @@
 <span id="448">448</span>
 <span id="449">449</span>
 <span id="450">450</span>
+<span id="451">451</span>
+<span id="452">452</span>
+<span id="453">453</span>
+<span id="454">454</span>
+<span id="455">455</span>
+<span id="456">456</span>
+<span id="457">457</span>
+<span id="458">458</span>
+<span id="459">459</span>
+<span id="460">460</span>
+<span id="461">461</span>
+<span id="462">462</span>
+<span id="463">463</span>
+<span id="464">464</span>
+<span id="465">465</span>
+<span id="466">466</span>
+<span id="467">467</span>
+<span id="468">468</span>
+<span id="469">469</span>
+<span id="470">470</span>
+<span id="471">471</span>
+<span id="472">472</span>
+<span id="473">473</span>
+<span id="474">474</span>
+<span id="475">475</span>
+<span id="476">476</span>
+<span id="477">477</span>
+<span id="478">478</span>
+<span id="479">479</span>
+<span id="480">480</span>
+<span id="481">481</span>
+<span id="482">482</span>
+<span id="483">483</span>
+<span id="484">484</span>
+<span id="485">485</span>
+<span id="486">486</span>
+<span id="487">487</span>
+<span id="488">488</span>
+<span id="489">489</span>
+<span id="490">490</span>
+<span id="491">491</span>
+<span id="492">492</span>
+<span id="493">493</span>
+<span id="494">494</span>
+<span id="495">495</span>
+<span id="496">496</span>
+<span id="497">497</span>
 </pre><pre class='rust '>
 <span class='doccomment'>//! socketCAN support.</span>
 <span class='doccomment'>//!</span>
@@ -498,14 +546,46 @@
 <span class='doccomment'>//! (see https://www.kernel.org/doc/Documentation/networking/can.txt). This</span>
 <span class='doccomment'>//! crate allows easy access to this functionality without having to wrestle</span>
 <span class='doccomment'>//! libc calls.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! # An introduction to CAN</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! The CAN bus was originally designed to allow microcontrollers inside a</span>
+<span class='doccomment'>//! vehicle to communicate over a single shared bus. Messages called</span>
+<span class='doccomment'>//! *frames* are multicast to all devices on the bus.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! Every frame consists of an ID and a payload of up to 8 bytes. If two</span>
+<span class='doccomment'>//! devices attempt to send a frame at the same time, the device with the</span>
+<span class='doccomment'>//! higher ID will notice the conflict, stop sending and reattempt to sent its</span>
+<span class='doccomment'>//! frame in the next time slot. This means that the lower the ID, the higher</span>
+<span class='doccomment'>//! the priority. Since most devices have a limited buffer for outgoing frames,</span>
+<span class='doccomment'>//! a single device with a high priority (== low ID) can block communication</span>
+<span class='doccomment'>//! on that bus by sending messages too fast.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! The Linux socketcan subsystem makes the CAN bus available as a regular</span>
+<span class='doccomment'>//! networking device. Opening an network interface allows receiving all CAN</span>
+<span class='doccomment'>//! messages received on it. A device CAN be opened multiple times, every</span>
+<span class='doccomment'>//! client will receive all CAN frames simultaneously.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! Similarly, CAN frames can be sent to the bus by multiple client</span>
+<span class='doccomment'>//! simultaneously as well.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! # Hardware and more information</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! More information on CAN [can be found on Wikipedia](). When not running on</span>
+<span class='doccomment'>//! an embedded platform with already integrated CAN components,</span>
+<span class='doccomment'>//! [Thomas Fischl&#39;s USBtin](http://www.fischl.de/usbtin/) (see</span>
+<span class='doccomment'>//! [section 2.4](http://www.fischl.de/usbtin/#socketcan)) is one of many ways</span>
+<span class='doccomment'>//! to get started.</span>
 
+<span class='kw'>extern</span> <span class='kw'>crate</span> <span class='ident'>hex</span>;
 <span class='kw'>extern</span> <span class='kw'>crate</span> <span class='ident'>itertools</span>;
 <span class='kw'>extern</span> <span class='kw'>crate</span> <span class='ident'>libc</span>;
 <span class='kw'>extern</span> <span class='kw'>crate</span> <span class='ident'>nix</span>;
 
-<span class='kw'>use</span> <span class='ident'>libc</span>::{<span class='ident'>c_int</span>, <span class='ident'>c_short</span>, <span class='ident'>c_void</span>, <span class='ident'>c_uint</span>, <span class='ident'>socket</span>, <span class='ident'>SOCK_RAW</span>, <span class='ident'>close</span>, <span class='ident'>bind</span>,
-           <span class='ident'>sockaddr</span>, <span class='ident'>read</span>, <span class='ident'>write</span>, <span class='ident'>setsockopt</span>, <span class='ident'>SOL_SOCKET</span>, <span class='ident'>SO_RCVTIMEO</span>,
-           <span class='ident'>timeval</span>, <span class='ident'>EINPROGRESS</span>, <span class='ident'>SO_SNDTIMEO</span>};
+<span class='kw'>pub</span> <span class='kw'>mod</span> <span class='ident'>dump</span>;
+
+<span class='kw'>use</span> <span class='ident'>libc</span>::{<span class='ident'>c_int</span>, <span class='ident'>c_short</span>, <span class='ident'>c_void</span>, <span class='ident'>c_uint</span>, <span class='ident'>socket</span>, <span class='ident'>SOCK_RAW</span>, <span class='ident'>close</span>, <span class='ident'>bind</span>, <span class='ident'>sockaddr</span>, <span class='ident'>read</span>, <span class='ident'>write</span>,
+           <span class='ident'>setsockopt</span>, <span class='ident'>SOL_SOCKET</span>, <span class='ident'>SO_RCVTIMEO</span>, <span class='ident'>timeval</span>, <span class='ident'>EINPROGRESS</span>, <span class='ident'>SO_SNDTIMEO</span>};
 <span class='kw'>use</span> <span class='ident'>itertools</span>::<span class='ident'>Itertools</span>;
 <span class='kw'>use</span> <span class='ident'>std</span>::{<span class='ident'>error</span>, <span class='ident'>fmt</span>, <span class='ident'>io</span>, <span class='ident'>time</span>};
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>mem</span>::<span class='ident'>size_of</span>;
@@ -517,7 +597,7 @@
 <span class='doccomment'>/// on a socket with a timeout that does not receive a frame in time will</span>
 <span class='doccomment'>/// result in an error being returned. This trait adds a `should_retry` method</span>
 <span class='doccomment'>/// to `Error` and `Result` to check for this condition.</span>
-<span class='kw'>trait</span> <span class='ident'>ShouldRetry</span> {
+<span class='kw'>pub</span> <span class='kw'>trait</span> <span class='ident'>ShouldRetry</span> {
     <span class='doccomment'>/// Check for timeout</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// If `true`, the error is probably due to a timeout.</span>
@@ -530,16 +610,16 @@
             <span class='comment'>// EAGAIN, EINPROGRESS and EWOULDBLOCK are the three possible codes</span>
             <span class='comment'>// returned when a timeout occurs. the stdlib already maps EAGAIN</span>
             <span class='comment'>// and EWOULDBLOCK os WouldBlock</span>
-            <span class='ident'>io</span>::<span class='ident'>ErrorKind</span>::<span class='ident'>WouldBlock</span> <span class='op'>=&gt;</span> <span class='boolval'>true</span>,
+            <span class='ident'>io</span>::<span class='ident'>ErrorKind</span>::<span class='ident'>WouldBlock</span> <span class='op'>=&gt;</span> <span class='boolvalue'>true</span>,
             <span class='comment'>// however, EINPROGRESS is also valid</span>
             <span class='ident'>io</span>::<span class='ident'>ErrorKind</span>::<span class='ident'>Other</span> <span class='op'>=&gt;</span> {
                 <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>i</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>raw_os_error</span>() {
                     <span class='ident'>i</span> <span class='op'>==</span> <span class='ident'>EINPROGRESS</span>
                 } <span class='kw'>else</span> {
-                    <span class='boolval'>false</span>
+                    <span class='boolvalue'>false</span>
                 }
-            },
-            _ <span class='op'>=&gt;</span> <span class='boolval'>false</span>,
+            }
+            _ <span class='op'>=&gt;</span> <span class='boolvalue'>false</span>,
         }
     }
 }
@@ -549,13 +629,10 @@
         <span class='kw'>if</span> <span class='kw'>let</span> <span class='kw-2'>&amp;</span><span class='prelude-val'>Err</span>(<span class='kw-2'>ref</span> <span class='ident'>e</span>) <span class='op'>=</span> <span class='self'>self</span> {
             <span class='ident'>e</span>.<span class='ident'>should_retry</span>()
         } <span class='kw'>else</span> {
-            <span class='boolval'>false</span>
+            <span class='boolvalue'>false</span>
         }
     }
 }
-
-<span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>test</span>)]</span>
-<span class='kw'>mod</span> <span class='ident'>tests</span>;
 
 <span class='comment'>// constants stolen from C headers</span>
 <span class='kw'>const</span> <span class='ident'>AF_CAN</span>: <span class='ident'>c_int</span> <span class='op'>=</span> <span class='number'>29</span>;
@@ -580,6 +657,7 @@
 <span class='doccomment'>/// valid bits in error frame</span>
 <span class='kw'>pub</span> <span class='kw'>const</span> <span class='ident'>ERR_MASK</span>: <span class='ident'>u32</span> <span class='op'>=</span> <span class='number'>0x1fffffff</span>;
 
+<span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>target_pointer_width</span> <span class='op'>=</span> <span class='string'>&quot;64&quot;</span>)]</span>
 <span class='kw'>fn</span> <span class='ident'>c_timeval_new</span>(<span class='ident'>t</span>: <span class='ident'>time</span>::<span class='ident'>Duration</span>) <span class='op'>-&gt;</span> <span class='ident'>timeval</span> {
     <span class='ident'>timeval</span> {
         <span class='ident'>tv_sec</span>: <span class='ident'>t</span>.<span class='ident'>as_secs</span>() <span class='kw'>as</span> <span class='ident'>i64</span>,
@@ -587,11 +665,19 @@
     }
 }
 
+<span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>target_pointer_width</span> <span class='op'>=</span> <span class='string'>&quot;32&quot;</span>)]</span>
+<span class='kw'>fn</span> <span class='ident'>c_timeval_new</span>(<span class='ident'>t</span>: <span class='ident'>time</span>::<span class='ident'>Duration</span>) <span class='op'>-&gt;</span> <span class='ident'>timeval</span> {
+    <span class='ident'>timeval</span> {
+        <span class='ident'>tv_sec</span>: <span class='ident'>t</span>.<span class='ident'>as_secs</span>() <span class='kw'>as</span> <span class='ident'>i32</span>,
+        <span class='ident'>tv_usec</span>: (<span class='ident'>t</span>.<span class='ident'>subsec_nanos</span>() <span class='op'>/</span> <span class='number'>1000</span>) <span class='kw'>as</span> <span class='ident'>i32</span>,
+    }
+}
+
 <span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Debug</span>)]</span>
 <span class='attribute'>#[<span class='ident'>repr</span>(<span class='ident'>C</span>)]</span>
 <span class='kw'>struct</span> <span class='ident'>CANAddr</span> {
     <span class='ident'>_af_can</span>: <span class='ident'>c_short</span>,
-    <span class='ident'>if_index</span>: <span class='ident'>c_int</span>,  <span class='comment'>// address familiy,</span>
+    <span class='ident'>if_index</span>: <span class='ident'>c_int</span>, <span class='comment'>// address familiy,</span>
     <span class='ident'>rx_id</span>: <span class='ident'>u32</span>,
     <span class='ident'>tx_id</span>: <span class='ident'>u32</span>,
 }
@@ -609,10 +695,8 @@
 <span class='kw'>impl</span> <span class='ident'>fmt</span>::<span class='ident'>Display</span> <span class='kw'>for</span> <span class='ident'>CANSocketOpenError</span> {
     <span class='kw'>fn</span> <span class='ident'>fmt</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>f</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>fmt</span>::<span class='ident'>Formatter</span>) <span class='op'>-&gt;</span> <span class='ident'>fmt</span>::<span class='prelude-ty'>Result</span> {
         <span class='kw'>match</span> <span class='op'>*</span><span class='self'>self</span> {
-            <span class='ident'>CANSocketOpenError</span>::<span class='ident'>LookupError</span>(<span class='kw-2'>ref</span> <span class='ident'>e</span>) <span class='op'>=&gt;</span>
-                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;CAN Device not found: {}&quot;</span>, <span class='ident'>e</span>),
-            <span class='ident'>CANSocketOpenError</span>::<span class='ident'>IOError</span>(<span class='kw-2'>ref</span> <span class='ident'>e</span>) <span class='op'>=&gt;</span>
-                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;IO: {}&quot;</span>, <span class='ident'>e</span>),
+            <span class='ident'>CANSocketOpenError</span>::<span class='ident'>LookupError</span>(<span class='kw-2'>ref</span> <span class='ident'>e</span>) <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;CAN Device not found: {}&quot;</span>, <span class='ident'>e</span>),
+            <span class='ident'>CANSocketOpenError</span>::<span class='ident'>IOError</span>(<span class='kw-2'>ref</span> <span class='ident'>e</span>) <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;IO: {}&quot;</span>, <span class='ident'>e</span>),
         }
     }
 }
@@ -620,10 +704,8 @@
 <span class='kw'>impl</span> <span class='ident'>error</span>::<span class='ident'>Error</span> <span class='kw'>for</span> <span class='ident'>CANSocketOpenError</span> {
     <span class='kw'>fn</span> <span class='ident'>description</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='ident'>str</span> {
         <span class='kw'>match</span> <span class='op'>*</span><span class='self'>self</span> {
-            <span class='ident'>CANSocketOpenError</span>::<span class='ident'>LookupError</span>(_)
-                <span class='op'>=&gt;</span> <span class='string'>&quot;can device not found&quot;</span>,
-            <span class='ident'>CANSocketOpenError</span>::<span class='ident'>IOError</span>(<span class='kw-2'>ref</span> <span class='ident'>e</span>)
-                <span class='op'>=&gt;</span> <span class='ident'>e</span>.<span class='ident'>description</span>(),
+            <span class='ident'>CANSocketOpenError</span>::<span class='ident'>LookupError</span>(_) <span class='op'>=&gt;</span> <span class='string'>&quot;can device not found&quot;</span>,
+            <span class='ident'>CANSocketOpenError</span>::<span class='ident'>IOError</span>(<span class='kw-2'>ref</span> <span class='ident'>e</span>) <span class='op'>=&gt;</span> <span class='ident'>e</span>.<span class='ident'>description</span>(),
         }
     }
 
@@ -648,10 +730,10 @@
 <span class='kw'>impl</span> <span class='ident'>fmt</span>::<span class='ident'>Display</span> <span class='kw'>for</span> <span class='ident'>ConstructionError</span> {
     <span class='kw'>fn</span> <span class='ident'>fmt</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>f</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>fmt</span>::<span class='ident'>Formatter</span>) <span class='op'>-&gt;</span> <span class='ident'>fmt</span>::<span class='prelude-ty'>Result</span> {
         <span class='kw'>match</span> <span class='op'>*</span><span class='self'>self</span> {
-            <span class='ident'>ConstructionError</span>::<span class='ident'>IDTooLarge</span>
-                <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;CAN ID too large&quot;</span>),
-            <span class='ident'>ConstructionError</span>::<span class='ident'>TooMuchData</span>
-                <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;Payload is larger than CAN maximum of 8 bytes&quot;</span>)
+            <span class='ident'>ConstructionError</span>::<span class='ident'>IDTooLarge</span> <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;CAN ID too large&quot;</span>),
+            <span class='ident'>ConstructionError</span>::<span class='ident'>TooMuchData</span> <span class='op'>=&gt;</span> {
+                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;Payload is larger than CAN maximum of 8 bytes&quot;</span>)
+            }
         }
     }
 }
@@ -699,7 +781,7 @@
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// Opens a CAN device by kernel interface number.</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>open_if</span>(<span class='ident'>if_index</span>: <span class='ident'>c_uint</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>CANSocket</span>, <span class='ident'>CANSocketOpenError</span><span class='op'>&gt;</span> {
-        <span class='kw'>let</span> <span class='ident'>addr</span> <span class='op'>=</span> <span class='ident'>CANAddr</span>{
+        <span class='kw'>let</span> <span class='ident'>addr</span> <span class='op'>=</span> <span class='ident'>CANAddr</span> {
             <span class='ident'>_af_can</span>: <span class='ident'>AF_CAN</span> <span class='kw'>as</span> <span class='ident'>c_short</span>,
             <span class='ident'>if_index</span>: <span class='ident'>if_index</span> <span class='kw'>as</span> <span class='ident'>c_int</span>,
             <span class='ident'>rx_id</span>: <span class='number'>0</span>, <span class='comment'>// ?</span>
@@ -720,8 +802,9 @@
         <span class='kw'>let</span> <span class='ident'>bind_rv</span>;
         <span class='kw'>unsafe</span> {
             <span class='kw'>let</span> <span class='ident'>sockaddr_ptr</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='ident'>addr</span> <span class='kw'>as</span> <span class='op'>*</span><span class='kw'>const</span> <span class='ident'>CANAddr</span>;
-            <span class='ident'>bind_rv</span> <span class='op'>=</span> <span class='ident'>bind</span>(<span class='ident'>sock_fd</span>, <span class='ident'>sockaddr_ptr</span> <span class='kw'>as</span> <span class='op'>*</span><span class='kw'>const</span> <span class='ident'>sockaddr</span>,
-                <span class='ident'>size_of</span>::<span class='op'>&lt;</span><span class='ident'>CANAddr</span><span class='op'>&gt;</span> () <span class='kw'>as</span> <span class='ident'>u32</span>);
+            <span class='ident'>bind_rv</span> <span class='op'>=</span> <span class='ident'>bind</span>(<span class='ident'>sock_fd</span>,
+                           <span class='ident'>sockaddr_ptr</span> <span class='kw'>as</span> <span class='op'>*</span><span class='kw'>const</span> <span class='ident'>sockaddr</span>,
+                           <span class='ident'>size_of</span>::<span class='op'>&lt;</span><span class='ident'>CANAddr</span><span class='op'>&gt;</span>() <span class='kw'>as</span> <span class='ident'>u32</span>);
         }
 
         <span class='kw'>if</span> <span class='ident'>bind_rv</span> <span class='op'>==</span> <span class='op'>-</span><span class='number'>1</span> {
@@ -729,10 +812,10 @@
             <span class='kw'>unsafe</span> {
                 <span class='ident'>close</span>(<span class='ident'>sock_fd</span>);
             }
-            <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='ident'>CANSocketOpenError</span>::<span class='ident'>from</span>(<span class='ident'>e</span>))
+            <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='ident'>CANSocketOpenError</span>::<span class='ident'>from</span>(<span class='ident'>e</span>));
         }
 
-        <span class='prelude-val'>Ok</span>(<span class='ident'>CANSocket</span>{<span class='ident'>fd</span>: <span class='ident'>sock_fd</span>})
+        <span class='prelude-val'>Ok</span>(<span class='ident'>CANSocket</span> { <span class='ident'>fd</span>: <span class='ident'>sock_fd</span> })
     }
 
     <span class='kw'>fn</span> <span class='ident'>close</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>io</span>::<span class='prelude-ty'>Result</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
@@ -753,8 +836,11 @@
         <span class='kw'>let</span> <span class='ident'>rv</span> <span class='op'>=</span> <span class='kw'>unsafe</span> {
             <span class='kw'>let</span> <span class='ident'>tv</span> <span class='op'>=</span> <span class='ident'>c_timeval_new</span>(<span class='ident'>duration</span>);
             <span class='kw'>let</span> <span class='ident'>tv_ptr</span>: <span class='op'>*</span><span class='kw'>const</span> <span class='ident'>timeval</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='ident'>tv</span> <span class='kw'>as</span> <span class='op'>*</span><span class='kw'>const</span> <span class='ident'>timeval</span>;
-            <span class='ident'>setsockopt</span>(<span class='self'>self</span>.<span class='ident'>fd</span>, <span class='ident'>SOL_SOCKET</span>, <span class='ident'>SO_RCVTIMEO</span>,
-                       <span class='ident'>tv_ptr</span> <span class='kw'>as</span> <span class='op'>*</span><span class='kw'>const</span> <span class='ident'>c_void</span>, <span class='ident'>size_of</span>::<span class='op'>&lt;</span><span class='ident'>timeval</span><span class='op'>&gt;</span>() <span class='kw'>as</span> <span class='ident'>u32</span>)
+            <span class='ident'>setsockopt</span>(<span class='self'>self</span>.<span class='ident'>fd</span>,
+                       <span class='ident'>SOL_SOCKET</span>,
+                       <span class='ident'>SO_RCVTIMEO</span>,
+                       <span class='ident'>tv_ptr</span> <span class='kw'>as</span> <span class='op'>*</span><span class='kw'>const</span> <span class='ident'>c_void</span>,
+                       <span class='ident'>size_of</span>::<span class='op'>&lt;</span><span class='ident'>timeval</span><span class='op'>&gt;</span>() <span class='kw'>as</span> <span class='ident'>u32</span>)
         };
 
         <span class='kw'>if</span> <span class='ident'>rv</span> <span class='op'>!=</span> <span class='number'>0</span> {
@@ -769,8 +855,11 @@
         <span class='kw'>let</span> <span class='ident'>rv</span> <span class='op'>=</span> <span class='kw'>unsafe</span> {
             <span class='kw'>let</span> <span class='ident'>tv</span> <span class='op'>=</span> <span class='ident'>c_timeval_new</span>(<span class='ident'>duration</span>);
             <span class='kw'>let</span> <span class='ident'>tv_ptr</span>: <span class='op'>*</span><span class='kw'>const</span> <span class='ident'>timeval</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='ident'>tv</span> <span class='kw'>as</span> <span class='op'>*</span><span class='kw'>const</span> <span class='ident'>timeval</span>;
-            <span class='ident'>setsockopt</span>(<span class='self'>self</span>.<span class='ident'>fd</span>, <span class='ident'>SOL_SOCKET</span>, <span class='ident'>SO_SNDTIMEO</span>,
-                       <span class='ident'>tv_ptr</span> <span class='kw'>as</span> <span class='op'>*</span><span class='kw'>const</span> <span class='ident'>c_void</span>, <span class='ident'>size_of</span>::<span class='op'>&lt;</span><span class='ident'>timeval</span><span class='op'>&gt;</span>() <span class='kw'>as</span> <span class='ident'>u32</span>)
+            <span class='ident'>setsockopt</span>(<span class='self'>self</span>.<span class='ident'>fd</span>,
+                       <span class='ident'>SOL_SOCKET</span>,
+                       <span class='ident'>SO_SNDTIMEO</span>,
+                       <span class='ident'>tv_ptr</span> <span class='kw'>as</span> <span class='op'>*</span><span class='kw'>const</span> <span class='ident'>c_void</span>,
+                       <span class='ident'>size_of</span>::<span class='op'>&lt;</span><span class='ident'>timeval</span><span class='op'>&gt;</span>() <span class='kw'>as</span> <span class='ident'>u32</span>)
         };
 
         <span class='kw'>if</span> <span class='ident'>rv</span> <span class='op'>!=</span> <span class='number'>0</span> {
@@ -782,7 +871,7 @@
 
     <span class='doccomment'>/// Blocking read a single can frame.</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>read_frame</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>io</span>::<span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>CANFrame</span><span class='op'>&gt;</span> {
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>frame</span> <span class='op'>=</span> <span class='ident'>CANFrame</span>{
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>frame</span> <span class='op'>=</span> <span class='ident'>CANFrame</span> {
             <span class='ident'>_id</span>: <span class='number'>0</span>,
             <span class='ident'>_data_len</span>: <span class='number'>0</span>,
             <span class='ident'>_pad</span>: <span class='number'>0</span>,
@@ -855,22 +944,22 @@
 }
 
 <span class='kw'>impl</span> <span class='ident'>CANFrame</span> {
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>id</span>: <span class='ident'>u32</span>, <span class='ident'>data</span>: <span class='kw-2'>&amp;</span>[<span class='ident'>u8</span>], <span class='ident'>rtr</span>: <span class='ident'>bool</span>, <span class='ident'>err</span>: <span class='ident'>bool</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>CANFrame</span>,
-    <span class='ident'>ConstructionError</span><span class='op'>&gt;</span> {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>id</span>: <span class='ident'>u32</span>, <span class='ident'>data</span>: <span class='kw-2'>&amp;</span>[<span class='ident'>u8</span>], <span class='ident'>rtr</span>: <span class='ident'>bool</span>, <span class='ident'>err</span>: <span class='ident'>bool</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>CANFrame</span>, <span class='ident'>ConstructionError</span><span class='op'>&gt;</span> {
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>_id</span> <span class='op'>=</span> <span class='ident'>id</span>;
 
         <span class='kw'>if</span> <span class='ident'>data</span>.<span class='ident'>len</span>() <span class='op'>&gt;</span> <span class='number'>8</span> {
-            <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='ident'>ConstructionError</span>::<span class='ident'>TooMuchData</span>)
+            <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='ident'>ConstructionError</span>::<span class='ident'>TooMuchData</span>);
         }
 
         <span class='kw'>if</span> <span class='ident'>id</span> <span class='op'>&gt;</span> <span class='ident'>EFF_MASK</span> {
-            <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='ident'>ConstructionError</span>::<span class='ident'>IDTooLarge</span>)
+            <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='ident'>ConstructionError</span>::<span class='ident'>IDTooLarge</span>);
         }
 
         <span class='comment'>// set EFF_FLAG on large message</span>
         <span class='kw'>if</span> <span class='ident'>id</span> <span class='op'>&gt;</span> <span class='ident'>SFF_MASK</span> {
             <span class='ident'>_id</span> <span class='op'>|=</span> <span class='ident'>EFF_FLAG</span>;
         }
+
 
         <span class='kw'>if</span> <span class='ident'>rtr</span> {
             <span class='ident'>_id</span> <span class='op'>|=</span> <span class='ident'>RTR_FLAG</span>;
@@ -887,7 +976,7 @@
             <span class='ident'>full_data</span>[<span class='ident'>n</span>] <span class='op'>=</span> <span class='op'>*</span><span class='ident'>c</span>;
         }
 
-        <span class='prelude-val'>Ok</span>(<span class='ident'>CANFrame</span>{
+        <span class='prelude-val'>Ok</span>(<span class='ident'>CANFrame</span> {
             <span class='ident'>_id</span>: <span class='ident'>_id</span>,
             <span class='ident'>_data_len</span>: <span class='ident'>data</span>.<span class='ident'>len</span>() <span class='kw'>as</span> <span class='ident'>u8</span>,
             <span class='ident'>_pad</span>: <span class='number'>0</span>,
@@ -898,6 +987,7 @@
     }
 
     <span class='doccomment'>/// Return the actual CAN ID (without EFF/RTR/ERR flags)</span>
+    <span class='attribute'>#[<span class='ident'>inline</span>(<span class='ident'>always</span>)]</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>id</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>u32</span> {
         <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>is_extended</span>() {
             <span class='self'>self</span>.<span class='ident'>_id</span> <span class='kw-2'>&amp;</span> <span class='ident'>EFF_MASK</span>
@@ -907,26 +997,31 @@
     }
 
     <span class='doccomment'>/// Return the error message</span>
+    <span class='attribute'>#[<span class='ident'>inline</span>(<span class='ident'>always</span>)]</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>err</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>u32</span> {
-        <span class='kw'>return</span> <span class='self'>self</span>.<span class='ident'>_id</span> <span class='kw-2'>&amp;</span> <span class='ident'>ERR_MASK</span>
+        <span class='kw'>return</span> <span class='self'>self</span>.<span class='ident'>_id</span> <span class='kw-2'>&amp;</span> <span class='ident'>ERR_MASK</span>;
     }
 
     <span class='doccomment'>/// Check if frame uses 29 bit extended frame format</span>
+    <span class='attribute'>#[<span class='ident'>inline</span>(<span class='ident'>always</span>)]</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>is_extended</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
         <span class='self'>self</span>.<span class='ident'>_id</span> <span class='kw-2'>&amp;</span> <span class='ident'>EFF_FLAG</span> <span class='op'>!=</span> <span class='number'>0</span>
     }
 
     <span class='doccomment'>/// Check if frame is an error message</span>
+    <span class='attribute'>#[<span class='ident'>inline</span>(<span class='ident'>always</span>)]</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>is_error</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
         <span class='self'>self</span>.<span class='ident'>_id</span> <span class='kw-2'>&amp;</span> <span class='ident'>ERR_FLAG</span> <span class='op'>!=</span> <span class='number'>0</span>
     }
 
     <span class='doccomment'>/// Check if frame is a remote transmission request</span>
+    <span class='attribute'>#[<span class='ident'>inline</span>(<span class='ident'>always</span>)]</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>is_rtr</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
         <span class='self'>self</span>.<span class='ident'>_id</span> <span class='kw-2'>&amp;</span> <span class='ident'>RTR_FLAG</span> <span class='op'>!=</span> <span class='number'>0</span>
     }
 
     <span class='doccomment'>/// A slice into the actual data. Slice will always be &lt;= 8 bytes in length</span>
+    <span class='attribute'>#[<span class='ident'>inline</span>(<span class='ident'>always</span>)]</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>data</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span>[<span class='ident'>u8</span>] {
         <span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>_data</span>[..(<span class='self'>self</span>.<span class='ident'>_data_len</span> <span class='kw'>as</span> <span class='ident'>usize</span>)]
     }
@@ -966,6 +1061,8 @@
                     <dd>Move down in search results</dd>
                     <dt>&#9166;</dt>
                     <dd>Go to active search result</dd>
+                    <dt>+</dt>
+                    <dd>Collapse/expand all sections</dd>
                 </dl>
             </div>
 

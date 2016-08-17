@@ -11,6 +11,7 @@
 
     <link rel="stylesheet" type="text/css" href="../../../rustdoc.css">
     <link rel="stylesheet" type="text/css" href="../../../main.css">
+    
 
     
     
@@ -43,10 +44,10 @@
 
     <section id='main' class="content struct">
 <h1 class='fqn'><span class='in-band'>Struct <a href='../../index.html'>nix</a>::<wbr><a href='../index.html'>sys</a>::<wbr><a href='index.html'>socket</a>::<wbr><a class='struct' href=''>CmsgSpace</a></span><span class='out-of-band'><span id='render-detail'>
-            <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
-                [<span class='inner'>&#x2212;</span>]
-            </a>
-        </span><a id='src-5741' class='srclink' href='../../../src/nix/sys/socket/mod.rs.html#107-110' title='goto source code'>[src]</a></span></h1>
+                   <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
+                       [<span class='inner'>&#x2212;</span>]
+                   </a>
+               </span><a id='src-5843' class='srclink' href='../../../src/nix/sys/socket/mod.rs.html#107-110' title='goto source code'>[src]</a></span></h1>
 <pre class='rust struct'>pub struct CmsgSpace&lt;T&gt; {
     // some fields omitted
 }</pre><div class='docblock'><p>A structure used to make room in a cmsghdr passed to recvmsg. The
@@ -57,7 +58,8 @@ to recvmsg.</p>
 <p>To make room for multiple messages, nest the type parameter with
 tuples, e.g.
 <code>let cmsg: CmsgSpace&lt;([RawFd; 3], CmsgSpace&lt;[RawFd; 2]&gt;)&gt; = CmsgSpace::new();</code></p>
-</div><h2 id='methods'>Methods</h2><h3 class='impl'><code>impl&lt;T&gt; <a class='struct' href='../../../nix/sys/socket/struct.CmsgSpace.html' title='nix::sys::socket::CmsgSpace'>CmsgSpace</a>&lt;T&gt;</code></h3><div class='impl-items'><h4 id='method.new' class='method'><code>fn <a href='#method.new' class='fnname'>new</a>() -&gt; Self</code></h4>
+</div><h2 id='methods'>Methods</h2><h3 class='impl'><span class='in-band'><code>impl&lt;T&gt; <a class='struct' href='../../../nix/sys/socket/struct.CmsgSpace.html' title='nix::sys::socket::CmsgSpace'>CmsgSpace</a>&lt;T&gt;</code></span><span class='out-of-band'><div class='ghost'></div><a id='src-5847' class='srclink' href='../../../src/nix/sys/socket/mod.rs.html#112-119' title='goto source code'>[src]</a></span></h3>
+<div class='impl-items'><h4 id='method.new' class='method'><code>fn <a href='#method.new' class='fnname'>new</a>() -&gt; Self</code></h4>
 <div class='docblock'><p>Create a CmsgSpace<T>. The structure is used only for space, so
 the fields are uninitialized.</p>
 </div></div></section>
@@ -83,6 +85,8 @@ the fields are uninitialized.</p>
                     <dd>Move down in search results</dd>
                     <dt>&#9166;</dt>
                     <dd>Go to active search result</dd>
+                    <dt>+</dt>
+                    <dd>Collapse/expand all sections</dd>
                 </dl>
             </div>
 

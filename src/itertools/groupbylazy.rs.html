@@ -4,13 +4,14 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="generator" content="rustdoc">
-    <meta name="description" content="Source to the Rust file `/home/marc/.cargo/registry/src/github.com-88ac128001ac3a9a/itertools-0.4.13/src/groupbylazy.rs`.">
+    <meta name="description" content="Source to the Rust file `/home/marc/.cargo/registry/src/github.com-1ecc6299db9ec823/itertools-0.4.13/src/groupbylazy.rs`.">
     <meta name="keywords" content="rust, rustlang, rust-lang">
 
     <title>groupbylazy.rs.html -- source</title>
 
     <link rel="stylesheet" type="text/css" href="../../rustdoc.css">
     <link rel="stylesheet" type="text/css" href="../../main.css">
+    
 
     
     
@@ -613,7 +614,7 @@
 <span class='doccomment'>/// A trait to unify FnMut for GroupByLazy with the chunk key in ChunksLazy</span>
 <span class='kw'>trait</span> <span class='ident'>KeyFunction</span><span class='op'>&lt;</span><span class='ident'>A</span><span class='op'>&gt;</span> {
     <span class='kw'>type</span> <span class='ident'>Key</span>;
-    <span class='kw'>fn</span> <span class='ident'>call_mut</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>arg</span>: <span class='ident'>A</span>) <span class='op'>-&gt;</span> <span class='ident'>Self</span>::<span class='ident'>Key</span>;
+    <span class='kw'>fn</span> <span class='ident'>call_mut</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>arg</span>: <span class='ident'>A</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span>::<span class='ident'>Key</span>;
 }
 
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>A</span>, <span class='ident'>K</span>, <span class='ident'>F</span>: ?<span class='ident'>Sized</span><span class='op'>&gt;</span> <span class='ident'>KeyFunction</span><span class='op'>&lt;</span><span class='ident'>A</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>F</span>
@@ -621,7 +622,7 @@
 {
     <span class='kw'>type</span> <span class='ident'>Key</span> <span class='op'>=</span> <span class='ident'>K</span>;
     <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='kw'>fn</span> <span class='ident'>call_mut</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>arg</span>: <span class='ident'>A</span>) <span class='op'>-&gt;</span> <span class='ident'>Self</span>::<span class='ident'>Key</span> {
+    <span class='kw'>fn</span> <span class='ident'>call_mut</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>arg</span>: <span class='ident'>A</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span>::<span class='ident'>Key</span> {
         (<span class='op'>*</span><span class='self'>self</span>)(<span class='ident'>arg</span>)
     }
 }
@@ -636,7 +637,7 @@
 
 <span class='kw'>impl</span> <span class='ident'>ChunkIndex</span> {
     <span class='attribute'>#[<span class='ident'>inline</span>(<span class='ident'>always</span>)]</span>
-    <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>size</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='kw'>Self</span> {
+    <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>size</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span> {
         <span class='ident'>ChunkIndex</span> {
             <span class='ident'>size</span>: <span class='ident'>size</span>,
             <span class='ident'>index</span>: <span class='number'>0</span>,
@@ -648,7 +649,7 @@
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>A</span><span class='op'>&gt;</span> <span class='ident'>KeyFunction</span><span class='op'>&lt;</span><span class='ident'>A</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>ChunkIndex</span> {
     <span class='kw'>type</span> <span class='ident'>Key</span> <span class='op'>=</span> <span class='ident'>usize</span>;
     <span class='attribute'>#[<span class='ident'>inline</span>(<span class='ident'>always</span>)]</span>
-    <span class='kw'>fn</span> <span class='ident'>call_mut</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>_arg</span>: <span class='ident'>A</span>) <span class='op'>-&gt;</span> <span class='ident'>Self</span>::<span class='ident'>Key</span> {
+    <span class='kw'>fn</span> <span class='ident'>call_mut</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>_arg</span>: <span class='ident'>A</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span>::<span class='ident'>Key</span> {
         <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>index</span> <span class='op'>==</span> <span class='self'>self</span>.<span class='ident'>size</span> {
             <span class='self'>self</span>.<span class='ident'>key</span> <span class='op'>+=</span> <span class='number'>1</span>;
             <span class='self'>self</span>.<span class='ident'>index</span> <span class='op'>=</span> <span class='number'>0</span>;
@@ -724,7 +725,7 @@
             <span class='self'>self</span>.<span class='ident'>bot</span> <span class='op'>+=</span> <span class='number'>1</span>;
             <span class='comment'>// skip forward further empty queues too</span>
             <span class='kw'>while</span> <span class='self'>self</span>.<span class='ident'>buffer</span>.<span class='ident'>get</span>(<span class='self'>self</span>.<span class='ident'>bot</span> <span class='op'>-</span> <span class='self'>self</span>.<span class='ident'>bufbot</span>)
-                             .<span class='ident'>map_or</span>(<span class='boolval'>false</span>, <span class='op'>|</span><span class='ident'>buf</span><span class='op'>|</span> <span class='ident'>buf</span>.<span class='ident'>len</span>() <span class='op'>==</span> <span class='number'>0</span>)
+                             .<span class='ident'>map_or</span>(<span class='boolvalue'>false</span>, <span class='op'>|</span><span class='ident'>buf</span><span class='op'>|</span> <span class='ident'>buf</span>.<span class='ident'>len</span>() <span class='op'>==</span> <span class='number'>0</span>)
             {
                 <span class='self'>self</span>.<span class='ident'>bot</span> <span class='op'>+=</span> <span class='number'>1</span>;
             }
@@ -749,7 +750,7 @@
     <span class='kw'>fn</span> <span class='ident'>next_element</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>I</span>::<span class='ident'>Item</span><span class='op'>&gt;</span> {
         <span class='macro'>debug_assert</span><span class='macro'>!</span>(<span class='op'>!</span><span class='self'>self</span>.<span class='ident'>done</span>);
         <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>iter</span>.<span class='ident'>next</span>() {
-            <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> { <span class='self'>self</span>.<span class='ident'>done</span> <span class='op'>=</span> <span class='boolval'>true</span>; <span class='prelude-val'>None</span> }
+            <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> { <span class='self'>self</span>.<span class='ident'>done</span> <span class='op'>=</span> <span class='boolvalue'>true</span>; <span class='prelude-val'>None</span> }
             <span class='ident'>otherwise</span> <span class='op'>=&gt;</span> <span class='ident'>otherwise</span>,
         }
     }
@@ -816,7 +817,7 @@
     <span class='attribute'>#[<span class='ident'>inline</span>]</span>
     <span class='kw'>fn</span> <span class='ident'>step_current</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>I</span>::<span class='ident'>Item</span><span class='op'>&gt;</span> {
         <span class='macro'>debug_assert</span><span class='macro'>!</span>(<span class='op'>!</span><span class='self'>self</span>.<span class='ident'>done</span>);
-        <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>elt</span> <span class='kw-2'>@</span> <span class='prelude-val'>Some</span>(..) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>current_elt</span>.<span class='ident'>take</span>() {
+        <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>elt</span> @ <span class='prelude-val'>Some</span>(..) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>current_elt</span>.<span class='ident'>take</span>() {
             <span class='kw'>return</span> <span class='ident'>elt</span>;
         }
         <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>next_element</span>() {
@@ -910,7 +911,7 @@
             <span class='ident'>iter</span>: <span class='ident'>iter</span>.<span class='ident'>into_iter</span>(),
             <span class='ident'>current_key</span>: <span class='prelude-val'>None</span>,
             <span class='ident'>current_elt</span>: <span class='prelude-val'>None</span>,
-            <span class='ident'>done</span>: <span class='boolval'>false</span>,
+            <span class='ident'>done</span>: <span class='boolvalue'>false</span>,
             <span class='ident'>top</span>: <span class='number'>0</span>,
             <span class='ident'>bot</span>: <span class='number'>0</span>,
             <span class='ident'>bufbot</span>: <span class='number'>0</span>,
@@ -947,7 +948,7 @@
     <span class='kw'>type</span> <span class='ident'>Item</span> <span class='op'>=</span> (<span class='ident'>K</span>, <span class='ident'>Group</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>K</span>, <span class='ident'>I</span>, <span class='ident'>F</span><span class='op'>&gt;</span>);
     <span class='kw'>type</span> <span class='ident'>IntoIter</span> <span class='op'>=</span> <span class='ident'>Groups</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>K</span>, <span class='ident'>I</span>, <span class='ident'>F</span><span class='op'>&gt;</span>;
 
-    <span class='kw'>fn</span> <span class='ident'>into_iter</span>(<span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Self</span>::<span class='ident'>IntoIter</span> {
+    <span class='kw'>fn</span> <span class='ident'>into_iter</span>(<span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span>::<span class='ident'>IntoIter</span> {
         <span class='ident'>Groups</span> { <span class='ident'>parent</span>: <span class='self'>self</span> }
     }
 }
@@ -975,7 +976,7 @@
     <span class='kw'>type</span> <span class='ident'>Item</span> <span class='op'>=</span> (<span class='ident'>K</span>, <span class='ident'>Group</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>K</span>, <span class='ident'>I</span>, <span class='ident'>F</span><span class='op'>&gt;</span>);
 
     <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='kw'>fn</span> <span class='ident'>next</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Self</span>::<span class='ident'>Item</span><span class='op'>&gt;</span> {
+    <span class='kw'>fn</span> <span class='ident'>next</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='self'>Self</span>::<span class='ident'>Item</span><span class='op'>&gt;</span> {
         <span class='kw'>let</span> <span class='ident'>index</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>parent</span>.<span class='ident'>index</span>.<span class='ident'>get</span>();
         <span class='self'>self</span>.<span class='ident'>parent</span>.<span class='ident'>index</span>.<span class='ident'>set</span>(<span class='ident'>index</span> <span class='op'>+</span> <span class='number'>1</span>);
         <span class='kw'>let</span> <span class='ident'>inner</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='op'>*</span><span class='self'>self</span>.<span class='ident'>parent</span>.<span class='ident'>inner</span>.<span class='ident'>borrow_mut</span>();
@@ -1019,8 +1020,8 @@
 {
     <span class='kw'>type</span> <span class='ident'>Item</span> <span class='op'>=</span> <span class='ident'>I</span>::<span class='ident'>Item</span>;
     <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='kw'>fn</span> <span class='ident'>next</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Self</span>::<span class='ident'>Item</span><span class='op'>&gt;</span> {
-        <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>elt</span> <span class='kw-2'>@</span> <span class='prelude-val'>Some</span>(..) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>first</span>.<span class='ident'>take</span>() {
+    <span class='kw'>fn</span> <span class='ident'>next</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='self'>Self</span>::<span class='ident'>Item</span><span class='op'>&gt;</span> {
+        <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>elt</span> @ <span class='prelude-val'>Some</span>(..) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>first</span>.<span class='ident'>take</span>() {
             <span class='kw'>return</span> <span class='ident'>elt</span>;
         }
         <span class='self'>self</span>.<span class='ident'>parent</span>.<span class='ident'>step</span>(<span class='self'>self</span>.<span class='ident'>index</span>)
@@ -1039,7 +1040,7 @@
             <span class='ident'>iter</span>: <span class='ident'>iter</span>.<span class='ident'>into_iter</span>(),
             <span class='ident'>current_key</span>: <span class='prelude-val'>None</span>,
             <span class='ident'>current_elt</span>: <span class='prelude-val'>None</span>,
-            <span class='ident'>done</span>: <span class='boolval'>false</span>,
+            <span class='ident'>done</span>: <span class='boolvalue'>false</span>,
             <span class='ident'>top</span>: <span class='number'>0</span>,
             <span class='ident'>bot</span>: <span class='number'>0</span>,
             <span class='ident'>bufbot</span>: <span class='number'>0</span>,
@@ -1095,7 +1096,7 @@
     <span class='kw'>type</span> <span class='ident'>Item</span> <span class='op'>=</span> <span class='ident'>Chunk</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>I</span><span class='op'>&gt;</span>;
     <span class='kw'>type</span> <span class='ident'>IntoIter</span> <span class='op'>=</span> <span class='ident'>Chunks</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>I</span><span class='op'>&gt;</span>;
 
-    <span class='kw'>fn</span> <span class='ident'>into_iter</span>(<span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Self</span>::<span class='ident'>IntoIter</span> {
+    <span class='kw'>fn</span> <span class='ident'>into_iter</span>(<span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span>::<span class='ident'>IntoIter</span> {
         <span class='ident'>Chunks</span> {
             <span class='ident'>parent</span>: <span class='self'>self</span>,
         }
@@ -1122,7 +1123,7 @@
     <span class='kw'>type</span> <span class='ident'>Item</span> <span class='op'>=</span> <span class='ident'>Chunk</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>I</span><span class='op'>&gt;</span>;
 
     <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='kw'>fn</span> <span class='ident'>next</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Self</span>::<span class='ident'>Item</span><span class='op'>&gt;</span> {
+    <span class='kw'>fn</span> <span class='ident'>next</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='self'>Self</span>::<span class='ident'>Item</span><span class='op'>&gt;</span> {
         <span class='kw'>let</span> <span class='ident'>index</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>parent</span>.<span class='ident'>index</span>.<span class='ident'>get</span>();
         <span class='self'>self</span>.<span class='ident'>parent</span>.<span class='ident'>index</span>.<span class='ident'>set</span>(<span class='ident'>index</span> <span class='op'>+</span> <span class='number'>1</span>);
         <span class='kw'>let</span> <span class='ident'>inner</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='op'>*</span><span class='self'>self</span>.<span class='ident'>parent</span>.<span class='ident'>inner</span>.<span class='ident'>borrow_mut</span>();
@@ -1163,8 +1164,8 @@
 {
     <span class='kw'>type</span> <span class='ident'>Item</span> <span class='op'>=</span> <span class='ident'>I</span>::<span class='ident'>Item</span>;
     <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='kw'>fn</span> <span class='ident'>next</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Self</span>::<span class='ident'>Item</span><span class='op'>&gt;</span> {
-        <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>elt</span> <span class='kw-2'>@</span> <span class='prelude-val'>Some</span>(..) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>first</span>.<span class='ident'>take</span>() {
+    <span class='kw'>fn</span> <span class='ident'>next</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='self'>Self</span>::<span class='ident'>Item</span><span class='op'>&gt;</span> {
+        <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>elt</span> @ <span class='prelude-val'>Some</span>(..) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>first</span>.<span class='ident'>take</span>() {
             <span class='kw'>return</span> <span class='ident'>elt</span>;
         }
         <span class='self'>self</span>.<span class='ident'>parent</span>.<span class='ident'>step</span>(<span class='self'>self</span>.<span class='ident'>index</span>)
@@ -1194,6 +1195,8 @@
                     <dd>Move down in search results</dd>
                     <dt>&#9166;</dt>
                     <dd>Go to active search result</dd>
+                    <dt>+</dt>
+                    <dd>Collapse/expand all sections</dd>
                 </dl>
             </div>
 

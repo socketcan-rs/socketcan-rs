@@ -11,6 +11,7 @@
 
     <link rel="stylesheet" type="text/css" href="../../../rustdoc.css">
     <link rel="stylesheet" type="text/css" href="../../../main.css">
+    
 
     
     
@@ -42,11 +43,11 @@
     </nav>
 
     <section id='main' class="content mod">
-<h1 class='fqn'><span class='in-band'>Module <a href='../../index.html'>bitflags</a>::<wbr><a href='../index.html'>__core</a>::<wbr><a class='mod' href=''>collections</a></span><span class='out-of-band'><span id='render-detail'>
-            <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
-                [<span class='inner'>&#x2212;</span>]
-            </a>
-        </span><a id='src-1115' class='srclink' href='https://doc.rust-lang.org/nightly/std/collections/index.html?gotosrc=1115' title='goto source code'>[src]</a></span></h1>
+<h1 class='fqn'><span class='in-band'>Module <a href='../../index.html'>bitflags</a>::<wbr><a href='../index.html'>__core</a>::<wbr><a class='mod' href=''>collections</a></span><span class='out-of-band'><span class='since' title='Stable since Rust version 1.0.0'>1.0.0</span><span id='render-detail'>
+                   <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
+                       [<span class='inner'>&#x2212;</span>]
+                   </a>
+               </span><a id='src-1105' class='srclink' href='https://doc.rust-lang.org/nightly/std/collections/index.html?gotosrc=1105' title='goto source code'>[src]</a></span></h1>
 <div class='docblock'><p>Collection types.</p>
 
 <p>Rust&#39;s standard collection library provides efficient implementations of the
@@ -212,6 +213,7 @@ is generally going to be faster than LinkedList.</p>
 <th>insert</th>
 <th>remove</th>
 <th>predecessor</th>
+<th>append</th>
 </tr>
 </thead>
 
@@ -222,6 +224,7 @@ is generally going to be faster than LinkedList.</p>
 <td>O(1)~*</td>
 <td>O(1)~</td>
 <td>N/A</td>
+<td>N/A</td>
 </tr>
 <tr>
 <td>BTreeMap</td>
@@ -229,11 +232,10 @@ is generally going to be faster than LinkedList.</p>
 <td>O(log n)</td>
 <td>O(log n)</td>
 <td>O(log n)</td>
+<td>O(n+m)</td>
 </tr>
 </tbody>
 </table>
-
-<p>Note that BTreeMap&#39;s precise performance depends on the value of B.</p>
 
 <h1 id='correct-and-efficient-usage-of-collections' class='section-header'><a href='#correct-and-efficient-usage-of-collections'>Correct and Efficient Usage of Collections</a></h1>
 <p>Of course, knowing which collection is the right one for the job doesn&#39;t
@@ -471,7 +473,7 @@ not update the value of the key. For example:</p>
 
 <span class='comment'>// we will compare `Foo`s by their `a` value only.</span>
 <span class='kw'>impl</span> <span class='ident'>PartialEq</span> <span class='kw'>for</span> <span class='ident'>Foo</span> {
-    <span class='kw'>fn</span> <span class='ident'>eq</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>other</span>: <span class='kw-2'>&amp;</span><span class='kw'>Self</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> { <span class='self'>self</span>.<span class='ident'>a</span> <span class='op'>==</span> <span class='ident'>other</span>.<span class='ident'>a</span> }
+    <span class='kw'>fn</span> <span class='ident'>eq</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>other</span>: <span class='kw-2'>&amp;</span><span class='self'>Self</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> { <span class='self'>self</span>.<span class='ident'>a</span> <span class='op'>==</span> <span class='ident'>other</span>.<span class='ident'>a</span> }
 }
 
 <span class='kw'>impl</span> <span class='ident'>Eq</span> <span class='kw'>for</span> <span class='ident'>Foo</span> {}
@@ -482,11 +484,11 @@ not update the value of the key. For example:</p>
 }
 
 <span class='kw'>impl</span> <span class='ident'>PartialOrd</span> <span class='kw'>for</span> <span class='ident'>Foo</span> {
-    <span class='kw'>fn</span> <span class='ident'>partial_cmp</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>other</span>: <span class='kw-2'>&amp;</span><span class='kw'>Self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Ordering</span><span class='op'>&gt;</span> { <span class='self'>self</span>.<span class='ident'>a</span>.<span class='ident'>partial_cmp</span>(<span class='kw-2'>&amp;</span><span class='ident'>other</span>.<span class='ident'>a</span>) }
+    <span class='kw'>fn</span> <span class='ident'>partial_cmp</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>other</span>: <span class='kw-2'>&amp;</span><span class='self'>Self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Ordering</span><span class='op'>&gt;</span> { <span class='self'>self</span>.<span class='ident'>a</span>.<span class='ident'>partial_cmp</span>(<span class='kw-2'>&amp;</span><span class='ident'>other</span>.<span class='ident'>a</span>) }
 }
 
 <span class='kw'>impl</span> <span class='ident'>Ord</span> <span class='kw'>for</span> <span class='ident'>Foo</span> {
-    <span class='kw'>fn</span> <span class='ident'>cmp</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>other</span>: <span class='kw-2'>&amp;</span><span class='kw'>Self</span>) <span class='op'>-&gt;</span> <span class='ident'>Ordering</span> { <span class='self'>self</span>.<span class='ident'>a</span>.<span class='ident'>cmp</span>(<span class='kw-2'>&amp;</span><span class='ident'>other</span>.<span class='ident'>a</span>) }
+    <span class='kw'>fn</span> <span class='ident'>cmp</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>other</span>: <span class='kw-2'>&amp;</span><span class='self'>Self</span>) <span class='op'>-&gt;</span> <span class='ident'>Ordering</span> { <span class='self'>self</span>.<span class='ident'>a</span>.<span class='ident'>cmp</span>(<span class='kw-2'>&amp;</span><span class='ident'>other</span>.<span class='ident'>a</span>) }
 }
 
 <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>map</span> <span class='op'>=</span> <span class='ident'>BTreeMap</span>::<span class='ident'>new</span>();
@@ -502,141 +504,117 @@ not update the value of the key. For example:</p>
 <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>map</span>.<span class='ident'>keys</span>().<span class='ident'>next</span>().<span class='ident'>unwrap</span>().<span class='ident'>b</span>, <span class='string'>&quot;baz&quot;</span>);</pre>
 </div><h2 id='modules' class='section-header'><a href="#modules">Modules</a></h2>
 <table>
-                    <tr class=' module-item'>
-                        <td><a class='mod' href='binary_heap/index.html'
-                               title='bitflags::__core::collections::binary_heap'>binary_heap</a></td>
-                        <td class='docblock short'>
-                             <p>A priority queue implemented with a binary heap.</p>
-                        </td>
-                    </tr>
-                
-                    <tr class=' module-item'>
-                        <td><a class='mod' href='btree_map/index.html'
-                               title='bitflags::__core::collections::btree_map'>btree_map</a></td>
-                        <td class='docblock short'>
-                             
-                        </td>
-                    </tr>
-                
-                    <tr class=' module-item'>
-                        <td><a class='mod' href='btree_set/index.html'
-                               title='bitflags::__core::collections::btree_set'>btree_set</a></td>
-                        <td class='docblock short'>
-                             
-                        </td>
-                    </tr>
-                
-                    <tr class=' module-item'>
-                        <td><a class='mod' href='hash_map/index.html'
-                               title='bitflags::__core::collections::hash_map'>hash_map</a></td>
-                        <td class='docblock short'>
-                             <p>A hashmap</p>
-                        </td>
-                    </tr>
-                
-                    <tr class=' module-item'>
-                        <td><a class='mod' href='hash_set/index.html'
-                               title='bitflags::__core::collections::hash_set'>hash_set</a></td>
-                        <td class='docblock short'>
-                             <p>A hashset</p>
-                        </td>
-                    </tr>
-                
-                    <tr class=' module-item'>
-                        <td><a class='mod' href='linked_list/index.html'
-                               title='bitflags::__core::collections::linked_list'>linked_list</a></td>
-                        <td class='docblock short'>
-                             <p>A doubly-linked list with owned nodes.</p>
-                        </td>
-                    </tr>
-                
-                    <tr class=' module-item'>
-                        <td><a class='mod' href='vec_deque/index.html'
-                               title='bitflags::__core::collections::vec_deque'>vec_deque</a></td>
-                        <td class='docblock short'>
-                             <p>VecDeque is a double-ended queue, which is implemented with the help of a
+                       <tr class=' module-item'>
+                           <td><a class='mod' href='binary_heap/index.html'
+                                  title='bitflags::__core::collections::binary_heap'>binary_heap</a></td>
+                           <td class='docblock short'>
+                                <p>A priority queue implemented with a binary heap.</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='mod' href='btree_map/index.html'
+                                  title='bitflags::__core::collections::btree_map'>btree_map</a></td>
+                           <td class='docblock short'>
+                                
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='mod' href='btree_set/index.html'
+                                  title='bitflags::__core::collections::btree_set'>btree_set</a></td>
+                           <td class='docblock short'>
+                                
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='mod' href='hash_map/index.html'
+                                  title='bitflags::__core::collections::hash_map'>hash_map</a></td>
+                           <td class='docblock short'>
+                                <p>A hashmap</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='mod' href='hash_set/index.html'
+                                  title='bitflags::__core::collections::hash_set'>hash_set</a></td>
+                           <td class='docblock short'>
+                                <p>A hashset</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='mod' href='linked_list/index.html'
+                                  title='bitflags::__core::collections::linked_list'>linked_list</a></td>
+                           <td class='docblock short'>
+                                <p>A doubly-linked list with owned nodes.</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='mod' href='vec_deque/index.html'
+                                  title='bitflags::__core::collections::vec_deque'>vec_deque</a></td>
+                           <td class='docblock short'>
+                                <p>VecDeque is a double-ended queue, which is implemented with the help of a
 growing ring buffer.</p>
-                        </td>
-                    </tr>
-                
-                    <tr class='unstable deprecated module-item'>
-                        <td><a class='mod' href='hash_state/index.html'
-                               title='bitflags::__core::collections::hash_state'>hash_state</a></td>
-                        <td class='docblock short'>
-                            [<em class='stab unstable deprecated'>Deprecated</em>] <p>Experimental support for providing custom hash algorithms to a HashMap and
-HashSet.</p>
-                        </td>
-                    </tr>
-                </table><h2 id='structs' class='section-header'><a href="#structs">Structs</a></h2>
+                           </td>
+                       </tr></table><h2 id='structs' class='section-header'><a href="#structs">Structs</a></h2>
 <table>
-                    <tr class=' module-item'>
-                        <td><a class='struct' href='struct.BTreeMap.html'
-                               title='bitflags::__core::collections::BTreeMap'>BTreeMap</a></td>
-                        <td class='docblock short'>
-                             <p>A map based on a B-Tree.</p>
-                        </td>
-                    </tr>
-                
-                    <tr class=' module-item'>
-                        <td><a class='struct' href='struct.BTreeSet.html'
-                               title='bitflags::__core::collections::BTreeSet'>BTreeSet</a></td>
-                        <td class='docblock short'>
-                             <p>A set based on a B-Tree.</p>
-                        </td>
-                    </tr>
-                
-                    <tr class=' module-item'>
-                        <td><a class='struct' href='struct.BinaryHeap.html'
-                               title='bitflags::__core::collections::BinaryHeap'>BinaryHeap</a></td>
-                        <td class='docblock short'>
-                             <p>A priority queue implemented with a binary heap.</p>
-                        </td>
-                    </tr>
-                
-                    <tr class=' module-item'>
-                        <td><a class='struct' href='struct.HashMap.html'
-                               title='bitflags::__core::collections::HashMap'>HashMap</a></td>
-                        <td class='docblock short'>
-                             <p>A hash map implementation which uses linear probing with Robin
+                       <tr class=' module-item'>
+                           <td><a class='struct' href='struct.BTreeMap.html'
+                                  title='bitflags::__core::collections::BTreeMap'>BTreeMap</a></td>
+                           <td class='docblock short'>
+                                <p>A map based on a B-Tree.</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='struct' href='struct.BTreeSet.html'
+                                  title='bitflags::__core::collections::BTreeSet'>BTreeSet</a></td>
+                           <td class='docblock short'>
+                                <p>A set based on a B-Tree.</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='struct' href='struct.BinaryHeap.html'
+                                  title='bitflags::__core::collections::BinaryHeap'>BinaryHeap</a></td>
+                           <td class='docblock short'>
+                                <p>A priority queue implemented with a binary heap.</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='struct' href='struct.HashMap.html'
+                                  title='bitflags::__core::collections::HashMap'>HashMap</a></td>
+                           <td class='docblock short'>
+                                <p>A hash map implementation which uses linear probing with Robin
 Hood bucket stealing.</p>
-                        </td>
-                    </tr>
-                
-                    <tr class=' module-item'>
-                        <td><a class='struct' href='struct.HashSet.html'
-                               title='bitflags::__core::collections::HashSet'>HashSet</a></td>
-                        <td class='docblock short'>
-                             <p>An implementation of a hash set using the underlying representation of a
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='struct' href='struct.HashSet.html'
+                                  title='bitflags::__core::collections::HashSet'>HashSet</a></td>
+                           <td class='docblock short'>
+                                <p>An implementation of a hash set using the underlying representation of a
 HashMap where the value is ().</p>
-                        </td>
-                    </tr>
-                
-                    <tr class=' module-item'>
-                        <td><a class='struct' href='struct.LinkedList.html'
-                               title='bitflags::__core::collections::LinkedList'>LinkedList</a></td>
-                        <td class='docblock short'>
-                             <p>A doubly-linked list.</p>
-                        </td>
-                    </tr>
-                
-                    <tr class=' module-item'>
-                        <td><a class='struct' href='struct.VecDeque.html'
-                               title='bitflags::__core::collections::VecDeque'>VecDeque</a></td>
-                        <td class='docblock short'>
-                             <p><code>VecDeque</code> is a growable ring buffer, which can be used as a double-ended
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='struct' href='struct.LinkedList.html'
+                                  title='bitflags::__core::collections::LinkedList'>LinkedList</a></td>
+                           <td class='docblock short'>
+                                <p>A doubly-linked list.</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='struct' href='struct.VecDeque.html'
+                                  title='bitflags::__core::collections::VecDeque'>VecDeque</a></td>
+                           <td class='docblock short'>
+                                <p><code>VecDeque</code> is a growable ring buffer, which can be used as a double-ended
 queue efficiently.</p>
-                        </td>
-                    </tr>
-                </table><h2 id='enums' class='section-header'><a href="#enums">Enums</a></h2>
+                           </td>
+                       </tr></table><h2 id='enums' class='section-header'><a href="#enums">Enums</a></h2>
 <table>
-                    <tr class='unstable module-item'>
-                        <td><a class='enum' href='enum.Bound.html'
-                               title='bitflags::__core::collections::Bound'>Bound</a></td>
-                        <td class='docblock short'>
-                            [<em class='stab unstable'>Unstable</em>] <p>An endpoint of a range of keys.</p>
-                        </td>
-                    </tr>
-                </table></section>
+                       <tr class='unstable module-item'>
+                           <td><a class='enum' href='enum.Bound.html'
+                                  title='bitflags::__core::collections::Bound'>Bound</a></td>
+                           <td class='docblock short'>
+                               [<em class='stab unstable'>Unstable</em>] <p>An endpoint of a range of keys.</p>
+                           </td>
+                       </tr></table></section>
     <section id='search' class="content hidden"></section>
 
     <section class="footer"></section>
@@ -659,6 +637,8 @@ queue efficiently.</p>
                     <dd>Move down in search results</dd>
                     <dt>&#9166;</dt>
                     <dd>Go to active search result</dd>
+                    <dt>+</dt>
+                    <dd>Collapse/expand all sections</dd>
                 </dl>
             </div>
 

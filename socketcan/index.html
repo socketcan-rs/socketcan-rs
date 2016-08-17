@@ -11,6 +11,7 @@
 
     <link rel="stylesheet" type="text/css" href="../rustdoc.css">
     <link rel="stylesheet" type="text/css" href="../main.css">
+    
 
     
     
@@ -43,100 +44,134 @@
 
     <section id='main' class="content mod">
 <h1 class='fqn'><span class='in-band'>Crate <a class='mod' href=''>socketcan</a></span><span class='out-of-band'><span id='render-detail'>
-            <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
-                [<span class='inner'>&#x2212;</span>]
-            </a>
-        </span><a id='src-0' class='srclink' href='../src/socketcan/src/lib.rs.html#1-450' title='goto source code'>[src]</a></span></h1>
+                   <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
+                       [<span class='inner'>&#x2212;</span>]
+                   </a>
+               </span><a id='src-0' class='srclink' href='../src/socketcan/src/lib.rs.html#1-497' title='goto source code'>[src]</a></span></h1>
 <div class='docblock'><p>socketCAN support.</p>
 
 <p>The Linux kernel supports using CAN-devices through a network-like API
 (see <a href="https://www.kernel.org/doc/Documentation/networking/can.txt">https://www.kernel.org/doc/Documentation/networking/can.txt</a>). This
 crate allows easy access to this functionality without having to wrestle
 libc calls.</p>
-</div><h2 id='structs' class='section-header'><a href="#structs">Structs</a></h2>
+
+<h1 id='an-introduction-to-can' class='section-header'><a href='#an-introduction-to-can'>An introduction to CAN</a></h1>
+<p>The CAN bus was originally designed to allow microcontrollers inside a
+vehicle to communicate over a single shared bus. Messages called
+<em>frames</em> are multicast to all devices on the bus.</p>
+
+<p>Every frame consists of an ID and a payload of up to 8 bytes. If two
+devices attempt to send a frame at the same time, the device with the
+higher ID will notice the conflict, stop sending and reattempt to sent its
+frame in the next time slot. This means that the lower the ID, the higher
+the priority. Since most devices have a limited buffer for outgoing frames,
+a single device with a high priority (== low ID) can block communication
+on that bus by sending messages too fast.</p>
+
+<p>The Linux socketcan subsystem makes the CAN bus available as a regular
+networking device. Opening an network interface allows receiving all CAN
+messages received on it. A device CAN be opened multiple times, every
+client will receive all CAN frames simultaneously.</p>
+
+<p>Similarly, CAN frames can be sent to the bus by multiple client
+simultaneously as well.</p>
+
+<h1 id='hardware-and-more-information' class='section-header'><a href='#hardware-and-more-information'>Hardware and more information</a></h1>
+<p>More information on CAN <a href="">can be found on Wikipedia</a>. When not running on
+an embedded platform with already integrated CAN components,
+<a href="http://www.fischl.de/usbtin/">Thomas Fischl&#39;s USBtin</a> (see
+<a href="http://www.fischl.de/usbtin/#socketcan">section 2.4</a>) is one of many ways
+to get started.</p>
+</div><h2 id='modules' class='section-header'><a href="#modules">Modules</a></h2>
 <table>
-                    <tr class=' module-item'>
-                        <td><a class='struct' href='struct.CANFrame.html'
-                               title='socketcan::CANFrame'>CANFrame</a></td>
-                        <td class='docblock short'>
-                             <p>CANFrame</p>
-                        </td>
-                    </tr>
-                
-                    <tr class=' module-item'>
-                        <td><a class='struct' href='struct.CANSocket.html'
-                               title='socketcan::CANSocket'>CANSocket</a></td>
-                        <td class='docblock short'>
-                             <p>A socket for a CAN device.</p>
-                        </td>
-                    </tr>
-                </table><h2 id='enums' class='section-header'><a href="#enums">Enums</a></h2>
+                       <tr class=' module-item'>
+                           <td><a class='mod' href='dump/index.html'
+                                  title='socketcan::dump'>dump</a></td>
+                           <td class='docblock short'>
+                                <p>candump format parsing</p>
+                           </td>
+                       </tr></table><h2 id='structs' class='section-header'><a href="#structs">Structs</a></h2>
 <table>
-                    <tr class=' module-item'>
-                        <td><a class='enum' href='enum.CANSocketOpenError.html'
-                               title='socketcan::CANSocketOpenError'>CANSocketOpenError</a></td>
-                        <td class='docblock short'>
-                             <p>Errors opening socket</p>
-                        </td>
-                    </tr>
-                
-                    <tr class=' module-item'>
-                        <td><a class='enum' href='enum.ConstructionError.html'
-                               title='socketcan::ConstructionError'>ConstructionError</a></td>
-                        <td class='docblock short'>
-                             <p>Error that occurs when creating CAN packets</p>
-                        </td>
-                    </tr>
-                </table><h2 id='constants' class='section-header'><a href="#constants">Constants</a></h2>
+                       <tr class=' module-item'>
+                           <td><a class='struct' href='struct.CANFrame.html'
+                                  title='socketcan::CANFrame'>CANFrame</a></td>
+                           <td class='docblock short'>
+                                <p>CANFrame</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='struct' href='struct.CANSocket.html'
+                                  title='socketcan::CANSocket'>CANSocket</a></td>
+                           <td class='docblock short'>
+                                <p>A socket for a CAN device.</p>
+                           </td>
+                       </tr></table><h2 id='enums' class='section-header'><a href="#enums">Enums</a></h2>
 <table>
-                    <tr class=' module-item'>
-                        <td><a class='constant' href='constant.EFF_FLAG.html'
-                               title='socketcan::EFF_FLAG'>EFF_FLAG</a></td>
-                        <td class='docblock short'>
-                             <p>if set, indicate 29 bit extended format</p>
-                        </td>
-                    </tr>
-                
-                    <tr class=' module-item'>
-                        <td><a class='constant' href='constant.EFF_MASK.html'
-                               title='socketcan::EFF_MASK'>EFF_MASK</a></td>
-                        <td class='docblock short'>
-                             <p>valid bits in extended frame id</p>
-                        </td>
-                    </tr>
-                
-                    <tr class=' module-item'>
-                        <td><a class='constant' href='constant.ERR_FLAG.html'
-                               title='socketcan::ERR_FLAG'>ERR_FLAG</a></td>
-                        <td class='docblock short'>
-                             <p>error flag</p>
-                        </td>
-                    </tr>
-                
-                    <tr class=' module-item'>
-                        <td><a class='constant' href='constant.ERR_MASK.html'
-                               title='socketcan::ERR_MASK'>ERR_MASK</a></td>
-                        <td class='docblock short'>
-                             <p>valid bits in error frame</p>
-                        </td>
-                    </tr>
-                
-                    <tr class=' module-item'>
-                        <td><a class='constant' href='constant.RTR_FLAG.html'
-                               title='socketcan::RTR_FLAG'>RTR_FLAG</a></td>
-                        <td class='docblock short'>
-                             <p>remote transmission request flag</p>
-                        </td>
-                    </tr>
-                
-                    <tr class=' module-item'>
-                        <td><a class='constant' href='constant.SFF_MASK.html'
-                               title='socketcan::SFF_MASK'>SFF_MASK</a></td>
-                        <td class='docblock short'>
-                             <p>valid bits in standard frame id</p>
-                        </td>
-                    </tr>
-                </table></section>
+                       <tr class=' module-item'>
+                           <td><a class='enum' href='enum.CANSocketOpenError.html'
+                                  title='socketcan::CANSocketOpenError'>CANSocketOpenError</a></td>
+                           <td class='docblock short'>
+                                <p>Errors opening socket</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='enum' href='enum.ConstructionError.html'
+                                  title='socketcan::ConstructionError'>ConstructionError</a></td>
+                           <td class='docblock short'>
+                                <p>Error that occurs when creating CAN packets</p>
+                           </td>
+                       </tr></table><h2 id='constants' class='section-header'><a href="#constants">Constants</a></h2>
+<table>
+                       <tr class=' module-item'>
+                           <td><a class='constant' href='constant.EFF_FLAG.html'
+                                  title='socketcan::EFF_FLAG'>EFF_FLAG</a></td>
+                           <td class='docblock short'>
+                                <p>if set, indicate 29 bit extended format</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='constant' href='constant.EFF_MASK.html'
+                                  title='socketcan::EFF_MASK'>EFF_MASK</a></td>
+                           <td class='docblock short'>
+                                <p>valid bits in extended frame id</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='constant' href='constant.ERR_FLAG.html'
+                                  title='socketcan::ERR_FLAG'>ERR_FLAG</a></td>
+                           <td class='docblock short'>
+                                <p>error flag</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='constant' href='constant.ERR_MASK.html'
+                                  title='socketcan::ERR_MASK'>ERR_MASK</a></td>
+                           <td class='docblock short'>
+                                <p>valid bits in error frame</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='constant' href='constant.RTR_FLAG.html'
+                                  title='socketcan::RTR_FLAG'>RTR_FLAG</a></td>
+                           <td class='docblock short'>
+                                <p>remote transmission request flag</p>
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class='constant' href='constant.SFF_MASK.html'
+                                  title='socketcan::SFF_MASK'>SFF_MASK</a></td>
+                           <td class='docblock short'>
+                                <p>valid bits in standard frame id</p>
+                           </td>
+                       </tr></table><h2 id='traits' class='section-header'><a href="#traits">Traits</a></h2>
+<table>
+                       <tr class=' module-item'>
+                           <td><a class='trait' href='trait.ShouldRetry.html'
+                                  title='socketcan::ShouldRetry'>ShouldRetry</a></td>
+                           <td class='docblock short'>
+                                <p>Check an error return value for timeouts.</p>
+                           </td>
+                       </tr></table></section>
     <section id='search' class="content hidden"></section>
 
     <section class="footer"></section>
@@ -159,6 +194,8 @@ libc calls.</p>
                     <dd>Move down in search results</dd>
                     <dt>&#9166;</dt>
                     <dd>Go to active search result</dd>
+                    <dt>+</dt>
+                    <dd>Collapse/expand all sections</dd>
                 </dl>
             </div>
 

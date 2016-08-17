@@ -11,6 +11,7 @@
 
     <link rel="stylesheet" type="text/css" href="../../../rustdoc.css">
     <link rel="stylesheet" type="text/css" href="../../../main.css">
+    
 
     
     
@@ -42,17 +43,18 @@
     </nav>
 
     <section id='main' class="content struct">
-<h1 class='fqn'><span class='in-band'>Struct <a href='../../index.html'>bitflags</a>::<wbr><a href='../index.html'>__core</a>::<wbr><a href='index.html'>fs</a>::<wbr><a class='struct' href=''>DirEntry</a></span><span class='out-of-band'><span id='render-detail'>
-            <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
-                [<span class='inner'>&#x2212;</span>]
-            </a>
-        </span><a id='src-3716' class='srclink' href='https://doc.rust-lang.org/nightly/std/fs/struct.DirEntry.html?gotosrc=3716' title='goto source code'>[src]</a></span></h1>
-<pre class='rust struct'>pub struct DirEntry(_);</pre><span class="since">1.0.0</span><div class='docblock'><p>Entries returned by the <code>ReadDir</code> iterator.</p>
+<h1 class='fqn'><span class='in-band'>Struct <a href='../../index.html'>bitflags</a>::<wbr><a href='../index.html'>__core</a>::<wbr><a href='index.html'>fs</a>::<wbr><a class='struct' href=''>DirEntry</a></span><span class='out-of-band'><span class='since' title='Stable since Rust version 1.0.0'>1.0.0</span><span id='render-detail'>
+                   <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
+                       [<span class='inner'>&#x2212;</span>]
+                   </a>
+               </span><a id='src-3674' class='srclink' href='https://doc.rust-lang.org/nightly/std/fs/struct.DirEntry.html?gotosrc=3674' title='goto source code'>[src]</a></span></h1>
+<pre class='rust struct'>pub struct DirEntry(_);</pre><div class='docblock'><p>Entries returned by the <code>ReadDir</code> iterator.</p>
 
 <p>An instance of <code>DirEntry</code> represents an entry inside of a directory on the
 filesystem. Each entry can be inspected via methods to learn about the full
 path or possibly other metadata through per-platform extension traits.</p>
-</div><h2 id='methods'>Methods</h2><h3 class='impl'><code>impl <a class='struct' href='../../../bitflags/__core/fs/struct.DirEntry.html' title='bitflags::__core::fs::DirEntry'>DirEntry</a></code></h3><div class='impl-items'><h4 id='method.path' class='method'><code>fn <a href='#method.path' class='fnname'>path</a>(&amp;self) -&gt; <a class='struct' href='../../../bitflags/__core/path/struct.PathBuf.html' title='bitflags::__core::path::PathBuf'>PathBuf</a></code></h4>
+</div><h2 id='methods'>Methods</h2><h3 class='impl'><span class='in-band'><code>impl <a class='struct' href='../../../bitflags/__core/fs/struct.DirEntry.html' title='bitflags::__core::fs::DirEntry'>DirEntry</a></code></span><span class='out-of-band'></span></h3>
+<div class='impl-items'><h4 id='method.path' class='method'><code>fn <a href='#method.path' class='fnname'>path</a>(&amp;self) -&gt; <a class='struct' href='../../../bitflags/__core/path/struct.PathBuf.html' title='bitflags::__core::path::PathBuf'>PathBuf</a></code></h4>
 <div class='docblock'><p>Returns the full path to the file that this entry represents.</p>
 
 <p>The full path is created by joining the original path to <code>read_dir</code> or
@@ -74,7 +76,7 @@ path or possibly other metadata through per-platform extension traits.</p>
 </code></pre>
 
 <p>The exact text, of course, depends on what files you have in <code>.</code>.</p>
-</div><h4 id='method.metadata' class='method'><span class="since">1.1.0</span><code>fn <a href='#method.metadata' class='fnname'>metadata</a>(&amp;self) -&gt; <a class='enum' href='../../../bitflags/__core/result/enum.Result.html' title='bitflags::__core::result::Result'>Result</a>&lt;<a class='struct' href='../../../bitflags/__core/fs/struct.Metadata.html' title='bitflags::__core::fs::Metadata'>Metadata</a>, <a class='struct' href='../../../bitflags/__core/io/struct.Error.html' title='bitflags::__core::io::Error'>Error</a>&gt;</code></h4>
+</div><h4 id='method.metadata' class='method'><code>fn <a href='#method.metadata' class='fnname'>metadata</a>(&amp;self) -&gt; <a class='enum' href='../../../bitflags/__core/result/enum.Result.html' title='bitflags::__core::result::Result'>Result</a>&lt;<a class='struct' href='../../../bitflags/__core/fs/struct.Metadata.html' title='bitflags::__core::fs::Metadata'>Metadata</a>, <a class='struct' href='../../../bitflags/__core/io/struct.Error.html' title='bitflags::__core::io::Error'>Error</a>&gt;</code><div class='since' title='Stable since Rust version 1.1.0'>1.1.0</div></h4>
 <div class='docblock'><p>Return the metadata for the file that this entry points at.</p>
 
 <p>This function will not traverse symlinks if this entry points at a
@@ -84,7 +86,7 @@ symlink.</p>
 <p>On Windows this function is cheap to call (no extra system calls
 needed), but on Unix platforms this function is the equivalent of
 calling <code>symlink_metadata</code> on the path.</p>
-</div><h4 id='method.file_type' class='method'><span class="since">1.1.0</span><code>fn <a href='#method.file_type' class='fnname'>file_type</a>(&amp;self) -&gt; <a class='enum' href='../../../bitflags/__core/result/enum.Result.html' title='bitflags::__core::result::Result'>Result</a>&lt;<a class='struct' href='../../../bitflags/__core/fs/struct.FileType.html' title='bitflags::__core::fs::FileType'>FileType</a>, <a class='struct' href='../../../bitflags/__core/io/struct.Error.html' title='bitflags::__core::io::Error'>Error</a>&gt;</code></h4>
+</div><h4 id='method.file_type' class='method'><code>fn <a href='#method.file_type' class='fnname'>file_type</a>(&amp;self) -&gt; <a class='enum' href='../../../bitflags/__core/result/enum.Result.html' title='bitflags::__core::result::Result'>Result</a>&lt;<a class='struct' href='../../../bitflags/__core/fs/struct.FileType.html' title='bitflags::__core::fs::FileType'>FileType</a>, <a class='struct' href='../../../bitflags/__core/io/struct.Error.html' title='bitflags::__core::io::Error'>Error</a>&gt;</code><div class='since' title='Stable since Rust version 1.1.0'>1.1.0</div></h4>
 <div class='docblock'><p>Return the file type for the file that this entry points at.</p>
 
 <p>This function will not traverse symlinks if this entry points at a
@@ -94,11 +96,13 @@ symlink.</p>
 <p>On Windows and most Unix platforms this function is free (no extra
 system calls needed), but some Unix platforms may require the equivalent
 call to <code>symlink_metadata</code> to learn about the target file type.</p>
-</div><h4 id='method.file_name' class='method'><span class="since">1.1.0</span><code>fn <a href='#method.file_name' class='fnname'>file_name</a>(&amp;self) -&gt; <a class='struct' href='../../../bitflags/__core/ffi/struct.OsString.html' title='bitflags::__core::ffi::OsString'>OsString</a></code></h4>
+</div><h4 id='method.file_name' class='method'><code>fn <a href='#method.file_name' class='fnname'>file_name</a>(&amp;self) -&gt; <a class='struct' href='../../../bitflags/__core/ffi/struct.OsString.html' title='bitflags::__core::ffi::OsString'>OsString</a></code><div class='since' title='Stable since Rust version 1.1.0'>1.1.0</div></h4>
 <div class='docblock'><p>Returns the bare file name of this directory entry without any other
 leading path component.</p>
-</div></div><h2 id='implementations'>Trait Implementations</h2><h3 class='impl'><code>impl <a class='trait' href='../../../bitflags/__core/os/ext/prelude/trait.DirEntryExt.html' title='bitflags::__core::os::ext::prelude::DirEntryExt'>DirEntryExt</a> for <a class='struct' href='../../../bitflags/__core/fs/struct.DirEntry.html' title='bitflags::__core::fs::DirEntry'>DirEntry</a></code><span class="since">1.1.0</span></h3><div class='impl-items'><h4 id='method.ino' class='method'><code>fn <a href='../../../bitflags/__core/os/ext/prelude/trait.DirEntryExt.html#method.ino' class='fnname'>ino</a>(&amp;self) -&gt; <a class='primitive' href='https://doc.rust-lang.org/nightly/bitflags/primitive.u64.html'>u64</a></code></h4>
-</div></section>
+</div></div><h2 id='implementations'>Trait Implementations</h2><h3 class='impl'><span class='in-band'><code>impl <a class='trait' href='../../../bitflags/__core/os/ext/prelude/trait.DirEntryExt.html' title='bitflags::__core::os::ext::prelude::DirEntryExt'>DirEntryExt</a> for <a class='struct' href='../../../bitflags/__core/fs/struct.DirEntry.html' title='bitflags::__core::fs::DirEntry'>DirEntry</a></code></span><span class='out-of-band'><div class='since' title='Stable since Rust version 1.1.0'>1.1.0</div></span></h3>
+<div class='impl-items'><h4 id='method.ino' class='method'><code>fn <a href='../../../bitflags/__core/os/ext/prelude/trait.DirEntryExt.html#tymethod.ino' class='fnname'>ino</a>(&amp;self) -&gt; <a class='primitive' href='https://doc.rust-lang.org/nightly/bitflags/primitive.u64.html'>u64</a></code></h4>
+<div class='docblock'><p>Returns the underlying <code>d_ino</code> field in the contained <code>dirent</code> structure. <a href="../../../bitflags/__core/os/ext/prelude/trait.DirEntryExt.html#tymethod.ino">Read more</a></p>
+</div></div></section>
     <section id='search' class="content hidden"></section>
 
     <section class="footer"></section>
@@ -121,6 +125,8 @@ leading path component.</p>
                     <dd>Move down in search results</dd>
                     <dt>&#9166;</dt>
                     <dd>Go to active search result</dd>
+                    <dt>+</dt>
+                    <dd>Collapse/expand all sections</dd>
                 </dl>
             </div>
 

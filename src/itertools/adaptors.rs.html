@@ -4,13 +4,14 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="generator" content="rustdoc">
-    <meta name="description" content="Source to the Rust file `/home/marc/.cargo/registry/src/github.com-88ac128001ac3a9a/itertools-0.4.13/src/adaptors.rs`.">
+    <meta name="description" content="Source to the Rust file `/home/marc/.cargo/registry/src/github.com-1ecc6299db9ec823/itertools-0.4.13/src/adaptors.rs`.">
     <meta name="keywords" content="rust, rustlang, rust-lang">
 
     <title>adaptors.rs.html -- source</title>
 
     <link rel="stylesheet" type="text/css" href="../../rustdoc.css">
     <link rel="stylesheet" type="text/css" href="../../main.css">
+    
 
     
     
@@ -1545,7 +1546,7 @@
         <span class='ident'>Interleave</span> {
             <span class='ident'>a</span>: <span class='ident'>a</span>.<span class='ident'>fuse</span>(),
             <span class='ident'>b</span>: <span class='ident'>b</span>.<span class='ident'>fuse</span>(),
-            <span class='ident'>flag</span>: <span class='boolval'>false</span>,
+            <span class='ident'>flag</span>: <span class='boolvalue'>false</span>,
         }
     }
 }
@@ -1598,7 +1599,7 @@
         <span class='ident'>InterleaveShortest</span> {
             <span class='ident'>it0</span>: <span class='ident'>a</span>,
             <span class='ident'>it1</span>: <span class='ident'>b</span>,
-            <span class='ident'>phase</span>: <span class='boolval'>false</span>,
+            <span class='ident'>phase</span>: <span class='boolvalue'>false</span>,
         }
     }
 }
@@ -1612,17 +1613,17 @@
     <span class='attribute'>#[<span class='ident'>inline</span>]</span>
     <span class='kw'>fn</span> <span class='ident'>next</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>I</span>::<span class='ident'>Item</span><span class='op'>&gt;</span> {
         <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>phase</span> {
-            <span class='boolval'>false</span> <span class='op'>=&gt;</span> <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>it0</span>.<span class='ident'>next</span>() {
+            <span class='boolvalue'>false</span> <span class='op'>=&gt;</span> <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>it0</span>.<span class='ident'>next</span>() {
                 <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> <span class='prelude-val'>None</span>,
                 <span class='ident'>e</span> <span class='op'>=&gt;</span> {
-                    <span class='self'>self</span>.<span class='ident'>phase</span> <span class='op'>=</span> <span class='boolval'>true</span>;
+                    <span class='self'>self</span>.<span class='ident'>phase</span> <span class='op'>=</span> <span class='boolvalue'>true</span>;
                     <span class='ident'>e</span>
                 }
             },
-            <span class='boolval'>true</span> <span class='op'>=&gt;</span> <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>it1</span>.<span class='ident'>next</span>() {
+            <span class='boolvalue'>true</span> <span class='op'>=&gt;</span> <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>it1</span>.<span class='ident'>next</span>() {
                 <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> <span class='prelude-val'>None</span>,
                 <span class='ident'>e</span> <span class='op'>=&gt;</span> {
-                    <span class='self'>self</span>.<span class='ident'>phase</span> <span class='op'>=</span> <span class='boolval'>false</span>;
+                    <span class='self'>self</span>.<span class='ident'>phase</span> <span class='op'>=</span> <span class='boolvalue'>false</span>;
                     <span class='ident'>e</span>
                 }
             },
@@ -1669,7 +1670,7 @@
 {
     <span class='doccomment'>/// Iterator element type is `A`</span>
     <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>it</span>: <span class='ident'>I</span>) <span class='op'>-&gt;</span> <span class='kw'>Self</span> {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>it</span>: <span class='ident'>I</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span> {
         <span class='ident'>PutBack</span> {
             <span class='ident'>top</span>: <span class='prelude-val'>None</span>,
             <span class='ident'>iter</span>: <span class='ident'>it</span>,
@@ -1678,7 +1679,7 @@
 
     <span class='doccomment'>/// Create a `PutBack` along with the `value` to put back.</span>
     <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>with_value</span>(<span class='ident'>value</span>: <span class='ident'>I</span>::<span class='ident'>Item</span>, <span class='ident'>it</span>: <span class='ident'>I</span>) <span class='op'>-&gt;</span> <span class='kw'>Self</span> {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>with_value</span>(<span class='ident'>value</span>: <span class='ident'>I</span>::<span class='ident'>Item</span>, <span class='ident'>it</span>: <span class='ident'>I</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span> {
         <span class='ident'>PutBack</span> {
             <span class='ident'>top</span>: <span class='prelude-val'>Some</span>(<span class='ident'>value</span>),
             <span class='ident'>iter</span>: <span class='ident'>it</span>,
@@ -1731,7 +1732,7 @@
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>I</span>: <span class='ident'>Iterator</span><span class='op'>&gt;</span> <span class='ident'>PutBackN</span><span class='op'>&lt;</span><span class='ident'>I</span><span class='op'>&gt;</span> {
     <span class='doccomment'>/// Iterator element type is `A`</span>
     <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>it</span>: <span class='ident'>I</span>) <span class='op'>-&gt;</span> <span class='kw'>Self</span> {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>it</span>: <span class='ident'>I</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span> {
         <span class='ident'>PutBackN</span> {
             <span class='ident'>top</span>: <span class='macro'>vec</span><span class='macro'>!</span>[],
             <span class='ident'>iter</span>: <span class='ident'>it</span>,
@@ -1778,7 +1779,7 @@
     <span class='kw'>where</span> <span class='ident'>I</span>: <span class='ident'>Clone</span>,
           <span class='ident'>I</span>::<span class='ident'>Item</span>: <span class='ident'>Clone</span>
 {
-    <span class='kw'>fn</span> <span class='ident'>clone</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw'>Self</span> {
+    <span class='kw'>fn</span> <span class='ident'>clone</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span> {
         <span class='macro'>clone_fields</span><span class='macro'>!</span>(<span class='ident'>PutBackN</span>, <span class='self'>self</span>, <span class='ident'>top</span>, <span class='ident'>iter</span>)
     }
 }
@@ -1807,7 +1808,7 @@
     <span class='doccomment'>/// Create a new cartesian product iterator</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// Iterator element type is `(I::Item, J::Item)`.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>i</span>: <span class='ident'>I</span>, <span class='ident'>j</span>: <span class='ident'>J</span>) <span class='op'>-&gt;</span> <span class='kw'>Self</span> {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>i</span>: <span class='ident'>I</span>, <span class='ident'>j</span>: <span class='ident'>J</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span> {
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>i</span> <span class='op'>=</span> <span class='ident'>i</span>;
         <span class='ident'>Product</span> {
             <span class='ident'>a_cur</span>: <span class='ident'>i</span>.<span class='ident'>next</span>(),
@@ -1913,7 +1914,7 @@
     <span class='kw'>where</span> <span class='ident'>I</span>: <span class='ident'>Iterator</span>
 {
     <span class='doccomment'>/// Create a new `GroupBy` iterator.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>iter</span>: <span class='ident'>I</span>, <span class='ident'>key</span>: <span class='ident'>F</span>) <span class='op'>-&gt;</span> <span class='kw'>Self</span> {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>iter</span>: <span class='ident'>I</span>, <span class='ident'>key</span>: <span class='ident'>F</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span> {
         <span class='ident'>GroupBy</span> {
             <span class='ident'>key</span>: <span class='ident'>key</span>,
             <span class='ident'>iter</span>: <span class='ident'>iter</span>,
@@ -1983,7 +1984,7 @@
     <span class='doccomment'>/// Create a `Step` iterator.</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// **Panics** if the step is 0.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>iter</span>: <span class='ident'>I</span>, <span class='ident'>step</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='kw'>Self</span> {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>iter</span>: <span class='ident'>I</span>, <span class='ident'>step</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span> {
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>step</span> <span class='op'>!=</span> <span class='number'>0</span>);
         <span class='ident'>Step</span> {
             <span class='ident'>iter</span>: <span class='ident'>iter</span>.<span class='ident'>fuse</span>(),
@@ -2038,7 +2039,7 @@
           <span class='ident'>Peekable</span><span class='op'>&lt;</span><span class='ident'>I</span><span class='op'>&gt;</span>: <span class='ident'>Clone</span>,
           <span class='ident'>Peekable</span><span class='op'>&lt;</span><span class='ident'>J</span><span class='op'>&gt;</span>: <span class='ident'>Clone</span>
 {
-    <span class='kw'>fn</span> <span class='ident'>clone</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw'>Self</span> {
+    <span class='kw'>fn</span> <span class='ident'>clone</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span> {
         <span class='macro'>clone_fields</span><span class='macro'>!</span>(<span class='ident'>MergeCore</span>, <span class='self'>self</span>, <span class='ident'>a</span>, <span class='ident'>b</span>, <span class='ident'>fused</span>)
     }
 }
@@ -2055,12 +2056,12 @@
             <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> <span class='kw'>match</span> (<span class='self'>self</span>.<span class='ident'>a</span>.<span class='ident'>peek</span>(), <span class='self'>self</span>.<span class='ident'>b</span>.<span class='ident'>peek</span>()) {
                 (<span class='prelude-val'>Some</span>(<span class='ident'>a</span>), <span class='prelude-val'>Some</span>(<span class='ident'>b</span>)) <span class='op'>=&gt;</span> <span class='ident'>less_than</span>(<span class='ident'>a</span>, <span class='ident'>b</span>),
                 (<span class='prelude-val'>Some</span>(_), <span class='prelude-val'>None</span>) <span class='op'>=&gt;</span> {
-                    <span class='self'>self</span>.<span class='ident'>fused</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='boolval'>true</span>);
-                    <span class='boolval'>true</span>
+                    <span class='self'>self</span>.<span class='ident'>fused</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='boolvalue'>true</span>);
+                    <span class='boolvalue'>true</span>
                 }
                 (<span class='prelude-val'>None</span>, <span class='prelude-val'>Some</span>(_)) <span class='op'>=&gt;</span> {
-                    <span class='self'>self</span>.<span class='ident'>fused</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='boolval'>false</span>);
-                    <span class='boolval'>false</span>
+                    <span class='self'>self</span>.<span class='ident'>fused</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='boolvalue'>false</span>);
+                    <span class='boolvalue'>false</span>
                 }
                 (<span class='prelude-val'>None</span>, <span class='prelude-val'>None</span>) <span class='op'>=&gt;</span> <span class='kw'>return</span> <span class='prelude-val'>None</span>,
             }
@@ -2098,7 +2099,7 @@
           <span class='ident'>Peekable</span><span class='op'>&lt;</span><span class='ident'>I</span><span class='op'>&gt;</span>: <span class='ident'>Clone</span>,
           <span class='ident'>Peekable</span><span class='op'>&lt;</span><span class='ident'>J</span><span class='op'>&gt;</span>: <span class='ident'>Clone</span>
 {
-    <span class='kw'>fn</span> <span class='ident'>clone</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw'>Self</span> {
+    <span class='kw'>fn</span> <span class='ident'>clone</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span> {
         <span class='macro'>clone_fields</span><span class='macro'>!</span>(<span class='ident'>Merge</span>, <span class='self'>self</span>, <span class='ident'>merge</span>)
     }
 }
@@ -2169,7 +2170,7 @@
           <span class='ident'>Peekable</span><span class='op'>&lt;</span><span class='ident'>J</span><span class='op'>&gt;</span>: <span class='ident'>Clone</span>,
           <span class='ident'>F</span>: <span class='ident'>Clone</span>
 {
-    <span class='kw'>fn</span> <span class='ident'>clone</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw'>Self</span> {
+    <span class='kw'>fn</span> <span class='ident'>clone</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span> {
         <span class='macro'>clone_fields</span><span class='macro'>!</span>(<span class='ident'>MergeBy</span>, <span class='self'>self</span>, <span class='ident'>merge</span>, <span class='ident'>cmp</span>)
     }
 }
@@ -2205,7 +2206,7 @@
     <span class='kw'>where</span> <span class='ident'>I</span>: <span class='ident'>Iterator</span>
 {
     <span class='doccomment'>/// Create a new `EnumerateFrom`.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>iter</span>: <span class='ident'>I</span>, <span class='ident'>start</span>: <span class='ident'>K</span>) <span class='op'>-&gt;</span> <span class='kw'>Self</span> {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>iter</span>: <span class='ident'>I</span>, <span class='ident'>start</span>: <span class='ident'>K</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span> {
         <span class='ident'>EnumerateFrom</span> {
             <span class='ident'>index</span>: <span class='ident'>start</span>,
             <span class='ident'>iter</span>: <span class='ident'>iter</span>,
@@ -2365,7 +2366,7 @@
     <span class='kw'>where</span> <span class='ident'>I</span>: <span class='ident'>Iterator</span>,
           <span class='ident'>I</span>::<span class='ident'>Item</span>: <span class='ident'>Clone</span>
 {
-    <span class='kw'>fn</span> <span class='ident'>clone</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw'>Self</span> {
+    <span class='kw'>fn</span> <span class='ident'>clone</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span> {
         <span class='macro'>clone_fields</span><span class='macro'>!</span>(<span class='ident'>Coalesce</span>, <span class='self'>self</span>, <span class='ident'>iter</span>, <span class='ident'>f</span>)
     }
 }
@@ -2374,7 +2375,7 @@
     <span class='kw'>where</span> <span class='ident'>I</span>: <span class='ident'>Iterator</span>
 {
     <span class='doccomment'>/// Create a new `Coalesce`.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='kw-2'>mut</span> <span class='ident'>iter</span>: <span class='ident'>I</span>, <span class='ident'>f</span>: <span class='ident'>F</span>) <span class='op'>-&gt;</span> <span class='kw'>Self</span> {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='kw-2'>mut</span> <span class='ident'>iter</span>: <span class='ident'>I</span>, <span class='ident'>f</span>: <span class='ident'>F</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span> {
         <span class='ident'>Coalesce</span> {
             <span class='ident'>iter</span>: <span class='ident'>CoalesceCore</span> {
                 <span class='ident'>last</span>: <span class='ident'>iter</span>.<span class='ident'>next</span>(),
@@ -2413,7 +2414,7 @@
     <span class='kw'>where</span> <span class='ident'>I</span>: <span class='ident'>Iterator</span>,
           <span class='ident'>I</span>::<span class='ident'>Item</span>: <span class='ident'>Clone</span>
 {
-    <span class='kw'>fn</span> <span class='ident'>clone</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw'>Self</span> {
+    <span class='kw'>fn</span> <span class='ident'>clone</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span> {
         <span class='macro'>clone_fields</span><span class='macro'>!</span>(<span class='ident'>Dedup</span>, <span class='self'>self</span>, <span class='ident'>iter</span>)
     }
 }
@@ -2422,7 +2423,7 @@
     <span class='kw'>where</span> <span class='ident'>I</span>: <span class='ident'>Iterator</span>
 {
     <span class='doccomment'>/// Create a new `Dedup`.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='kw-2'>mut</span> <span class='ident'>iter</span>: <span class='ident'>I</span>) <span class='op'>-&gt;</span> <span class='kw'>Self</span> {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='kw-2'>mut</span> <span class='ident'>iter</span>: <span class='ident'>I</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span> {
         <span class='ident'>Dedup</span> {
             <span class='ident'>iter</span>: <span class='ident'>CoalesceCore</span> {
                 <span class='ident'>last</span>: <span class='ident'>iter</span>.<span class='ident'>next</span>(),
@@ -2462,7 +2463,7 @@
     <span class='kw'>where</span> <span class='ident'>I</span>: <span class='ident'>Iterator</span>,
           <span class='ident'>I</span>::<span class='ident'>Item</span>: <span class='ident'>Clone</span>
 {
-    <span class='kw'>fn</span> <span class='ident'>clone</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw'>Self</span> {
+    <span class='kw'>fn</span> <span class='ident'>clone</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span> {
         <span class='macro'>clone_fields</span><span class='macro'>!</span>(<span class='ident'>MendSlices</span>, <span class='self'>self</span>, <span class='ident'>iter</span>)
     }
 }
@@ -2471,7 +2472,7 @@
     <span class='kw'>where</span> <span class='ident'>I</span>: <span class='ident'>Iterator</span>
 {
     <span class='doccomment'>/// Create a new `MendSlices`.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='kw-2'>mut</span> <span class='ident'>iter</span>: <span class='ident'>I</span>) <span class='op'>-&gt;</span> <span class='kw'>Self</span> {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='kw-2'>mut</span> <span class='ident'>iter</span>: <span class='ident'>I</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span> {
         <span class='ident'>MendSlices</span> {
             <span class='ident'>iter</span>: <span class='ident'>CoalesceCore</span> {
                 <span class='ident'>last</span>: <span class='ident'>iter</span>.<span class='ident'>next</span>(),
@@ -2509,7 +2510,7 @@
     <span class='kw'>where</span> <span class='ident'>I</span>: <span class='ident'>Iterator</span> <span class='op'>+</span> <span class='ident'>Clone</span>
 {
     <span class='doccomment'>/// Create a new `TakeWhileRef` from a reference to clonable iterator.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>iter</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='kw-2'>mut</span> <span class='ident'>I</span>, <span class='ident'>f</span>: <span class='ident'>F</span>) <span class='op'>-&gt;</span> <span class='kw'>Self</span> {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>iter</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='kw-2'>mut</span> <span class='ident'>I</span>, <span class='ident'>f</span>: <span class='ident'>F</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span> {
         <span class='ident'>TakeWhileRef</span> { <span class='ident'>iter</span>: <span class='ident'>iter</span>, <span class='ident'>f</span>: <span class='ident'>f</span> }
     }
 }
@@ -2552,7 +2553,7 @@
 
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>I</span><span class='op'>&gt;</span> <span class='ident'>WhileSome</span><span class='op'>&lt;</span><span class='ident'>I</span><span class='op'>&gt;</span> {
     <span class='doccomment'>/// Create a new `WhileSome&lt;I&gt;`.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>iter</span>: <span class='ident'>I</span>) <span class='op'>-&gt;</span> <span class='kw'>Self</span> {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>iter</span>: <span class='ident'>I</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span> {
         <span class='ident'>WhileSome</span> { <span class='ident'>iter</span>: <span class='ident'>iter</span> }
     }
 }
@@ -2602,7 +2603,7 @@
           <span class='ident'>I</span>::<span class='ident'>Item</span>: <span class='ident'>Clone</span>
 {
     <span class='kw'>type</span> <span class='ident'>Item</span> <span class='op'>=</span> (<span class='ident'>I</span>::<span class='ident'>Item</span>, <span class='ident'>I</span>::<span class='ident'>Item</span>);
-    <span class='kw'>fn</span> <span class='ident'>next</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Self</span>::<span class='ident'>Item</span><span class='op'>&gt;</span> {
+    <span class='kw'>fn</span> <span class='ident'>next</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='self'>Self</span>::<span class='ident'>Item</span><span class='op'>&gt;</span> {
         <span class='comment'>// not having a value means we iterate once more through the first iterator</span>
         <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>val</span>.<span class='ident'>is_none</span>() {
             <span class='self'>self</span>.<span class='ident'>val</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>iter</span>.<span class='ident'>next</span>();
@@ -2654,9 +2655,9 @@
         <span class='kw'>let</span> <span class='ident'>done</span>;
         <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>first</span>) <span class='op'>=</span> <span class='ident'>it</span>.<span class='ident'>next</span>() {
             <span class='ident'>buffer</span>.<span class='ident'>push</span>(<span class='ident'>first</span>);
-            <span class='ident'>done</span> <span class='op'>=</span> <span class='boolval'>false</span>;
+            <span class='ident'>done</span> <span class='op'>=</span> <span class='boolvalue'>false</span>;
         } <span class='kw'>else</span> {
-            <span class='ident'>done</span> <span class='op'>=</span> <span class='boolval'>true</span>;
+            <span class='ident'>done</span> <span class='op'>=</span> <span class='boolvalue'>true</span>;
         }
         <span class='ident'>LazyBuffer</span> {
             <span class='ident'>it</span>: <span class='ident'>it</span>,
@@ -2675,17 +2676,17 @@
 
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>get_next</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
         <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>done</span> {
-            <span class='kw'>return</span> <span class='boolval'>false</span>;
+            <span class='kw'>return</span> <span class='boolvalue'>false</span>;
         }
         <span class='kw'>let</span> <span class='ident'>next_item</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>it</span>.<span class='ident'>next</span>();
         <span class='kw'>match</span> <span class='ident'>next_item</span> {
             <span class='prelude-val'>Some</span>(<span class='ident'>x</span>) <span class='op'>=&gt;</span> {
                 <span class='self'>self</span>.<span class='ident'>buffer</span>.<span class='ident'>push</span>(<span class='ident'>x</span>);
-                <span class='boolval'>true</span>
+                <span class='boolvalue'>true</span>
             }
             <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> {
-                <span class='self'>self</span>.<span class='ident'>done</span> <span class='op'>=</span> <span class='boolval'>true</span>;
-                <span class='boolval'>false</span>
+                <span class='self'>self</span>.<span class='ident'>done</span> <span class='op'>=</span> <span class='boolvalue'>true</span>;
+                <span class='boolvalue'>false</span>
             }
         }
     }
@@ -2732,7 +2733,7 @@
             <span class='ident'>n</span>: <span class='ident'>n</span>,
             <span class='ident'>indices</span>: <span class='ident'>indices</span>,
             <span class='ident'>pool</span>: <span class='ident'>pool</span>,
-            <span class='ident'>first</span>: <span class='boolval'>true</span>,
+            <span class='ident'>first</span>: <span class='boolvalue'>true</span>,
         }
     }
 }
@@ -2742,7 +2743,7 @@
           <span class='ident'>I</span>::<span class='ident'>Item</span>: <span class='ident'>Clone</span>
 {
     <span class='kw'>type</span> <span class='ident'>Item</span> <span class='op'>=</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>I</span>::<span class='ident'>Item</span><span class='op'>&gt;</span>;
-    <span class='kw'>fn</span> <span class='ident'>next</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Self</span>::<span class='ident'>Item</span><span class='op'>&gt;</span> {
+    <span class='kw'>fn</span> <span class='ident'>next</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='self'>Self</span>::<span class='ident'>Item</span><span class='op'>&gt;</span> {
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>pool_len</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>pool</span>.<span class='ident'>len</span>();
         <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>pool</span>.<span class='ident'>is_done</span>() {
             <span class='kw'>if</span> <span class='ident'>pool_len</span> <span class='op'>==</span> <span class='number'>0</span> <span class='op'>||</span> <span class='self'>self</span>.<span class='ident'>n</span> <span class='op'>&gt;</span> <span class='ident'>pool_len</span> {
@@ -2751,7 +2752,7 @@
         }
 
         <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>first</span> {
-            <span class='self'>self</span>.<span class='ident'>first</span> <span class='op'>=</span> <span class='boolval'>false</span>;
+            <span class='self'>self</span>.<span class='ident'>first</span> <span class='op'>=</span> <span class='boolvalue'>false</span>;
         } <span class='kw'>else</span> {
             <span class='comment'>// Scan from the end, looking for an index to increment</span>
             <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>i</span>: <span class='ident'>usize</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>n</span> <span class='op'>-</span> <span class='number'>1</span>;
@@ -2919,7 +2920,7 @@
           <span class='ident'>I</span>::<span class='ident'>Item</span>: <span class='ident'>IntoIterator</span>
 {
     <span class='kw'>type</span> <span class='ident'>Item</span> <span class='op'>=</span> <span class='op'>&lt;</span><span class='ident'>I</span>::<span class='ident'>Item</span> <span class='kw'>as</span> <span class='ident'>IntoIterator</span><span class='op'>&gt;</span>::<span class='ident'>Item</span>;
-    <span class='kw'>fn</span> <span class='ident'>next</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Self</span>::<span class='ident'>Item</span><span class='op'>&gt;</span> {
+    <span class='kw'>fn</span> <span class='ident'>next</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='self'>Self</span>::<span class='ident'>Item</span><span class='op'>&gt;</span> {
         <span class='self'>self</span>.<span class='ident'>iter</span>.<span class='ident'>next</span>()
     }
 }
@@ -2928,7 +2929,7 @@
     <span class='kw'>where</span> <span class='ident'>I</span>: <span class='ident'>DoubleEndedIterator</span>,
           <span class='ident'>I</span>::<span class='ident'>Item</span>: <span class='ident'>DoubleEndedIterator</span>
 {
-    <span class='kw'>fn</span> <span class='ident'>next_back</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Self</span>::<span class='ident'>Item</span><span class='op'>&gt;</span> {
+    <span class='kw'>fn</span> <span class='ident'>next_back</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='self'>Self</span>::<span class='ident'>Item</span><span class='op'>&gt;</span> {
         <span class='self'>self</span>.<span class='ident'>iter</span>.<span class='ident'>next_back</span>()
     }
 }
@@ -2938,7 +2939,7 @@
     <span class='ident'>I</span>::<span class='ident'>Item</span>: <span class='ident'>IntoIterator</span> <span class='op'>+</span> <span class='ident'>Clone</span>,
     <span class='op'>&lt;&lt;</span><span class='ident'>I</span> <span class='kw'>as</span> <span class='ident'>Iterator</span><span class='op'>&gt;</span>::<span class='ident'>Item</span> <span class='kw'>as</span> <span class='ident'>IntoIterator</span><span class='op'>&gt;</span>::<span class='ident'>IntoIter</span>: <span class='ident'>Clone</span>
 {
-    <span class='kw'>fn</span> <span class='ident'>clone</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw'>Self</span> {
+    <span class='kw'>fn</span> <span class='ident'>clone</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span> {
         <span class='ident'>Flatten</span> {
             <span class='ident'>iter</span>: <span class='self'>self</span>.<span class='ident'>iter</span>.<span class='ident'>clone</span>()
         }
@@ -2968,6 +2969,8 @@
                     <dd>Move down in search results</dd>
                     <dt>&#9166;</dt>
                     <dd>Go to active search result</dd>
+                    <dt>+</dt>
+                    <dd>Collapse/expand all sections</dd>
                 </dl>
             </div>
 
