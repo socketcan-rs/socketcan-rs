@@ -9,6 +9,8 @@ extern crate itertools;
 extern crate libc;
 extern crate nix;
 
+pub mod dump;
+
 use libc::{c_int, c_short, c_void, c_uint, socket, SOCK_RAW, close, bind, sockaddr, read, write,
            setsockopt, SOL_SOCKET, SO_RCVTIMEO, timeval, EINPROGRESS, SO_SNDTIMEO};
 use itertools::Itertools;
