@@ -1,5 +1,12 @@
 use std::{fs, io, path};
 use std::str::FromStr;
+use hex::FromHex;
+
+fn parse_raw<T: FromStr>(bytes: &[u8]) -> Option<T> {
+    ::std::str::from_utf8(bytes)
+        .ok()
+        .and_then(|s| T::from_str(s).ok())
+}
 
 pub struct Reader<R> {
     rdr: R,
@@ -28,7 +35,7 @@ pub struct CanDumpRecords<'a, R: 'a> {
 pub struct CanDumpRecord<'a> {
     pub t_us: u64,
     pub device: &'a str,
-    pub can_raw: &'a [u8],
+    pub frame: super::CANFrame,
 }
 
 pub enum ParseError {
@@ -36,11 +43,19 @@ pub enum ParseError {
     UnexpectedEndOfLine,
     InvalidTimestamp,
     InvalidDeviceName,
+    InvalidCanFrame,
+    ConstructionError(super::ConstructionError),
 }
 
 impl From<io::Error> for ParseError {
     fn from(e: io::Error) -> ParseError {
         ParseError::Io(e)
+    }
+}
+
+impl From<super::ConstructionError> for ParseError {
+    fn from(e: super::ConstructionError) -> ParseError {
+        ParseError::ConstructionError(e)
     }
 }
 
@@ -73,25 +88,40 @@ impl<R: io::BufRead> Reader<R> {
         let (num, mant) = f.split_at(dot);
 
         // parse number and multiply
-        let n_num: u64 = try!(::std::str::from_utf8(num)
-            .ok()
-            .and_then(|s| u64::from_str(s).ok())
-            .ok_or(ParseError::InvalidTimestamp));
-        let n_mant: u64 = try!(::std::str::from_utf8(mant)
-            .ok()
-            .and_then(|s| u64::from_str(s).ok())
-            .ok_or(ParseError::InvalidTimestamp));
+        let n_num: u64 = try!(parse_raw(num).ok_or(ParseError::InvalidTimestamp));
+        let n_mant: u64 = try!(parse_raw(mant).ok_or(ParseError::InvalidTimestamp));
         let t_us = n_num.saturating_mul(1_000_000).saturating_add(n_mant);
 
         let f = try!(field_iter.next().ok_or(ParseError::UnexpectedEndOfLine));
+
+        // device name
         let device = try!(::std::str::from_utf8(f).map_err(|_| ParseError::InvalidDeviceName));
 
+        // parse packet
         let can_raw = try!(field_iter.next().ok_or(ParseError::UnexpectedEndOfLine));
+
+        let sep_idx =
+            try!(can_raw.iter().position(|&c| c == b'#').ok_or(ParseError::InvalidCanFrame));
+        let (can_id, can_data) = can_raw.split_at(sep_idx);
+
+        let rtr = b"R" == can_data;
+
+        let data = if rtr {
+            Vec::new()
+        } else {
+            try!(Vec::from_hex(&can_data).map_err(|_| ParseError::InvalidCanFrame))
+        };
+        let frame = try!(super::CANFrame::new(try!(parse_raw(can_id)
+                                                  .ok_or(ParseError::InvalidCanFrame)),
+                                              &data,
+                                              rtr,
+                                              // FIXME: how are error frames saved?
+                                              false));
 
         Ok(Some(CanDumpRecord {
             t_us: t_us,
             device: device,
-            can_raw: can_raw,
+            frame: frame,
         }))
     }
 }

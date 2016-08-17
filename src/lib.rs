@@ -5,6 +5,7 @@
 //! crate allows easy access to this functionality without having to wrestle
 //! libc calls.
 
+extern crate hex;
 extern crate itertools;
 extern crate libc;
 extern crate nix;
