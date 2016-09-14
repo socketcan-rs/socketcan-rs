@@ -221,6 +221,7 @@ impl From<io::Error> for CANSocketOpenError {
 ///
 /// Will be closed upon deallocation. To close manually, use std::drop::Drop.
 /// Internally this is just a wrapped file-descriptor.
+#[derive(Debug)]
 pub struct CANSocket {
     fd: c_int,
 }
