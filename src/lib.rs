@@ -96,6 +96,9 @@ impl<E: fmt::Debug> ShouldRetry for io::Result<E> {
 const AF_CAN: c_int = 29;
 const PF_CAN: c_int = 29;
 const CAN_RAW: c_int = 1;
+const SOL_CAN_BASE: c_int = 100;
+const SOL_CAN_RAW: c_int = SOL_CAN_BASE + CAN_RAW;
+const CAN_RAW_FILTER: c_int = 1;
 
 /// if set, indicate 29 bit extended format
 pub const EFF_FLAG: u32 = 0x80000000;
@@ -368,6 +371,27 @@ impl CANSocket {
 
         Ok(())
     }
+
+    /// Sets the filter mask on the socket.
+    pub fn set_filter(&self, filters: &[CANFilter]) -> io::Result<()> {
+
+        // TODO: Handle different *_FILTER sockopts.
+
+        let rv = unsafe{
+            let filters_ptr = &filters[0] as *const CANFilter;
+            setsockopt(self.fd,
+                       SOL_CAN_RAW,
+                       CAN_RAW_FILTER,
+                       filters_ptr as *const c_void,
+                       (size_of::<CANFilter>() * filters.len()) as u32)
+        };
+
+        if rv != 0 {
+            return Err(io::Error::last_os_error());
+        }
+
+        Ok(())
+    }
 }
 
 impl Drop for CANSocket {
@@ -494,5 +518,26 @@ impl fmt::UpperHex for CANFrame {
 
         let sep = if f.alternate() { " " } else { " " };
         write!(f, "{}", parts.join(sep))
+    }
+}
+
+/// CANFilter
+///
+/// Uses the same memory layout as the underlying kernel struct for performance
+/// reasons.
+#[derive(Debug, Copy, Clone)]
+#[repr(C)]
+pub struct CANFilter {
+    _id: u32,
+    _mask: u32
+}
+
+impl CANFilter {
+    pub fn new(id: u32, mask: u32) -> Result<CANFilter, ConstructionError> {
+
+        Ok(CANFilter {
+            _id: id,
+            _mask: mask,
+        })
     }
 }
