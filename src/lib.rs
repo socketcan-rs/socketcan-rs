@@ -354,7 +354,11 @@ impl CANSocket {
         Ok(frame)
     }
 
-    /// Blocking write a single can frame.
+    /// Write a single can frame.
+    ///
+    /// Note that this function can fail with an `EAGAIN` error or similar.
+    /// Use `write_frame_insist` if you need to be sure that the message got
+    /// sent or failed.
     pub fn write_frame(&self, frame: &CANFrame) -> io::Result<()> {
         // not a mutable reference needed (see std::net::UdpSocket) for
         // a comparison
@@ -370,6 +374,21 @@ impl CANSocket {
         }
 
         Ok(())
+    }
+
+    /// Blocking write a single can frame, retrying until it gets sent
+    /// successfully.
+    pub fn write_frame_insist(&self, frame: &CANFrame) -> io::Result<()> {
+        loop {
+            match self.write_frame(frame) {
+                Ok(v) => return Ok(v),
+                Err(e) => {
+                    if !e.should_retry() {
+                        return Err(e);
+                    }
+                }
+            }
+        }
     }
 
     /// Sets the filter mask on the socket.
