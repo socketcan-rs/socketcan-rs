@@ -396,7 +396,7 @@ impl CANSocket {
 
         // TODO: Handle different *_FILTER sockopts.
 
-        let rv = unsafe{
+        let rv = unsafe {
             let filters_ptr = &filters[0] as *const CANFilter;
             setsockopt(self.fd,
                        SOL_CAN_RAW,
@@ -548,7 +548,7 @@ impl fmt::UpperHex for CANFrame {
 #[repr(C)]
 pub struct CANFilter {
     _id: u32,
-    _mask: u32
+    _mask: u32,
 }
 
 impl CANFilter {
