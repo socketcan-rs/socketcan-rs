@@ -1,10 +1,10 @@
 [package]
 name = "socketcan"
-version = "1.5.0"
+version = "1.5.1"
 authors = ["Marc Brinkmann <git@marcbrinkmann.de>"]
 license = "MIT"
 description = "Linux SocketCAN library. Send and receive CAN frames via CAN bus on Linux."
-documentation = "https://mbr.github.io/socketcan-rs/socketcan"
+documentation = "https://docs.rs/socketcan"
 repository = "https://github.com/mbr/socketcan-rs"
 
 [dependencies]
