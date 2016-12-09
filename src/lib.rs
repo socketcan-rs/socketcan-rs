@@ -39,7 +39,10 @@ extern crate hex;
 extern crate itertools;
 extern crate libc;
 extern crate nix;
+extern crate try_from;
 
+mod err;
+pub use err::CANError;
 pub mod dump;
 
 use libc::{c_int, c_short, c_void, c_uint, socket, SOCK_RAW, close, bind, sockaddr, read, write,
@@ -553,7 +556,6 @@ pub struct CANFilter {
 
 impl CANFilter {
     pub fn new(id: u32, mask: u32) -> Result<CANFilter, ConstructionError> {
-
         Ok(CANFilter {
             _id: id,
             _mask: mask,

@@ -1,14 +1,15 @@
 [package]
-name = "socketcan"
-version = "1.5.1"
 authors = ["Marc Brinkmann <git@marcbrinkmann.de>"]
-license = "MIT"
 description = "Linux SocketCAN library. Send and receive CAN frames via CAN bus on Linux."
 documentation = "https://docs.rs/socketcan"
+license = "MIT"
+name = "socketcan"
 repository = "https://github.com/mbr/socketcan-rs"
+version = "1.5.1"
 
 [dependencies]
-nix = "^0.5"
-libc = "^0.2"
-itertools = "^0.4"
 hex = "^0.2"
+itertools = "^0.4"
+libc = "^0.2"
+nix = "^0.5"
+try_from = "0.2.0"
