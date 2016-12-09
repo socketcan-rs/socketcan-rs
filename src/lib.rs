@@ -414,6 +414,12 @@ impl CANSocket {
 
         Ok(())
     }
+
+    /// Clear all filter masks.
+    #[inline(always)]
+    pub fn clear_filter(&self) -> io::Result<()> {
+        self.set_filter(&[])
+    }
 }
 
 impl Drop for CANSocket {
