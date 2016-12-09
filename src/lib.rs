@@ -399,13 +399,18 @@ impl CANSocket {
 
         // TODO: Handle different *_FILTER sockopts.
 
-        let rv = unsafe {
-            let filters_ptr = &filters[0] as *const CANFilter;
-            setsockopt(self.fd,
-                       SOL_CAN_RAW,
-                       CAN_RAW_FILTER,
-                       filters_ptr as *const c_void,
-                       (size_of::<CANFilter>() * filters.len()) as u32)
+        let rv = if filters.len() < 1 {
+            // clears all filters
+            unsafe { setsockopt(self.fd, SOL_CAN_RAW, CAN_RAW_FILTER, 0 as *const c_void, 0) }
+        } else {
+            unsafe {
+                let filters_ptr = &filters[0] as *const CANFilter;
+                setsockopt(self.fd,
+                           SOL_CAN_RAW,
+                           CAN_RAW_FILTER,
+                           filters_ptr as *const c_void,
+                           (size_of::<CANFilter>() * filters.len()) as u32)
+            }
         };
 
         if rv != 0 {

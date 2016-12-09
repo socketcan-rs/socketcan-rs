@@ -14,6 +14,7 @@ fn get_data(frame: &CANFrame, idx: u8) -> Result<u8, CANErrorDecodingFailure> {
 
 
 /// Error decoding a CANError from a CANFrame.
+#[derive(Copy, Clone, Debug)]
 pub enum CANErrorDecodingFailure {
     /// The supplied CANFrame did not have the error bit set.
     NotAnError,
