@@ -420,10 +420,21 @@ impl CANSocket {
         Ok(())
     }
 
-    /// Clear all filter masks.
+    /// Disable reception of CAN frames.
+    ///
+    /// Sets a completely empty filter; disabling all CAN frame reception.
     #[inline(always)]
-    pub fn clear_filter(&self) -> io::Result<()> {
+    pub fn filter_drop_all(&self) -> io::Result<()> {
         self.set_filter(&[])
+    }
+
+    /// Accept all frames, disabling any kind of filtering.
+    ///
+    /// Replace the current filter with one containing a single rule that
+    /// acceps all CAN frames.
+    pub fn filter_accept_all(&self) -> io::Result<()> {
+        // safe unwrap: 0, 0 is a valid mask/id pair
+        self.set_filter(&[CANFilter::new(0, 0).unwrap()])
     }
 }
 
