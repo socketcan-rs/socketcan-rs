@@ -42,7 +42,7 @@ extern crate nix;
 extern crate try_from;
 
 mod err;
-pub use err::CANError;
+pub use err::{CANError, CANErrorDecodingFailure};
 pub mod dump;
 
 use libc::{c_int, c_short, c_void, c_uint, socket, SOCK_RAW, close, bind, sockaddr, read, write,
@@ -529,6 +529,11 @@ impl CANFrame {
     #[inline(always)]
     pub fn data(&self) -> &[u8] {
         &self._data[..(self._data_len as usize)]
+    }
+
+    #[inline(always)]
+    pub fn error(&self) -> Result<CANError, CANErrorDecodingFailure> {
+        CANError::from_frame(self)
     }
 }
 
