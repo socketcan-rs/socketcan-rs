@@ -102,6 +102,7 @@ const CAN_RAW: c_int = 1;
 const SOL_CAN_BASE: c_int = 100;
 const SOL_CAN_RAW: c_int = SOL_CAN_BASE + CAN_RAW;
 const CAN_RAW_FILTER: c_int = 1;
+const CAN_RAW_ERR_FILTER: c_int = 2;
 
 /// if set, indicate 29 bit extended format
 pub const EFF_FLAG: u32 = 0x80000000;
@@ -435,6 +436,34 @@ impl CANSocket {
     pub fn filter_accept_all(&self) -> io::Result<()> {
         // safe unwrap: 0, 0 is a valid mask/id pair
         self.set_filter(&[CANFilter::new(0, 0).unwrap()])
+    }
+
+    #[inline(always)]
+    pub fn set_error_filter(&self, mask: u32) -> io::Result<()> {
+        let rv = unsafe {
+            setsockopt(self.fd,
+                       SOL_CAN_RAW,
+                       CAN_RAW_ERR_FILTER,
+                       (&mask as *const u32) as *const c_void,
+                       size_of::<u32> as u32)
+        };
+
+        if rv != 0 {
+            return Err(io::Error::last_os_error());
+        }
+
+        Ok(())
+
+    }
+
+    #[inline(always)]
+    pub fn error_filter_drop_all(&self) -> io::Result<()> {
+        self.set_error_filter(0)
+    }
+
+    #[inline(always)]
+    pub fn error_filter_accept_all(&self) -> io::Result<()> {
+        self.set_error_filter(ERR_MASK)
     }
 }
 
