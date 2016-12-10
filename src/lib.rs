@@ -448,7 +448,7 @@ impl CANSocket {
                        SOL_CAN_RAW,
                        CAN_RAW_ERR_FILTER,
                        (&mask as *const u32) as *const c_void,
-                       size_of::<u32> as u32)
+                       size_of::<u32>() as u32)
         };
 
         if rv != 0 {
