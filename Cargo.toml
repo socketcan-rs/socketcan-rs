@@ -13,3 +13,6 @@ itertools = "^0.4"
 libc = "^0.2"
 nix = "^0.5"
 try_from = "0.2.0"
+
+[features]
+vcan_tests = []

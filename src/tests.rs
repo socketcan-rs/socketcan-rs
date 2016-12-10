@@ -7,6 +7,7 @@ fn test_nonexistant_device() {
 }
 
 #[test]
+#[cfg(feature = "vcan_tests")]
 fn vcan0_timeout() {
     let cs = CANSocket::open("vcan1").unwrap();
     cs.set_read_timeout(time::Duration::from_millis(100)).unwrap();

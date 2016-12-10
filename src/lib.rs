@@ -45,6 +45,9 @@ mod err;
 pub use err::{CANError, CANErrorDecodingFailure};
 pub mod dump;
 
+#[cfg(test)]
+mod tests;
+
 use libc::{c_int, c_short, c_void, c_uint, socket, SOCK_RAW, close, bind, sockaddr, read, write,
            setsockopt, SOL_SOCKET, SO_RCVTIMEO, timeval, EINPROGRESS, SO_SNDTIMEO};
 use itertools::Itertools;
