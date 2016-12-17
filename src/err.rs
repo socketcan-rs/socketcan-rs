@@ -3,6 +3,8 @@
 
 use try_from::TryFrom;
 use super::CanFrame;
+use std::error::Error;
+use std::{error, fmt};
 
 
 #[inline]
@@ -39,6 +41,30 @@ pub enum CanErrorDecodingFailure {
 
     /// The supplied transciever error was invalid.
     InvalidTransceiverError,
+}
+
+impl error::Error for CanErrorDecodingFailure {
+    fn description(&self) -> &str {
+        match *self {
+            CanErrorDecodingFailure::NotAnError => "CAN frame is not an error",
+            CanErrorDecodingFailure::UnknownErrorType(_) => "unknown error type",
+            CanErrorDecodingFailure::NotEnoughData(_) => "not enough data",
+            CanErrorDecodingFailure::InvalidControllerProblem => "not a valid controller problem",
+            CanErrorDecodingFailure::InvalidViolationType => "not a valid violation type",
+            CanErrorDecodingFailure::InvalidLocation => "not a valid location",
+            CanErrorDecodingFailure::InvalidTransceiverError => "not a valid transceiver error",
+        }
+    }
+
+    fn cause(&self) -> Option<&error::Error> {
+        None
+    }
+}
+
+impl fmt::Display for CanErrorDecodingFailure {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.description())
+    }
 }
 
 
