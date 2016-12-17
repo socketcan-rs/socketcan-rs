@@ -1,3 +1,6 @@
 [clog]
 repository = "https://github.com/mbr/socketcan-rs"
 changelog = "CHANGELOG.md"
+
+[sections]
+Refactored = ["refactor"]
