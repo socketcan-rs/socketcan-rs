@@ -433,7 +433,7 @@ impl CanSocket {
     /// Sets a completely empty filter; disabling all CAN frame reception.
     #[inline]
     pub fn filter_drop_all(&self) -> io::Result<()> {
-        self.set_filter(&[])
+        self.set_filters(&[])
     }
 
     /// Accept all frames, disabling any kind of filtering.
@@ -442,7 +442,7 @@ impl CanSocket {
     /// acceps all CAN frames.
     pub fn filter_accept_all(&self) -> io::Result<()> {
         // safe unwrap: 0, 0 is a valid mask/id pair
-        self.set_filter(&[CanFilter::new(0, 0).unwrap()])
+        self.set_filters(&[CanFilter::new(0, 0).unwrap()])
     }
 
     #[inline]
@@ -465,12 +465,12 @@ impl CanSocket {
 
     #[inline]
     pub fn error_filter_drop_all(&self) -> io::Result<()> {
-        self.set_error_filter(0)
+        self.set_error_filters(0)
     }
 
     #[inline]
     pub fn error_filter_accept_all(&self) -> io::Result<()> {
-        self.set_error_filter(ERR_MASK)
+        self.set_error_filters(ERR_MASK)
     }
 }
 

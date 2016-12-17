@@ -67,18 +67,25 @@ pub enum CanError {
 pub enum ControllerProblem {
     // unspecified
     Unspecified,
+
     // RX buffer overflow
     ReceiveBufferOverflow,
+
     // TX buffer overflow
     TransmitBufferOverflow,
+
     // reached warning level for RX errors
     ReceiveErrorWarning,
+
     // reached warning level for TX errors
     TransmitErrorWarning,
+
     // reached error passive status RX
     ReceiveErrorPassive,
+
     // reached error passive status TX
     TransmitErrorPassive,
+
     // recovered to error active state
     Active,
 }
@@ -140,42 +147,61 @@ impl TryFrom<u8> for ViolationType {
 pub enum Location {
     /// Unspecified
     Unspecified,
+
     /// Start of frame.
     StartOfFrame,
+
     /// ID bits 28-21 (SFF: 10-3)
     Id2821,
+
     /// ID bits 20-18 (SFF: 2-0)
     Id2018,
+
     /// substitute RTR (SFF: RTR)
     SubstituteRtr,
+
     /// extension of identifier
     IdentifierExtension,
+
     /// ID bits 17-13
     Id1713,
+
     /// ID bits 12-5
     Id1205,
+
     /// ID bits 4-0
     Id0400,
+
     /// RTR bit
     Rtr,
+
     /// Reserved bit 1
     Reserved1,
+
     /// Reserved bit 0
     Reserved0,
+
     /// Data length
     DataLengthCode,
+
     /// Data section
     DataSection,
+
     /// CRC sequence
     CrcSequence,
+
     /// CRC delimiter
     CrcDelimiter,
+
     /// ACK slot
     AckSlot,
+
     /// ACK delimiter
     AckDelimiter,
+
     /// End-of-frame
     EndOfFrame,
+
     /// Intermission (between frames)
     Intermission,
 }
