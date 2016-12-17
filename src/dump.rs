@@ -40,7 +40,7 @@ impl<R: io::Read> Reader<R> {
 
 impl Reader<fs::File> {
     pub fn from_file<P: AsRef<path::Path>>(path: P) -> io::Result<Reader<io::BufReader<fs::File>>> {
-        Ok(Reader::from_reader(try!(fs::File::open(path))))
+        Ok(Reader::from_reader(fs::File::open(path)?))
     }
 }
 
@@ -90,7 +90,7 @@ impl<R: io::BufRead> Reader<R> {
     /// Advance state, returning next record.
     pub fn next_record(&mut self) -> Result<Option<CanDumpRecord>, ParseError> {
         self.line_buf.clear();
-        let bytes_read = try!(self.rdr.read_until(b'\n', &mut self.line_buf));
+        let bytes_read = self.rdr.read_until(b'\n', &mut self.line_buf)?;
 
         // reached EOF
         if bytes_read == 0 {
@@ -100,7 +100,7 @@ impl<R: io::BufRead> Reader<R> {
         let mut field_iter = self.line_buf.split(|&c| c == b' ');
 
         // parse time field
-        let f = try!(field_iter.next().ok_or(ParseError::UnexpectedEndOfLine));
+        let f = field_iter.next().ok_or(ParseError::UnexpectedEndOfLine)?;
 
         if f.len() < 3 || f[0] != b'(' || f[f.len() - 1] != b')' {
             return Err(ParseError::InvalidTimestamp);
@@ -109,27 +109,29 @@ impl<R: io::BufRead> Reader<R> {
         let inner = &f[1..f.len() - 1];
 
         // split at dot, read both parts
-        let dot = try!(inner.iter()
+        let dot = inner.iter()
             .position(|&c| c == b'.')
-            .ok_or(ParseError::InvalidTimestamp));
+            .ok_or(ParseError::InvalidTimestamp)?;
 
         let (num, mant) = inner.split_at(dot);
 
         // parse number and multiply
-        let n_num: u64 = try!(parse_raw(num, 10).ok_or(ParseError::InvalidTimestamp));
-        let n_mant: u64 = try!(parse_raw(&mant[1..], 10).ok_or(ParseError::InvalidTimestamp));
+        let n_num: u64 = parse_raw(num, 10).ok_or(ParseError::InvalidTimestamp)?;
+        let n_mant: u64 = parse_raw(&mant[1..], 10).ok_or(ParseError::InvalidTimestamp)?;
         let t_us = n_num.saturating_mul(1_000_000).saturating_add(n_mant);
 
-        let f = try!(field_iter.next().ok_or(ParseError::UnexpectedEndOfLine));
+        let f = field_iter.next().ok_or(ParseError::UnexpectedEndOfLine)?;
 
         // device name
-        let device = try!(::std::str::from_utf8(f).map_err(|_| ParseError::InvalidDeviceName));
+        let device = ::std::str::from_utf8(f).map_err(|_| ParseError::InvalidDeviceName)?;
 
         // parse packet
-        let can_raw = try!(field_iter.next().ok_or(ParseError::UnexpectedEndOfLine));
+        let can_raw = field_iter.next()
+            .ok_or(ParseError::UnexpectedEndOfLine)?;
 
-        let sep_idx =
-            try!(can_raw.iter().position(|&c| c == b'#').ok_or(ParseError::InvalidCanFrame));
+        let sep_idx = can_raw.iter()
+            .position(|&c| c == b'#')
+            .ok_or(ParseError::InvalidCanFrame)?;
         let (can_id, mut can_data) = can_raw.split_at(sep_idx);
 
         // cut of linefeed and skip seperator
@@ -143,17 +145,18 @@ impl<R: io::BufRead> Reader<R> {
         let data = if rtr {
             Vec::new()
         } else {
-            try!(Vec::from_hex(&can_data).map_err(|_| ParseError::InvalidCanFrame))
+            Vec::from_hex(&can_data).map_err(|_| ParseError::InvalidCanFrame)?
         };
-        let frame = try!(super::CanFrame::new(try!(parse_raw(can_id, 16)
+        let frame = super::CanFrame::new((parse_raw(can_id, 16)
                                                   .ok_or
 
-                                                  (ParseError::InvalidCanFrame))
+
+                                                  (ParseError::InvalidCanFrame))?
                                               as u32,
                                               &data,
                                               rtr,
                                               // FIXME: how are error frames saved?
-                                              false));
+                                              false)?;
 
         Ok(Some(CanDumpRecord {
             t_us: t_us,

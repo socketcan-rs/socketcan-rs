@@ -246,7 +246,7 @@ impl CanSocket {
     /// Usually the more common case, opens a socket can device by name, such
     /// as "vcan0" or "socan0".
     pub fn open(ifname: &str) -> Result<CanSocket, CanSocketOpenError> {
-        let if_index = try!(if_nametoindex(ifname));
+        let if_index = if_nametoindex(ifname)?;
         CanSocket::open_if(if_index)
     }
 
@@ -597,7 +597,7 @@ impl CanFrame {
 
 impl fmt::UpperHex for CanFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        try!(write!(f, "{:X}#", self.id()));
+        write!(f, "{:X}#", self.id())?;
 
         let mut parts = self.data().iter().map(|v| format!("{:02X}", v));
 
