@@ -76,18 +76,74 @@ pub enum CanError {
     /// Arbitration was lost. Contains the number after which arbitration was
     /// lost or 0 if unspecified
     LostArbitration(u8),
+
+    /// Controller problem, see `ControllerProblem`
     ControllerProblem(ControllerProblem),
+
+    /// Protocol violation at the specified `Location`. See `ProtocolViolation`
+    /// for details.
     ProtocolViolation {
         vtype: ViolationType,
         location: Location,
     },
+
+    /// Transceiver Error.
     TransceiverError,
+
+    /// No ACK received for current CAN frame.
     NoAck,
+
+    /// Bus off (due to too many detected errors)
     BusOff,
+
+    /// Bus error (due to too many detected errors)
     BusError,
+
+    /// The bus has been restarted
     Restarted,
+
+    /// Unknown, possibly invalid, error
     Unknown(u32),
 }
+
+impl error::Error for CanError {
+    fn description(&self) -> &str {
+        match *self {
+            CanError::TransmitTimeout => "transmission timeout",
+            CanError::LostArbitration(_) => "arbitration lost",
+            CanError::ControllerProblem(_) => "controller problem",
+            CanError::ProtocolViolation { .. } => "protocol violation",
+            CanError::TransceiverError => "transceiver error",
+            CanError::NoAck => "no ack",
+            CanError::BusOff => "bus off",
+            CanError::BusError => "bus error",
+            CanError::Restarted => "restarted",
+            CanError::Unknown(_) => "unknown error",
+        }
+    }
+
+    fn cause(&self) -> Option<&error::Error> {
+        match *self {
+            CanError::ControllerProblem(ref e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for CanError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            CanError::LostArbitration(n) => write!(f, "arbitration lost after {} bits", n),
+            CanError::ControllerProblem(e) => write!(f, "controller problem: {}", e),
+            CanError::ProtocolViolation { vtype, location } => {
+                write!(f, "protocol violation at {}: {}", location, vtype)
+            }
+            CanError::Unknown(errno) => write!(f, "unknown error ({})", errno),
+            _ => write!(f, "{}", self.description()),
+        }
+    }
+}
+
 
 #[derive(Copy, Clone, Debug)]
 pub enum ControllerProblem {
@@ -116,6 +172,31 @@ pub enum ControllerProblem {
     Active,
 }
 
+impl error::Error for ControllerProblem {
+    fn description(&self) -> &str {
+        match *self {
+            ControllerProblem::Unspecified => "unspecified controller problem",
+            ControllerProblem::ReceiveBufferOverflow => "receive buffer overflow",
+            ControllerProblem::TransmitBufferOverflow => "transmit buffer overflow",
+            ControllerProblem::ReceiveErrorWarning => "ERROR WARNING (receive)",
+            ControllerProblem::TransmitErrorWarning => "ERROR WARNING (transmit)",
+            ControllerProblem::ReceiveErrorPassive => "ERROR PASSIVE (receive)",
+            ControllerProblem::TransmitErrorPassive => "ERROR PASSIVE (transmit)",
+            ControllerProblem::Active => "ERROR ACTIVE",
+        }
+    }
+
+    fn cause(&self) -> Option<&error::Error> {
+        None
+    }
+}
+
+impl fmt::Display for ControllerProblem {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.description())
+    }
+}
+
 impl TryFrom<u8> for ControllerProblem {
     type Err = CanErrorDecodingFailure;
 
@@ -136,15 +217,58 @@ impl TryFrom<u8> for ControllerProblem {
 
 #[derive(Copy, Clone, Debug)]
 pub enum ViolationType {
-    Unspecified, // unspecified
-    SingleBitError, // single bit error
-    FrameFormatError, // frame format error
-    BitStuffingError, // bit stuffing error
-    UnableToSendDominantBit, // unable to send dominant bit
-    UnableToSendRecessiveBit, // unable to send recessive bit
-    BusOverload, // bus overload
-    Active, // active error announcement
-    TransmissionError, // error occurred on transmission
+    /// Unspecified Violation
+    Unspecified,
+
+    /// Single Bit Error
+    SingleBitError,
+
+    /// Frame formatting error
+    FrameFormatError,
+
+    /// Bit stuffing error
+    BitStuffingError,
+
+    /// A dominant bit was sent, but not received
+    UnableToSendDominantBit,
+
+    /// A recessive bit was sent, but not received
+    UnableToSendRecessiveBit,
+
+    /// Bus overloaded
+    BusOverload,
+
+    /// Bus is active (again)
+    Active,
+
+    /// Transmission Error
+    TransmissionError,
+}
+
+impl error::Error for ViolationType {
+    fn description(&self) -> &str {
+        match *self {
+            ViolationType::Unspecified => "unspecified",
+            ViolationType::SingleBitError => "single bit error",
+            ViolationType::FrameFormatError => "frame format error",
+            ViolationType::BitStuffingError => "bit stuffing error",
+            ViolationType::UnableToSendDominantBit => "unable to send dominant bit",
+            ViolationType::UnableToSendRecessiveBit => "unable to send recessive bit",
+            ViolationType::BusOverload => "bus overload",
+            ViolationType::Active => "active",
+            ViolationType::TransmissionError => "transmission error",
+        }
+    }
+
+    fn cause(&self) -> Option<&error::Error> {
+        None
+    }
+}
+
+impl fmt::Display for ViolationType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.description())
+    }
 }
 
 impl TryFrom<u8> for ViolationType {
@@ -232,6 +356,34 @@ pub enum Location {
     Intermission,
 }
 
+impl fmt::Display for Location {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f,
+               "{}",
+               match *self {
+                   Location::Unspecified => "unspecified location",
+                   Location::StartOfFrame => "start of frame",
+                   Location::Id2821 => "ID, bits 28-21",
+                   Location::Id2018 => "ID, bits 20-18",
+                   Location::SubstituteRtr => "substitute RTR bit",
+                   Location::IdentifierExtension => "ID, extension",
+                   Location::Id1713 => "ID, bits 17-13",
+                   Location::Id1205 => "ID, bits 12-05",
+                   Location::Id0400 => "ID, bits 04-00",
+                   Location::Rtr => "RTR bit",
+                   Location::Reserved1 => "reserved bit 1",
+                   Location::Reserved0 => "reserved bit 0",
+                   Location::DataLengthCode => "data length code",
+                   Location::DataSection => "data section",
+                   Location::CrcSequence => "CRC sequence",
+                   Location::CrcDelimiter => "CRC delimiter",
+                   Location::AckSlot => "ACK slot",
+                   Location::AckDelimiter => "ACK delimiter",
+                   Location::EndOfFrame => "end of frame",
+                   Location::Intermission => "intermission",
+               })
+    }
+}
 impl TryFrom<u8> for Location {
     type Err = CanErrorDecodingFailure;
 
