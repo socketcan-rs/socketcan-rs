@@ -31,7 +31,7 @@ pub enum CanErrorDecodingFailure {
     InvalidControllerProblem,
 
     /// The type of the ProtocolViolation was not valid
-    InvlaidViolationType,
+    InvalidViolationType,
 
     /// A location was specified for a ProtocolViolation, but the location
     /// was not valid.
@@ -135,7 +135,7 @@ impl TryFrom<u8> for ViolationType {
             0x20 => ViolationType::BusOverload,
             0x40 => ViolationType::Active,
             0x80 => ViolationType::TransmissionError,
-            _ => return Err(CanErrorDecodingFailure::InvlaidViolationType),
+            _ => return Err(CanErrorDecodingFailure::InvalidViolationType),
         })
     }
 }
