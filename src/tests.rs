@@ -1,5 +1,4 @@
-use std::time;
-use ::{CanSocket, ShouldRetry};
+use ::CanSocket;
 
 #[test]
 fn test_nonexistant_device() {
