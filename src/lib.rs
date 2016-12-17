@@ -1,4 +1,4 @@
-//! socketCAN support.
+//! SocketCAN support.
 //!
 //! The Linux kernel supports using CAN-devices through a network-like API
 //! (see https://www.kernel.org/doc/Documentation/networking/can.txt). This
@@ -34,6 +34,10 @@
 //! [Thomas Fischl's USBtin](http://www.fischl.de/usbtin/) (see
 //! [section 2.4](http://www.fischl.de/usbtin/#socketcan)) is one of many ways
 //! to get started.
+
+
+// clippy: do not warn about things like "SocketCAN" inside the docs
+#![cfg_attr(feature = "cargo-clippy", allow(doc_markdown))]
 
 extern crate hex;
 extern crate itertools;
@@ -90,7 +94,7 @@ impl ShouldRetry for io::Error {
 
 impl<E: fmt::Debug> ShouldRetry for io::Result<E> {
     fn should_retry(&self) -> bool {
-        if let &Err(ref e) = self {
+        if let Err(ref e) = *self {
             e.should_retry()
         } else {
             false
@@ -427,7 +431,7 @@ impl CanSocket {
     /// Disable reception of CAN frames.
     ///
     /// Sets a completely empty filter; disabling all CAN frame reception.
-    #[inline(always)]
+    #[inline]
     pub fn filter_drop_all(&self) -> io::Result<()> {
         self.set_filter(&[])
     }
@@ -441,7 +445,7 @@ impl CanSocket {
         self.set_filter(&[CanFilter::new(0, 0).unwrap()])
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn set_error_filter(&self, mask: u32) -> io::Result<()> {
         let rv = unsafe {
             setsockopt(self.fd,
@@ -459,12 +463,12 @@ impl CanSocket {
 
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn error_filter_drop_all(&self) -> io::Result<()> {
         self.set_error_filter(0)
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn error_filter_accept_all(&self) -> io::Result<()> {
         self.set_error_filter(ERR_MASK)
     }
@@ -546,7 +550,7 @@ impl CanFrame {
     }
 
     /// Return the actual CAN ID (without EFF/RTR/ERR flags)
-    #[inline(always)]
+    #[inline]
     pub fn id(&self) -> u32 {
         if self.is_extended() {
             self._id & EFF_MASK
@@ -556,36 +560,36 @@ impl CanFrame {
     }
 
     /// Return the error message
-    #[inline(always)]
+    #[inline]
     pub fn err(&self) -> u32 {
-        return self._id & ERR_MASK;
+        self._id & ERR_MASK
     }
 
     /// Check if frame uses 29 bit extended frame format
-    #[inline(always)]
+    #[inline]
     pub fn is_extended(&self) -> bool {
         self._id & EFF_FLAG != 0
     }
 
     /// Check if frame is an error message
-    #[inline(always)]
+    #[inline]
     pub fn is_error(&self) -> bool {
         self._id & ERR_FLAG != 0
     }
 
     /// Check if frame is a remote transmission request
-    #[inline(always)]
+    #[inline]
     pub fn is_rtr(&self) -> bool {
         self._id & RTR_FLAG != 0
     }
 
     /// A slice into the actual data. Slice will always be <= 8 bytes in length
-    #[inline(always)]
+    #[inline]
     pub fn data(&self) -> &[u8] {
         &self._data[..(self._data_len as usize)]
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn error(&self) -> Result<CanError, CanErrorDecodingFailure> {
         CanError::from_frame(self)
     }
@@ -597,7 +601,7 @@ impl fmt::UpperHex for CanFrame {
 
         let mut parts = self.data().iter().map(|v| format!("{:02X}", v));
 
-        let sep = if f.alternate() { " " } else { " " };
+        let sep = if f.alternate() { " " } else { "" };
         write!(f, "{}", parts.join(sep))
     }
 }

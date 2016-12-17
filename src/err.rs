@@ -5,7 +5,7 @@ use try_from::TryFrom;
 use super::CanFrame;
 
 
-#[inline(always)]
+#[inline]
 /// Helper function to retrieve a specific byte of frame data or returning an
 /// `Err(..)` otherwise.
 fn get_data(frame: &CanFrame, idx: u8) -> Result<u8, CanErrorDecodingFailure> {

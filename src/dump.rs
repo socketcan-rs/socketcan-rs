@@ -83,7 +83,7 @@ impl From<super::ConstructionError> for ParseError {
 
 impl<R: io::BufRead> Reader<R> {
     /// Returns an iterator over all records
-    pub fn records<'a>(&'a mut self) -> CanDumpRecords<'a, R> {
+    pub fn records(&mut self) -> CanDumpRecords<R> {
         CanDumpRecords { src: self }
     }
 
