@@ -48,15 +48,16 @@ extern crate try_from;
 mod err;
 pub use err::{CanError, CanErrorDecodingFailure};
 pub mod dump;
+mod util;
 
 #[cfg(test)]
 mod tests;
 
-use libc::{c_int, c_short, c_void, c_uint, socket, SOCK_RAW, close, bind, sockaddr, read, write,
-           setsockopt, SOL_SOCKET, SO_RCVTIMEO, timeval, EINPROGRESS, SO_SNDTIMEO};
+use libc::{c_int, c_short, c_void, c_uint, c_ulong, socket, SOCK_RAW, close, bind, sockaddr, read,
+           write, setsockopt, SOL_SOCKET, SO_RCVTIMEO, timespec, timeval, EINPROGRESS, SO_SNDTIMEO};
 use itertools::Itertools;
 use std::{error, fmt, io, time};
-use std::mem::size_of;
+use std::mem::{size_of, uninitialized};
 use nix::net::if_::if_nametoindex;
 
 /// Check an error return value for timeouts.
@@ -111,6 +112,16 @@ const SOL_CAN_RAW: c_int = SOL_CAN_BASE + CAN_RAW;
 const CAN_RAW_FILTER: c_int = 1;
 const CAN_RAW_ERR_FILTER: c_int = 2;
 
+// get timestamp in a struct timeval (us accuracy)
+// const SIOCGSTAMP: c_int = 0x8906;
+
+// get timestamp in a struct timespec (ns accuracy)
+const SIOCGSTAMPNS: c_int = 0x8907;
+
+// ioctls: unsure if they are correct
+// ioctl!(read get_frame_timestamp with SIOCGSTAMP, SIOCGSTAMP; timeval);
+
+
 /// if set, indicate 29 bit extended format
 pub const EFF_FLAG: u32 = 0x80000000;
 
@@ -128,6 +139,7 @@ pub const EFF_MASK: u32 = 0x1fffffff;
 
 /// valid bits in error frame
 pub const ERR_MASK: u32 = 0x1fffffff;
+
 
 #[cfg(target_pointer_width = "64")]
 fn c_timeval_new(t: time::Duration) -> timeval {
@@ -363,6 +375,28 @@ impl CanSocket {
         }
 
         Ok(frame)
+    }
+
+    /// Blocking read a single can frame with timestamp
+    ///
+    /// Note that reading a frame and retrieving the timestamp requires two
+    /// consecutive syscalls. To avoid race conditions, exclusive access
+    /// to the socket is enforce through requiring a `mut &self`.
+    pub fn read_frame_with_timestamp(&mut self) -> io::Result<(CanFrame, time::SystemTime)> {
+        let frame = self.read_frame()?;
+
+        let mut ts: timespec;
+        let rval = unsafe {
+            // we initialize tv calling ioctl, passing this responsibility on
+            ts = uninitialized();
+            libc::ioctl(self.fd, SIOCGSTAMPNS as c_ulong, &mut ts as *mut timespec)
+        };
+
+        if rval == -1 {
+            return Err(io::Error::last_os_error());
+        }
+
+        Ok((frame, util::system_time_from_timespec(ts)))
     }
 
     /// Write a single can frame.
