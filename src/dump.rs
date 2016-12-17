@@ -55,7 +55,7 @@ pub struct CanDumpRecords<'a, R: 'a> {
 pub struct CanDumpRecord<'a> {
     pub t_us: u64,
     pub device: &'a str,
-    pub frame: super::CANFrame,
+    pub frame: super::CanFrame,
 }
 
 #[derive(Debug)]
@@ -145,7 +145,7 @@ impl<R: io::BufRead> Reader<R> {
         } else {
             try!(Vec::from_hex(&can_data).map_err(|_| ParseError::InvalidCanFrame))
         };
-        let frame = try!(super::CANFrame::new(try!(parse_raw(can_id, 16)
+        let frame = try!(super::CanFrame::new(try!(parse_raw(can_id, 16)
                                                   .ok_or
 
                                                   (ParseError::InvalidCanFrame))
@@ -164,7 +164,7 @@ impl<R: io::BufRead> Reader<R> {
 }
 
 impl<'a, R: io::Read> Iterator for CanDumpRecords<'a, io::BufReader<R>> {
-    type Item = Result<(u64, super::CANFrame), ParseError>;
+    type Item = Result<(u64, super::CanFrame), ParseError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         // lift Option:

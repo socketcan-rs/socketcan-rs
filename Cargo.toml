@@ -5,7 +5,7 @@ documentation = "https://docs.rs/socketcan"
 license = "MIT"
 name = "socketcan"
 repository = "https://github.com/mbr/socketcan-rs"
-version = "1.6.0"
+version = "2.0.0"
 
 [dependencies]
 hex = "^0.2"
