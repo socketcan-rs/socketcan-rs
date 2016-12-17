@@ -403,7 +403,7 @@ impl CanSocket {
     }
 
     /// Sets the filter mask on the socket.
-    pub fn set_filter(&self, filters: &[CanFilter]) -> io::Result<()> {
+    pub fn set_filters(&self, filters: &[CanFilter]) -> io::Result<()> {
 
         // TODO: Handle different *_FILTER sockopts.
 
@@ -446,7 +446,7 @@ impl CanSocket {
     }
 
     #[inline]
-    pub fn set_error_filter(&self, mask: u32) -> io::Result<()> {
+    pub fn set_error_filters(&self, mask: u32) -> io::Result<()> {
         let rv = unsafe {
             setsockopt(self.fd,
                        SOL_CAN_RAW,
