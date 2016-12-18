@@ -8,7 +8,7 @@ fn test_nonexistant_device() {
 
 #[cfg(feature = "vcan_tests")]
 mod vcan_tests {
-    use ::CanSocket;
+    use ::{CanSocket, ERR_MASK_ALL, ERR_MASK_NONE};
     use std::time;
     use ::ShouldRetry;
 
@@ -22,7 +22,7 @@ mod vcan_tests {
     #[test]
     fn vcan0_set_error_mask() {
         let cs = CanSocket::open("vcan0").unwrap();
-        cs.error_filter_drop_all().unwrap();
-        cs.error_filter_accept_all().unwrap();
+        cs.set_error_mask(ERR_MASK_ALL).unwrap();
+        cs.set_error_mask(ERR_MASK_NONE).unwrap();
     }
 }
