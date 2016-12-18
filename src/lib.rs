@@ -318,40 +318,12 @@ impl CanSocket {
     /// For convenience, the result value can be checked using
     /// `ShouldRetry::should_retry` when a timeout is set.
     pub fn set_read_timeout(&self, duration: time::Duration) -> io::Result<()> {
-        let rv = unsafe {
-            let tv = c_timeval_new(duration);
-            let tv_ptr: *const timeval = &tv as *const timeval;
-            setsockopt(self.fd,
-                       SOL_SOCKET,
-                       SO_RCVTIMEO,
-                       tv_ptr as *const c_void,
-                       size_of::<timeval>() as u32)
-        };
-
-        if rv != 0 {
-            return Err(io::Error::last_os_error());
-        }
-
-        Ok(())
+        util::set_socket_option(self.fd, SOL_SOCKET, SO_RCVTIMEO, &c_timeval_new(duration))
     }
 
     /// Sets the write timeout on the socket
     pub fn set_write_timeout(&self, duration: time::Duration) -> io::Result<()> {
-        let rv = unsafe {
-            let tv = c_timeval_new(duration);
-            let tv_ptr: *const timeval = &tv as *const timeval;
-            setsockopt(self.fd,
-                       SOL_SOCKET,
-                       SO_SNDTIMEO,
-                       tv_ptr as *const c_void,
-                       size_of::<timeval>() as u32)
-        };
-
-        if rv != 0 {
-            return Err(io::Error::last_os_error());
-        }
-
-        Ok(())
+        util::set_socket_option(self.fd, SOL_SOCKET, SO_SNDTIMEO, &c_timeval_new(duration))
     }
 
     /// Blocking read a single can frame.

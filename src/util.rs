@@ -1,5 +1,5 @@
 use libc::{c_int, c_void, setsockopt, socklen_t, timespec};
-use std::io;
+use std::{io, ptr};
 use std::mem::size_of;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -32,6 +32,35 @@ pub fn set_socket_option<T>(fd: c_int, level: c_int, name: c_int, val: &T) -> io
                    name,
                    val_ptr as *const c_void,
                    size_of::<T>() as socklen_t)
+    };
+
+    if rv != 0 {
+        return Err(io::Error::last_os_error());
+    }
+
+    Ok(())
+}
+
+pub fn set_socket_option_mult<T>(fd: c_int,
+                                 level: c_int,
+                                 name: c_int,
+                                 values: &[T])
+                                 -> io::Result<()> {
+
+    let rv = if values.len() < 1 {
+        // can't pass in a pointer to the first element if a 0-length slice,
+        // pass a nullpointer instead
+        unsafe { setsockopt(fd, level, name, ptr::null(), 0) }
+    } else {
+        unsafe {
+            let val_ptr = &values[0] as *const T;
+
+            setsockopt(fd,
+                       level,
+                       name,
+                       val_ptr as *const c_void,
+                       (size_of::<T>() * values.len()) as socklen_t)
+        }
     };
 
     if rv != 0 {
