@@ -1,5 +1,11 @@
 use ::CanSocket;
 
+#[cfg(feature = "vcan_tests")]
+use std::time;
+
+#[cfg(feature = "vcan_tests")]
+use ::ShouldRetry;
+
 #[test]
 fn test_nonexistant_device() {
     assert!(CanSocket::open("invalid").is_err());
