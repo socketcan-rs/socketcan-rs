@@ -56,9 +56,10 @@ mod tests;
 use libc::{c_int, c_short, c_void, c_uint, c_ulong, socket, SOCK_RAW, close, bind, sockaddr, read,
            write, setsockopt, SOL_SOCKET, SO_RCVTIMEO, timespec, timeval, EINPROGRESS, SO_SNDTIMEO};
 use itertools::Itertools;
+use nix::net::if_::if_nametoindex;
 use std::{error, fmt, io, time};
 use std::mem::{size_of, uninitialized};
-use nix::net::if_::if_nametoindex;
+use util::{set_socket_option, set_socket_option_mult};
 
 /// Check an error return value for timeouts.
 ///
@@ -323,12 +324,12 @@ impl CanSocket {
     /// For convenience, the result value can be checked using
     /// `ShouldRetry::should_retry` when a timeout is set.
     pub fn set_read_timeout(&self, duration: time::Duration) -> io::Result<()> {
-        util::set_socket_option(self.fd, SOL_SOCKET, SO_RCVTIMEO, &c_timeval_new(duration))
+        set_socket_option(self.fd, SOL_SOCKET, SO_RCVTIMEO, &c_timeval_new(duration))
     }
 
     /// Sets the write timeout on the socket
     pub fn set_write_timeout(&self, duration: time::Duration) -> io::Result<()> {
-        util::set_socket_option(self.fd, SOL_SOCKET, SO_SNDTIMEO, &c_timeval_new(duration))
+        set_socket_option(self.fd, SOL_SOCKET, SO_SNDTIMEO, &c_timeval_new(duration))
     }
 
     /// Blocking read a single can frame.
@@ -415,7 +416,7 @@ impl CanSocket {
 
     /// Sets the filter mask on the socket.
     pub fn set_filters(&self, filters: &[CanFilter]) -> io::Result<()> {
-        set_sock_opt_mult(self.fd, SOL_CAN_RAW, CAN_RAW_FILTER, filters)
+        set_socket_option_mult(self.fd, SOL_CAN_RAW, CAN_RAW_FILTER, filters)
     }
 
     #[inline]
