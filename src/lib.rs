@@ -420,19 +420,7 @@ impl CanSocket {
 
     #[inline]
     pub fn set_error_mask(&self, mask: u32) -> io::Result<()> {
-        let rv = unsafe {
-            setsockopt(self.fd,
-                       SOL_CAN_RAW,
-                       CAN_RAW_ERR_FILTER,
-                       (&mask as *const u32) as *const c_void,
-                       size_of::<u32>() as u32)
-        };
-
-        if rv != 0 {
-            return Err(io::Error::last_os_error());
-        }
-
-        Ok(())
+        set_socket_option(self.fd, SOL_CAN_RAW, CAN_RAW_ERR_FILTER, &mask)
     }
 }
 
