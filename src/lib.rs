@@ -119,10 +119,6 @@ const CAN_RAW_ERR_FILTER: c_int = 2;
 // get timestamp in a struct timespec (ns accuracy)
 const SIOCGSTAMPNS: c_int = 0x8907;
 
-// ioctls: unsure if they are correct
-// ioctl!(read get_frame_timestamp with SIOCGSTAMP, SIOCGSTAMP; timeval);
-
-
 /// if set, indicate 29 bit extended format
 pub const EFF_FLAG: u32 = 0x80000000;
 
