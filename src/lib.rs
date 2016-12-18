@@ -586,6 +586,14 @@ impl CanFrame {
         &self._data[..(self._data_len as usize)]
     }
 
+    /// Read error from message and transform it into a `CanError`.
+    ///
+    /// SocketCAN errors are indicated using the error bit and coded inside
+    /// id and data payload. Call `error()` converts these into usable
+    /// `CanError` instances.
+    ///
+    /// If the frame is malformed, this may fail with a
+    /// `CanErrorDecodingFailure`.
     #[inline]
     pub fn error(&self) -> Result<CanError, CanErrorDecodingFailure> {
         CanError::from_frame(self)
