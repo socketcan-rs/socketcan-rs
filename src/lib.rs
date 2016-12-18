@@ -141,6 +141,11 @@ pub const EFF_MASK: u32 = 0x1fffffff;
 pub const ERR_MASK: u32 = 0x1fffffff;
 
 
+/// convenient
+pub const ERR_MASK_ALL: u32 = ERR_MASK;
+pub const ERR_MASK_NONE: u32 = 0;
+
+
 #[cfg(target_pointer_width = "64")]
 fn c_timeval_new(t: time::Duration) -> timeval {
     timeval {
@@ -414,7 +419,7 @@ impl CanSocket {
     }
 
     #[inline]
-    pub fn set_error_filters(&self, mask: u32) -> io::Result<()> {
+    pub fn set_error_mask(&self, mask: u32) -> io::Result<()> {
         let rv = unsafe {
             setsockopt(self.fd,
                        SOL_CAN_RAW,
@@ -428,17 +433,6 @@ impl CanSocket {
         }
 
         Ok(())
-
-    }
-
-    #[inline]
-    pub fn error_filter_drop_all(&self) -> io::Result<()> {
-        self.set_error_filters(0)
-    }
-
-    #[inline]
-    pub fn error_filter_accept_all(&self) -> io::Result<()> {
-        self.set_error_filters(ERR_MASK)
     }
 }
 
