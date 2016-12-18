@@ -112,6 +112,12 @@ const SOL_CAN_BASE: c_int = 100;
 const SOL_CAN_RAW: c_int = SOL_CAN_BASE + CAN_RAW;
 const CAN_RAW_FILTER: c_int = 1;
 const CAN_RAW_ERR_FILTER: c_int = 2;
+const CAN_RAW_LOOPBACK: c_int = 3;
+const CAN_RAW_RECV_OWN_MSGS: c_int = 4;
+// unused:
+// const CAN_RAW_FD_FRAMES: c_int = 5;
+const CAN_RAW_JOIN_FILTERS: c_int = 6;
+
 
 // get timestamp in a struct timeval (us accuracy)
 // const SIOCGSTAMP: c_int = 0x8906;
@@ -417,7 +423,8 @@ impl CanSocket {
     /// CAN packages received by SocketCAN are matched against these filters,
     /// only matching packets are returned by the interface.
     ///
-    /// See `CanFilter` for details on how filtering works.
+    /// See `CanFilter` for details on how filtering works. By default, all
+    /// single filter matching all incoming frames is installed.
     pub fn set_filters(&self, filters: &[CanFilter]) -> io::Result<()> {
         set_socket_option_mult(self.fd, SOL_CAN_RAW, CAN_RAW_FILTER, filters)
     }
@@ -431,6 +438,36 @@ impl CanSocket {
     #[inline]
     pub fn set_error_mask(&self, mask: u32) -> io::Result<()> {
         set_socket_option(self.fd, SOL_CAN_RAW, CAN_RAW_ERR_FILTER, &mask)
+    }
+
+    /// Enable or disable loopback.
+    ///
+    /// By default, loopback is enabled, causing other applications that open
+    /// the same CAN bus to see frames emitted by different applications on
+    /// the same system.
+    #[inline]
+    pub fn set_loopback(&self, enabled: bool) -> io::Result<()> {
+        let loopback: c_int = if enabled { 1 } else { 0 };
+        set_socket_option(self.fd, SOL_CAN_RAW, CAN_RAW_LOOPBACK, &loopback)
+    }
+
+    /// Enable or disable receiving of own frames.
+    ///
+    /// When loopback is enabled, this settings controls if CAN frames sent
+    /// are received back immediately by sender. Default is off:
+    pub fn set_recv_own_msgs(&self, enabled: bool) -> io::Result<()> {
+        let recv_own_msgs: c_int = if enabled { 1 } else { 0 };
+        set_socket_option(self.fd, SOL_CAN_RAW, CAN_RAW_RECV_OWN_MSGS, &recv_own_msgs)
+    }
+
+    /// Enable or disable join filters.
+    ///
+    /// By default a frame is accepted if it matches any of the filters set
+    /// with `set_filters`. If join filters is enabled, a frame has to match
+    /// _all_ filters to be accepted.
+    pub fn set_join_filters(&self, enabled: bool) -> io::Result<()> {
+        let join_filters: c_int = if enabled { 1 } else { 0 };
+        set_socket_option(self.fd, SOL_CAN_RAW, CAN_RAW_JOIN_FILTERS, &join_filters)
     }
 }
 
