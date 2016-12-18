@@ -410,45 +410,7 @@ impl CanSocket {
 
     /// Sets the filter mask on the socket.
     pub fn set_filters(&self, filters: &[CanFilter]) -> io::Result<()> {
-
-        // TODO: Handle different *_FILTER sockopts.
-
-        let rv = if filters.len() < 1 {
-            // clears all filters
-            unsafe { setsockopt(self.fd, SOL_CAN_RAW, CAN_RAW_FILTER, 0 as *const c_void, 0) }
-        } else {
-            unsafe {
-                let filters_ptr = &filters[0] as *const CanFilter;
-                setsockopt(self.fd,
-                           SOL_CAN_RAW,
-                           CAN_RAW_FILTER,
-                           filters_ptr as *const c_void,
-                           (size_of::<CanFilter>() * filters.len()) as u32)
-            }
-        };
-
-        if rv != 0 {
-            return Err(io::Error::last_os_error());
-        }
-
-        Ok(())
-    }
-
-    /// Disable reception of CAN frames.
-    ///
-    /// Sets a completely empty filter; disabling all CAN frame reception.
-    #[inline]
-    pub fn filter_drop_all(&self) -> io::Result<()> {
-        self.set_filters(&[])
-    }
-
-    /// Accept all frames, disabling any kind of filtering.
-    ///
-    /// Replace the current filter with one containing a single rule that
-    /// acceps all CAN frames.
-    pub fn filter_accept_all(&self) -> io::Result<()> {
-        // safe unwrap: 0, 0 is a valid mask/id pair
-        self.set_filters(&[CanFilter::new(0, 0).unwrap()])
+        set_sock_opt_mult(self.fd, SOL_CAN_RAW, CAN_RAW_FILTER, filters)
     }
 
     #[inline]
