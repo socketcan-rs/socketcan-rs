@@ -138,8 +138,10 @@ pub const EFF_MASK: u32 = 0x1fffffff;
 pub const ERR_MASK: u32 = 0x1fffffff;
 
 
-/// convenient
+/// an error mask that will cause SocketCAN to report all errors
 pub const ERR_MASK_ALL: u32 = ERR_MASK;
+
+/// an error mask that will cause SocketCAN to silently drop all errors
 pub const ERR_MASK_NONE: u32 = 0;
 
 
@@ -410,11 +412,22 @@ impl CanSocket {
         }
     }
 
-    /// Sets the filter mask on the socket.
+    /// Sets filters on the socket.
+    ///
+    /// CAN packages received by SocketCAN are matched against these filters,
+    /// only matching packets are returned by the interface.
+    ///
+    /// See `CanFilter` for details on how filtering works.
     pub fn set_filters(&self, filters: &[CanFilter]) -> io::Result<()> {
         set_socket_option_mult(self.fd, SOL_CAN_RAW, CAN_RAW_FILTER, filters)
     }
 
+    /// Sets the error mask on the socket.
+    ///
+    /// By default (`ERR_MASK_NONE`) no error conditions are reported as
+    /// special error frames by the socket. Enabling error conditions by
+    /// setting `ERR_MASK_ALL` or another non-empty error mask causes the
+    /// socket to receive notification about the specified conditions.
     #[inline]
     pub fn set_error_mask(&self, mask: u32) -> io::Result<()> {
         set_socket_option(self.fd, SOL_CAN_RAW, CAN_RAW_ERR_FILTER, &mask)
@@ -555,8 +568,8 @@ impl fmt::UpperHex for CanFrame {
 
 /// CanFilter
 ///
-/// Uses the same memory layout as the underlying kernel struct for performance
-/// reasons.
+/// Contains an internal id and mask. Packets are considered to be matched by
+/// a filter if `received_id & mask == filter_id & mask` holds true.
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct CanFilter {
@@ -565,6 +578,7 @@ pub struct CanFilter {
 }
 
 impl CanFilter {
+    /// Construct a new CAN filter.
     pub fn new(id: u32, mask: u32) -> Result<CanFilter, ConstructionError> {
         Ok(CanFilter {
             _id: id,
