@@ -54,7 +54,7 @@ mod util;
 mod tests;
 
 use libc::{c_int, c_short, c_void, c_uint, c_ulong, socket, SOCK_RAW, close, bind, sockaddr, read,
-           write, setsockopt, SOL_SOCKET, SO_RCVTIMEO, timespec, timeval, EINPROGRESS, SO_SNDTIMEO};
+           write, SOL_SOCKET, SO_RCVTIMEO, timespec, timeval, EINPROGRESS, SO_SNDTIMEO};
 use itertools::Itertools;
 use nix::net::if_::if_nametoindex;
 use std::{error, fmt, io, time};
