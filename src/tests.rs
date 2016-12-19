@@ -8,7 +8,7 @@ fn test_nonexistant_device() {
 
 #[cfg(feature = "vcan_tests")]
 mod vcan_tests {
-    use ::{CanSocket, ERR_MASK_ALL, ERR_MASK_NONE};
+    use ::{CanFrame, CanSocket, ERR_MASK_ALL, ERR_MASK_NONE};
     use std::time;
     use ::ShouldRetry;
 
