@@ -302,6 +302,7 @@ impl CanSocket {
                            size_of::<CanAddr>() as u32);
         }
 
+        // FIXME: on fail, close socket (do not leak socketfds)
         if bind_rv == -1 {
             let e = io::Error::last_os_error();
             unsafe {
