@@ -455,7 +455,7 @@ impl CanSocket {
     /// Enable or disable receiving of own frames.
     ///
     /// When loopback is enabled, this settings controls if CAN frames sent
-    /// are received back immediately by sender. Default is off:
+    /// are received back immediately by sender. Default is off.
     pub fn set_recv_own_msgs(&self, enabled: bool) -> io::Result<()> {
         let recv_own_msgs: c_int = if enabled { 1 } else { 0 };
         set_socket_option(self.fd, SOL_CAN_RAW, CAN_RAW_RECV_OWN_MSGS, &recv_own_msgs)
