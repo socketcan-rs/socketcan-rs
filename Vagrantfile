@@ -6,7 +6,7 @@ VAGRANTFILE_API_VERSION = "2"
 
 $script = <<SCRIPT
 apt-get update
-apt-get install --yes curl doxygen build-essential can-utils git python3
+apt-get install --yes graphviz curl doxygen build-essential can-utils git python3 python3-click inotify-tools
 curl -s https://sh.rustup.rs > /rustup.sh
 sudo -u vagrant -- sh /rustup.sh -y
 mkdir -p /opt
