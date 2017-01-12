@@ -5,10 +5,10 @@
 VAGRANTFILE_API_VERSION = "2"
 
 $script = <<SCRIPT
-curl -s https://sh.rustup.rs > /rustup.sh
 apt-get update
-apt-get install --yes doxygen build-essential can-utils git python3
-# sudo -u vagrant -- sh /rustup.sh -y
+apt-get install --yes curl doxygen build-essential can-utils git python3
+curl -s https://sh.rustup.rs > /rustup.sh
+sudo -u vagrant -- sh /rustup.sh -y
 mkdir -p /opt
 git clone https://github.com/mbr/binbin /opt/binbin
 ln -sf /opt/binbin/bin/rerun /usr/local/bin/rerun
@@ -18,4 +18,5 @@ SCRIPT
 Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   config.vm.box = "debian/jessie64"
   config.vm.provision "shell", inline: $script
+  config.vm.synced_folder '.', '/vagrant', :disabled => true
 end
