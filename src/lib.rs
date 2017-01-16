@@ -39,15 +39,18 @@
 // clippy: do not warn about things like "SocketCAN" inside the docs
 #![cfg_attr(feature = "cargo-clippy", allow(doc_markdown))]
 
+extern crate byte_conv;
 extern crate hex;
 extern crate itertools;
 extern crate libc;
+extern crate netlink_rs;
 extern crate nix;
 extern crate try_from;
 
 mod err;
 pub use err::{CanError, CanErrorDecodingFailure};
 pub mod dump;
+mod nl;
 mod util;
 
 #[cfg(test)]
