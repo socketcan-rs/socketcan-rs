@@ -54,6 +54,8 @@ impl IfInfoMsg {
     }
 }
 
+/// Sends a netlink message down a netlink socket, and checks if an ACK was
+/// properly received.
 fn send_and_read_ack(sock: &mut NetlinkSocket,
                      msg: NetlinkMessage,
                      dest: &NetlinkAddr)
@@ -96,6 +98,7 @@ fn open_nl_route_socket() -> io::Result<NetlinkSocket> {
     Ok(sock)
 }
 
+/// Brings down a CAN interface
 fn bring_down(if_index: c_uint) -> io::Result<()> {
     let mut nl = open_nl_route_socket()?;
 
