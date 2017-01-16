@@ -635,3 +635,29 @@ impl CanFilter {
         })
     }
 }
+
+/// SocketCAN interface
+///
+/// Controlled through the kernel's netlink interface, CAN devices can be
+/// brought up or down or configured through this.
+struct CanInterface {
+    if_index: c_uint,
+}
+
+impl CanInterface {
+    /// Open CAN interface by name
+    ///
+    /// Similar to `open_if`, but looks up the device by name instead
+    pub fn open(ifname: &str) -> Result<CanInterface, nix::Error> {
+        let if_index = if_nametoindex(ifname)?;
+        Ok(CanInterface::open_if(if_index))
+    }
+
+    /// Open CAN interface
+    ///
+    /// Creates a new `CanInterface` instance. No actual "opening" is necessary
+    /// or performed when calling this function.
+    pub fn open_if(if_index: c_uint) -> CanInterface {
+        CanInterface { if_index: if_index }
+    }
+}
