@@ -12,7 +12,7 @@ byte_conv = "0.1.1"
 hex = "^0.2"
 itertools = "^0.4"
 libc = "^0.2"
-netlink-rs = { git = "https://github.com/mbr/netlink-rs", rev = "136504c875763c1b6f946af4c14757615e171ab3" }
+netlink-rs = { git = "https://github.com/mbr/netlink-rs", rev = "01cba6fcc7b11917890bc3d2b4635009fde8082c" }
 nix = "^0.5"
 try_from = "0.2.0"
 

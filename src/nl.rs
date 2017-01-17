@@ -8,6 +8,12 @@
 //! > communication (IPC) between both the kernel and userspace processes, and
 //! > between different userspace processes, in a way similar to the Unix
 //! > domain sockets.
+//!
+//!
+//! The netlink module currently relies on the
+//! [netlink-rs](https://crates.io/crates/netlink-rs), which has some
+//! deficiencies. If those are not fixed, a reimplmentation of netlink-rs'
+//! functionality might be required.
 
 use byte_conv::As as AsBytes;
 use libc::{self, c_char, c_ushort, c_int, c_uint};
@@ -85,6 +91,9 @@ fn send_and_read_ack(sock: &mut NetlinkSocket,
             println!("Received Message: {:?}", msg);
             match *msg.payload() {
                 NetlinkPayload::Ack(_) => (),
+                NetlinkPayload::Err(errno, _) => {
+                    return Err(io::Error::from_raw_os_error(-errno));
+                }
                 _ => panic!("Message received is not an ACK"),
             }
         }
