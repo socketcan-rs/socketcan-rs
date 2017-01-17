@@ -73,14 +73,19 @@ impl IfInfoMsg {
     }
 }
 
+
 /// Sends a netlink message down a netlink socket, and checks if an ACK was
 /// properly received.
 fn send_and_read_ack(sock: &mut NetlinkSocket,
                      msg: NetlinkMessage,
                      dest: &NetlinkAddr)
                      -> io::Result<()> {
-    // FIXME: check return length
-    let _ = sock.send(msg, dest)?;
+
+    let msg_len = msg.header().msg_length() as usize;
+    let bytes_sent = sock.send(msg, dest)?;
+    if bytes_sent != msg_len {
+        return Err(io::Error::new(io::ErrorKind::Other, "Incomplete write"));
+    }
 
     // receive all pending messages
     let (addr, msgs) = sock.recv()?;
