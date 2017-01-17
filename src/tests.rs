@@ -8,7 +8,7 @@ fn test_nonexistant_device() {
 
 #[cfg(feature = "vcan_tests")]
 mod vcan_tests {
-    use ::{CanFrame, CanSocket, ERR_MASK_ALL, ERR_MASK_NONE};
+    use ::{CanFrame, CanInterface, CanSocket, ERR_MASK_ALL, ERR_MASK_NONE};
     use std::time;
     use ::ShouldRetry;
 
@@ -37,5 +37,11 @@ mod vcan_tests {
         cs.write_frame(&frame).unwrap();
 
         let recv = cs.read_frame().unwrap();
+    }
+
+    #[test]
+    fn vcan0_set_down() {
+        let can_if = CanInterface::open("vcan0").unwrap();
+        can_if.bring_down().unwrap();
     }
 }

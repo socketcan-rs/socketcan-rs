@@ -137,23 +137,6 @@ fn open_nl_route_socket() -> io::Result<NetlinkSocket> {
     Ok(sock)
 }
 
-/// Brings down a CAN interface
-fn bring_down(if_index: c_uint) -> io::Result<()> {
-    let mut nl = open_nl_route_socket()?;
-
-    // prepare message
-    let mut header = NlMsgHeader::user_defined(RTM_NEWLINK, mem::size_of::<IfInfoMsg>() as u32);
-    header.ack();
-
-    let info = IfInfoMsg::new(if_index as i32, 0, IFF_UP);
-    let msg = NetlinkMessage::new(header, NetlinkPayload::Data(info.as_bytes()));
-
-    let kernel_addr = NetlinkAddr::new(0, 0);
-
-    // send the message
-    send_and_read_ack(&mut nl, msg, &kernel_addr)
-}
-
 /// SocketCAN interface
 ///
 /// Controlled through the kernel's netlink interface, CAN devices can be
@@ -177,5 +160,21 @@ impl CanInterface {
     /// or performed when calling this function.
     pub fn open_if(if_index: c_uint) -> CanInterface {
         CanInterface { if_index: if_index }
+    }
+
+    /// Bring down CAN interface
+    pub fn bring_down(&self) -> io::Result<()> {
+        let mut nl = open_nl_route_socket()?;
+
+        // prepare message
+        let mut header = NlMsgHeader::user_defined(RTM_NEWLINK, mem::size_of::<IfInfoMsg>() as u32);
+        header.ack();
+
+        // settings flags to 0 and change to IFF_UP will disable the IFF_UP flag
+        let info = IfInfoMsg::new(self.if_index as i32, 0, IFF_UP);
+        let msg = NetlinkMessage::new(header, NetlinkPayload::Data(info.as_bytes()));
+
+        // send the message
+        send_and_read_ack(&mut nl, msg, &NetlinkAddr::new(0, 0))
     }
 }
