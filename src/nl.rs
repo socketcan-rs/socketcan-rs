@@ -1,3 +1,14 @@
+//! Netlink module
+//!
+//! The netlink module contains the netlink-based management capabilities of
+//! the socketcan crate. Quoth wikipedia:
+//!
+//!
+//! > Netlink socket family is a Linux kernel interface used for inter-process
+//! > communication (IPC) between both the kernel and userspace processes, and
+//! > between different userspace processes, in a way similar to the Unix
+//! > domain sockets.
+
 use byte_conv::As as AsBytes;
 use libc::{self, c_char, c_ushort, c_int, c_uint};
 use netlink_rs::socket::{Msg as NetlinkMessage, Socket as NetlinkSocket, NetlinkAddr,
