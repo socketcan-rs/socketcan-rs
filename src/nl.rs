@@ -99,10 +99,22 @@ fn send_and_read_ack(sock: &mut NetlinkSocket,
                 NetlinkPayload::Err(errno, _) => {
                     return Err(io::Error::from_raw_os_error(-errno));
                 }
-                _ => panic!("Message received is not an ACK"),
+                NetlinkPayload::None => {
+                    return Err(io::Error::new(io::ErrorKind::InvalidData,
+                                              "Received no payload when
+                                              expecting an ACK"));
+
+                }
+                NetlinkPayload::Data(_) => {
+                    return Err(io::Error::new(io::ErrorKind::InvalidData,
+                                              "Received data when expecting an ACK"));
+                }
             }
         }
-        None => panic!("Expect ACK, but no ACK received"),
+        None => {
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof,
+                                      "ACK expected, but got nothing instead"))
+        }
     }
 
     Ok(())
