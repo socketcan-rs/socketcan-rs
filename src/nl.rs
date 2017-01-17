@@ -163,6 +163,8 @@ impl CanInterface {
     }
 
     /// Bring down CAN interface
+    ///
+    /// Use a netlink control socket to set the interface status to "down".
     pub fn bring_down(&self) -> io::Result<()> {
         let mut nl = open_nl_route_socket()?;
 
@@ -179,6 +181,8 @@ impl CanInterface {
     }
 
     /// Bring up CAN interface
+    ///
+    /// Brings the interface up by settings its "up" flag enabled via netlink.
     pub fn bring_up(&self) -> io::Result<()> {
         let mut nl = open_nl_route_socket()?;
 
