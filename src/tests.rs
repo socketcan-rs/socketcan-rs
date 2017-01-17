@@ -36,7 +36,7 @@ mod vcan_tests {
 
         cs.write_frame(&frame).unwrap();
 
-        let recv = cs.read_frame().unwrap();
+        cs.read_frame().unwrap();
     }
 
     #[test]
