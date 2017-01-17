@@ -127,7 +127,6 @@ fn open_nl_route_socket() -> io::Result<NetlinkSocket> {
 
     // retrieve PID
     let pid = unsafe { libc::getpid() } as u32;
-    let pid = 0;  // FIXME: is this necessary?
 
     // after opening the socket, bind it to be able to receive messages back
     // groups is set to 0, because we want no notifications
