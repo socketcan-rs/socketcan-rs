@@ -60,6 +60,7 @@ use libc::{c_int, c_short, c_void, c_uint, c_ulong, socket, SOCK_RAW, close, bin
            write, SOL_SOCKET, SO_RCVTIMEO, timespec, timeval, EINPROGRESS, SO_SNDTIMEO};
 use itertools::Itertools;
 use nix::net::if_::if_nametoindex;
+pub use nl::CanInterface;
 use std::{error, fmt, io, time};
 use std::mem::{size_of, uninitialized};
 use util::{set_socket_option, set_socket_option_mult};
@@ -633,31 +634,5 @@ impl CanFilter {
             _id: id,
             _mask: mask,
         })
-    }
-}
-
-/// SocketCAN interface
-///
-/// Controlled through the kernel's netlink interface, CAN devices can be
-/// brought up or down or configured through this.
-struct CanInterface {
-    if_index: c_uint,
-}
-
-impl CanInterface {
-    /// Open CAN interface by name
-    ///
-    /// Similar to `open_if`, but looks up the device by name instead
-    pub fn open(ifname: &str) -> Result<CanInterface, nix::Error> {
-        let if_index = if_nametoindex(ifname)?;
-        Ok(CanInterface::open_if(if_index))
-    }
-
-    /// Open CAN interface
-    ///
-    /// Creates a new `CanInterface` instance. No actual "opening" is necessary
-    /// or performed when calling this function.
-    pub fn open_if(if_index: c_uint) -> CanInterface {
-        CanInterface { if_index: if_index }
     }
 }
