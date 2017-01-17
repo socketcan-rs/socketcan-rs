@@ -177,4 +177,18 @@ impl CanInterface {
         // send the message
         send_and_read_ack(&mut nl, msg, &NetlinkAddr::new(0, 0))
     }
+
+    /// Bring up CAN interface
+    pub fn bring_up(&self) -> io::Result<()> {
+        let mut nl = open_nl_route_socket()?;
+
+        let mut header = NlMsgHeader::user_defined(RTM_NEWLINK, mem::size_of::<IfInfoMsg>() as u32);
+        header.ack();
+
+        let info = IfInfoMsg::new(self.if_index as i32, IFF_UP, IFF_UP);
+        let msg = NetlinkMessage::new(header, NetlinkPayload::Data(info.as_bytes()));
+
+        // send the message
+        send_and_read_ack(&mut nl, msg, &NetlinkAddr::new(0, 0))
+    }
 }
