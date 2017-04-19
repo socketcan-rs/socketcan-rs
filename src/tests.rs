@@ -8,7 +8,14 @@ fn test_nonexistant_device() {
 
 #[cfg(feature = "vcan_tests")]
 mod vcan_tests {
-    use {CanFrame, CanInterface, CanSocket, CanBCMSocket, ERR_MASK_ALL, ERR_MASK_NONE};
+    extern crate futures;
+    extern crate tokio_core;
+    extern crate tokio_io;
+
+    use futures::stream::Stream;
+    use self::tokio_core::reactor::Core;
+    use {BcmSocketListener, CanFrame, CanInterface, CanSocket, CanBCMSocket, ERR_MASK_ALL,
+         ERR_MASK_NONE};
     use std::time;
     use ShouldRetry;
 
@@ -86,4 +93,19 @@ mod vcan_tests {
         assert!(cbs.filter_delete(0x124).is_err())
     }
 
+    #[test]
+    fn vcan0_bcm_non_blocking() {
+        let mut core = Core::new().unwrap();
+        let cbs = CanBCMSocket::open("vcan0").unwrap();
+        let ival = time::Duration::from_millis(1);
+        cbs.filter_id(0x123, ival, ival).unwrap();
+
+        let cl = BcmListener::from(cbs, &core.handle()).unwrap();
+        let msg_stream = cl.for_each(|msg_head| {
+            print!("MSG HEAD {:?}", msg_head.datacan_id());
+            Ok(())
+        });
+        core.run(msg_stream).unwrap();
+        println!("Done Done");
+    }
 }
