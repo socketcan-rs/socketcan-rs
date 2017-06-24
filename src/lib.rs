@@ -57,7 +57,8 @@ mod util;
 mod tests;
 
 use libc::{c_int, c_short, c_void, c_uint, c_ulong, socket, SOCK_RAW, close, bind, sockaddr, read,
-           write, SOL_SOCKET, SO_RCVTIMEO, timespec, timeval, EINPROGRESS, SO_SNDTIMEO};
+           write, SOL_SOCKET, SO_RCVTIMEO, timespec, timeval, EINPROGRESS, SO_SNDTIMEO, time_t,
+           suseconds_t};
 use itertools::Itertools;
 use nix::net::if_::if_nametoindex;
 pub use nl::CanInterface;
@@ -154,20 +155,10 @@ pub const ERR_MASK_ALL: u32 = ERR_MASK;
 /// an error mask that will cause SocketCAN to silently drop all errors
 pub const ERR_MASK_NONE: u32 = 0;
 
-
-#[cfg(target_pointer_width = "64")]
 fn c_timeval_new(t: time::Duration) -> timeval {
     timeval {
-        tv_sec: t.as_secs() as i64,
-        tv_usec: (t.subsec_nanos() / 1000) as i64,
-    }
-}
-
-#[cfg(target_pointer_width = "32")]
-fn c_timeval_new(t: time::Duration) -> timeval {
-    timeval {
-        tv_sec: t.as_secs() as i32,
-        tv_usec: (t.subsec_nanos() / 1000) as i32,
+        tv_sec: t.as_secs() as time_t,
+        tv_usec: (t.subsec_nanos() / 1000) as suseconds_t,
     }
 }
 
