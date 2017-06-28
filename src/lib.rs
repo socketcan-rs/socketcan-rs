@@ -56,7 +56,7 @@ mod tests;
 
 use libc::{c_int, c_short, c_void, c_uint, socket, SOCK_RAW, close, bind, sockaddr, read, write,
            setsockopt, SOL_SOCKET, SO_RCVTIMEO, timeval, EINPROGRESS, SO_SNDTIMEO, time_t,
-           suseconds_t, fcntl, F_SETFL, O_NONBLOCK};
+           suseconds_t, fcntl, F_GETFL, F_SETFL, O_NONBLOCK};
 use itertools::Itertools;
 use std::{error, fmt, io, time};
 use std::mem::size_of;
@@ -298,8 +298,21 @@ impl CANSocket {
     }
 
     /// Change socket to non-blocking mode
-    pub fn set_nonblocking(&self) -> io::Result<()> {
-        let rv = unsafe { fcntl(self.fd, F_SETFL, O_NONBLOCK) };
+    pub fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
+        // retrieve current flags
+        let oldfl = unsafe { fcntl(self.fd, F_GETFL) };
+
+        if oldfl == -1 {
+            return Err(io::Error::last_os_error());
+        }
+
+        let newfl = if nonblocking {
+            oldfl | O_NONBLOCK
+        } else {
+            oldfl & !O_NONBLOCK
+        };
+
+        let rv = unsafe { fcntl(self.fd, F_SETFL, newfl) };
 
         if rv != 0 {
             return Err(io::Error::last_os_error());
