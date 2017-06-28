@@ -34,6 +34,12 @@
 //! [Thomas Fischl's USBtin](http://www.fischl.de/usbtin/) (see
 //! [section 2.4](http://www.fischl.de/usbtin/#socketcan)) is one of many ways
 //! to get started.
+//!
+//! # RawFd
+//!
+//! Raw access to the underlying file descriptor and construction through
+//! is available through the `AsRawFd`, `IntoRawFd` and `FromRawFd`
+//! implementations.
 
 extern crate hex;
 extern crate itertools;
@@ -54,6 +60,7 @@ use libc::{c_int, c_short, c_void, c_uint, socket, SOCK_RAW, close, bind, sockad
 use itertools::Itertools;
 use std::{error, fmt, io, time};
 use std::mem::size_of;
+use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use nix::net::if_::if_nametoindex;
 
 /// Check an error return value for timeouts.
@@ -290,11 +297,6 @@ impl CANSocket {
         Ok(())
     }
 
-    /// Extract Raw file descriptor.
-    pub fn raw_fd(&self) -> c_int {
-        self.fd
-    }
-
     /// Change socket to non-blocking mode
     pub fn set_nonblocking(&self) -> io::Result<()> {
         let rv = unsafe {
@@ -477,6 +479,24 @@ impl CANSocket {
     #[inline(always)]
     pub fn error_filter_accept_all(&self) -> io::Result<()> {
         self.set_error_filter(ERR_MASK)
+    }
+}
+
+impl AsRawFd for CANSocket {
+    fn as_raw_fd(&self) -> RawFd {
+        self.fd
+    }
+}
+
+impl FromRawFd for CANSocket {
+    unsafe fn from_raw_fd(fd: RawFd) -> CANSocket {
+        CANSocket { fd: fd }
+    }
+}
+
+impl IntoRawFd for CANSocket {
+    fn into_raw_fd(self) -> RawFd {
+        self.fd
     }
 }
 
