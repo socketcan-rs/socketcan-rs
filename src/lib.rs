@@ -505,7 +505,7 @@ impl IntoRawFd for CANSocket {
 
 impl Drop for CanSocket {
     fn drop(&mut self) {
-        self.close().ok();  // ignore result
+        self.close().ok(); // ignore result
     }
 }
 
@@ -569,13 +569,13 @@ impl CanFrame {
         }
 
         Ok(CanFrame {
-            _id: _id,
-            _data_len: data.len() as u8,
-            _pad: 0,
-            _res0: 0,
-            _res1: 0,
-            _data: full_data,
-        })
+               _id: _id,
+               _data_len: data.len() as u8,
+               _pad: 0,
+               _res0: 0,
+               _res1: 0,
+               _data: full_data,
+           })
     }
 
     /// Return the actual CAN ID (without EFF/RTR/ERR flags)
@@ -658,8 +658,8 @@ impl CanFilter {
     /// Construct a new CAN filter.
     pub fn new(id: u32, mask: u32) -> Result<CanFilter, ConstructionError> {
         Ok(CanFilter {
-            _id: id,
-            _mask: mask,
-        })
+               _id: id,
+               _mask: mask,
+           })
     }
 }
