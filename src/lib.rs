@@ -299,9 +299,7 @@ impl CANSocket {
 
     /// Change socket to non-blocking mode
     pub fn set_nonblocking(&self) -> io::Result<()> {
-        let rv = unsafe {
-            fcntl(self.fd, F_SETFL, O_NONBLOCK)
-        };
+        let rv = unsafe { fcntl(self.fd, F_SETFL, O_NONBLOCK) };
 
         if rv != 0 {
             return Err(io::Error::last_os_error());
@@ -502,7 +500,7 @@ impl IntoRawFd for CANSocket {
 
 impl Drop for CANSocket {
     fn drop(&mut self) {
-        self.close().ok();  // ignore result
+        self.close().ok(); // ignore result
     }
 }
 
@@ -566,13 +564,13 @@ impl CANFrame {
         }
 
         Ok(CANFrame {
-            _id: _id,
-            _data_len: data.len() as u8,
-            _pad: 0,
-            _res0: 0,
-            _res1: 0,
-            _data: full_data,
-        })
+               _id: _id,
+               _data_len: data.len() as u8,
+               _pad: 0,
+               _res0: 0,
+               _res1: 0,
+               _data: full_data,
+           })
     }
 
     /// Return the actual CAN ID (without EFF/RTR/ERR flags)
@@ -646,8 +644,8 @@ pub struct CANFilter {
 impl CANFilter {
     pub fn new(id: u32, mask: u32) -> Result<CANFilter, ConstructionError> {
         Ok(CANFilter {
-            _id: id,
-            _mask: mask,
-        })
+               _id: id,
+               _mask: mask,
+           })
     }
 }
