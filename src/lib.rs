@@ -58,7 +58,7 @@ mod tests;
 
 use libc::{c_int, c_short, c_void, c_uint, c_ulong, socket, SOCK_RAW, close, bind, sockaddr, read,
            write, SOL_SOCKET, SO_RCVTIMEO, timespec, timeval, EINPROGRESS, SO_SNDTIMEO, time_t,
-           suseconds_t};
+           suseconds_t, fcntl, F_SETFL, O_NONBLOCK};
 use itertools::Itertools;
 use nix::net::if_::if_nametoindex;
 pub use nl::CanInterface;
@@ -315,6 +315,21 @@ impl CanSocket {
             if rv != -1 {
                 return Err(io::Error::last_os_error());
             }
+        }
+        Ok(())
+    }
+
+    /// Extract Raw file descriptor.
+    pub fn raw_fd(&self) -> c_int {
+        self.fd
+    }
+
+    /// Change socket to non-blocking mode
+    pub fn set_nonblocking(&self) -> io::Result<()> {
+        let rv = unsafe { fcntl(self.fd, F_SETFL, O_NONBLOCK) };
+
+        if rv != 0 {
+            return Err(io::Error::last_os_error());
         }
         Ok(())
     }
