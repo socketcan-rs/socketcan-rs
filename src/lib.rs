@@ -65,7 +65,7 @@ mod tests;
 
 use libc::{c_int, c_short, c_void, c_uint, c_ulong, socket, SOCK_RAW, close, bind, sockaddr, read,
            write, SOL_SOCKET, SO_RCVTIMEO, timespec, timeval, EINPROGRESS, SO_SNDTIMEO, time_t,
-           suseconds_t, fcntl, F_SETFL, O_NONBLOCK};
+           suseconds_t, fcntl, F_GETFL, F_SETFL, O_NONBLOCK};
 use itertools::Itertools;
 use nix::net::if_::if_nametoindex;
 pub use nl::CanInterface;
@@ -328,8 +328,21 @@ impl CanSocket {
     }
 
     /// Change socket to non-blocking mode
-    pub fn set_nonblocking(&self) -> io::Result<()> {
-        let rv = unsafe { fcntl(self.fd, F_SETFL, O_NONBLOCK) };
+    pub fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
+        // retrieve current flags
+        let oldfl = unsafe { fcntl(self.fd, F_GETFL) };
+
+        if oldfl == -1 {
+            return Err(io::Error::last_os_error());
+        }
+
+        let newfl = if nonblocking {
+            oldfl | O_NONBLOCK
+        } else {
+            oldfl & !O_NONBLOCK
+        };
+
+        let rv = unsafe { fcntl(self.fd, F_SETFL, newfl) };
 
         if rv != 0 {
             return Err(io::Error::last_os_error());
@@ -485,19 +498,19 @@ impl CanSocket {
     }
 }
 
-impl AsRawFd for CANSocket {
+impl AsRawFd for CanSocket {
     fn as_raw_fd(&self) -> RawFd {
         self.fd
     }
 }
 
-impl FromRawFd for CANSocket {
-    unsafe fn from_raw_fd(fd: RawFd) -> CANSocket {
-        CANSocket { fd: fd }
+impl FromRawFd for CanSocket {
+    unsafe fn from_raw_fd(fd: RawFd) -> CanSocket {
+        CanSocket { fd: fd }
     }
 }
 
-impl IntoRawFd for CANSocket {
+impl IntoRawFd for CanSocket {
     fn into_raw_fd(self) -> RawFd {
         self.fd
     }
