@@ -34,6 +34,13 @@
 //! [Thomas Fischl's USBtin](http://www.fischl.de/usbtin/) (see
 //! [section 2.4](http://www.fischl.de/usbtin/#socketcan)) is one of many ways
 //! to get started.
+//!
+//! # RawFd
+//!
+//! Raw access to the underlying file descriptor and construction through
+//! is available through the `AsRawFd`, `IntoRawFd` and `FromRawFd`
+//! implementations.
+
 
 
 // clippy: do not warn about things like "SocketCAN" inside the docs
@@ -64,6 +71,7 @@ use nix::net::if_::if_nametoindex;
 pub use nl::CanInterface;
 use std::{error, fmt, io, time};
 use std::mem::{size_of, uninitialized};
+use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use util::{set_socket_option, set_socket_option_mult};
 
 /// Check an error return value for timeouts.
@@ -319,11 +327,6 @@ impl CanSocket {
         Ok(())
     }
 
-    /// Extract Raw file descriptor.
-    pub fn raw_fd(&self) -> c_int {
-        self.fd
-    }
-
     /// Change socket to non-blocking mode
     pub fn set_nonblocking(&self) -> io::Result<()> {
         let rv = unsafe { fcntl(self.fd, F_SETFL, O_NONBLOCK) };
@@ -479,6 +482,24 @@ impl CanSocket {
     pub fn set_join_filters(&self, enabled: bool) -> io::Result<()> {
         let join_filters: c_int = if enabled { 1 } else { 0 };
         set_socket_option(self.fd, SOL_CAN_RAW, CAN_RAW_JOIN_FILTERS, &join_filters)
+    }
+}
+
+impl AsRawFd for CANSocket {
+    fn as_raw_fd(&self) -> RawFd {
+        self.fd
+    }
+}
+
+impl FromRawFd for CANSocket {
+    unsafe fn from_raw_fd(fd: RawFd) -> CANSocket {
+        CANSocket { fd: fd }
+    }
+}
+
+impl IntoRawFd for CANSocket {
+    fn into_raw_fd(self) -> RawFd {
+        self.fd
     }
 }
 
