@@ -14,7 +14,7 @@ hex = "^0.2"
 itertools = "^0.4"
 libc = "^0.2"
 mio = "0.6.6"
-netlink-rs = { git = "https://github.com/mbr/netlink-rs", rev = "01cba6fcc7b11917890bc3d2b4635009fde8082c" }
+netlink-rs = { git = "https://github.com/netlink-rs/netlink-rs", rev = "c008b4e385e3c0a114ec907ca28ad4fe33233ed5" }
 nix = "^0.5"
 tokio-core = "0.1.7"
 tokio-io = "0.1.3"
