@@ -10,7 +10,7 @@ version = "2.0.0"
 [dependencies]
 byte_conv = "0.1.1"
 futures = "0.1.16"
-hex = "^0.2"
+hex = "^0.3"
 itertools = "^0.4"
 libc = "^0.2"
 mio = "0.6.6"
