@@ -11,7 +11,7 @@ version = "2.0.0"
 byte_conv = "0.1.1"
 futures = "0.1.16"
 hex = "^0.3"
-itertools = "^0.4"
+itertools = "^0.7"
 libc = "^0.2"
 mio = "0.6.6"
 netlink-rs = { git = "https://github.com/netlink-rs/netlink-rs", rev = "c008b4e385e3c0a114ec907ca28ad4fe33233ed5" }
