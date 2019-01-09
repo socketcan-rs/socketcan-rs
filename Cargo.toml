@@ -1,0 +1,15 @@
+[package]
+name = "tokio-socketcan"
+version = "0.1.0"
+authors = ["Terry Kerr <root@oefd.ca>"]
+edition = "2018"
+description = "Asynchronous Linux SocketCAN sockets with tokio"
+license = "MIT"
+repository = "https://github.com/oefd/tokio-socketcan"
+
+[dependencies]
+socketcan = "1.7"
+futures = "0.1"
+tokio = "0.1"
+mio = "0.6"
+libc = "0.2"
