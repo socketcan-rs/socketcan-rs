@@ -1,10 +1,35 @@
+//! # tokio-socketcan
+//!
+//! Connective plumbing between the socketcan crate
+//! and the tokio asynchronous I/O system
+//!
+//! # Usage
+//!
+//! The [socketcan](https://docs.rs/socketcan/1.7.0/socketcan/)
+//! crate's documentation is valuable as the api used by
+//! tokio-socketcan is largely identical to the socketcan one.
+//!
+//! An example echo server:
+//!
+//! ```no_run
+//! use futures::stream::Stream;
+//! use futures::future::{self, Future};
+//!
+//! let socket_rx = tokio_socketcan::CANSocket::open("vcan0").unwrap();
+//! let socket_tx = tokio_socketcan::CANSocket::open("vcan0").unwrap();
+//!
+//! tokio::run(socket_rx.for_each(move |frame| {
+//!     socket_tx.write_frame(frame)
+//! }).map_err(|_err| {}));
+//!
+//! ```
 use std::io;
 use std::os::raw::c_uint;
 use std::os::unix::io::{AsRawFd, FromRawFd};
 
 use libc;
 
-use futures;
+use futures::{self, try_ready};
 
 use mio::event::Evented;
 use mio::unix::EventedFd;
@@ -17,6 +42,10 @@ use socketcan;
 pub use socketcan::CANFrame;
 pub use socketcan::CANSocketOpenError;
 
+/// A Future representing the eventual
+/// writing of a CANFrame to the socket
+///
+/// Created by the CANSocket.write_frame() method
 pub struct CANWriteFuture {
     socket: CANSocket,
     frame: CANFrame,
@@ -27,7 +56,7 @@ impl Future for CANWriteFuture {
     type Error = io::Error;
 
     fn poll(&mut self) -> futures::Poll<Self::Item, Self::Error> {
-        futures::try_ready!(self.socket.0.poll_write_ready());
+        try_ready!(self.socket.0.poll_write_ready());
         match self.socket.0.get_ref().0.write_frame_insist(&self.frame) {
             Ok(_) => Ok(Async::Ready(())),
             Err(err) => Err(err),
@@ -35,7 +64,8 @@ impl Future for CANWriteFuture {
     }
 }
 
-/// A CAN socket wrapped for mio
+/// A socketcan::CANSocket wrapped for mio eventing
+/// to allow it be integrated in turn into tokio
 #[derive(Debug)]
 pub struct EventedCANSocket(socketcan::CANSocket);
 
@@ -71,7 +101,7 @@ impl Evented for EventedCANSocket {
     }
 }
 
-/// Wrapped socketcan CANSocket with asynchronous I/O
+/// An asynchronous I/O wrapped socketcan::CANSocket
 #[derive(Debug)]
 pub struct CANSocket(PollEvented2<EventedCANSocket>);
 
@@ -117,6 +147,10 @@ impl CANSocket {
         self.0.get_ref().0.error_filter_accept_all()
     }
 
+    /// Write a CANFrame to the socket asynchronously
+    ///
+    /// This uses the semantics of socketcan's `write_frame_insist`,
+    /// IE: it will automatically retry when it fails on an EINTR
     pub fn write_frame(&self, frame: CANFrame) -> CANWriteFuture {
         CANWriteFuture {
             socket: self.clone(),
@@ -126,12 +160,15 @@ impl CANSocket {
 }
 
 impl Clone for CANSocket {
+    /// Clone the CANSocket by using the `dup` syscall to get another
+    /// file descriptor. This method makes clones fairly cheap and
+    /// avoids complexity around ownership
     fn clone(&self) -> Self {
         let fd = self.0.get_ref().0.as_raw_fd();
         unsafe {
             // essentially we're cheating and making it cheaper/easier
             // to manage multiple references to the socket by relying
-            // on the linux behaviour of `dup()` which essentially lets
+            // on the posix behaviour of `dup()` which essentially lets
             // the kernel worry about keeping track of references;
             // as long as one of the duplicated file descriptors is open
             // the socket as a whole isn't going to be closed.
@@ -146,10 +183,8 @@ impl Stream for CANSocket {
     type Item = CANFrame;
     type Error = io::Error;
 
-    /// Determine if the socket is ready to read from, and read if we can
     fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
-        futures::try_ready!(self.0.poll_read_ready(Ready::readable()));
-        // WouldBlock shouldn't come back to us here, but this is paranoia.
+        try_ready!(self.0.poll_read_ready(Ready::readable()));
         match self.0.get_ref().get_ref().read_frame() {
             Ok(frame) => Ok(Async::Ready(Some(frame))),
             Err(err) => {
@@ -169,27 +204,46 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
+    /// Receive a frame from the CANSocket
+    fn recv_frame(socket: CANSocket) -> Box<Future<Item = CANSocket, Error = String> + Send> {
+        Box::new(
+            socket
+                .into_future()
+                .map(|(_frame, stream)| stream)
+                .map_err(|err| format!("io error: {:?}", err))
+                .timeout(Duration::from_millis(100))
+                .map_err(|timeout| format!("timeout: {:?}", timeout)),
+        )
+    }
+
+    /// Write a test frame to the CANSocket
+    fn write_frame(socket: &CANSocket) -> Box<Future<Item = (), Error = ()> + Send> {
+        let test_frame = socketcan::CANFrame::new(0x1, &[0], false, false).unwrap();
+        Box::new(socket.write_frame(test_frame).map_err(|err| {
+            println!("io error: {:?}", err);
+        }))
+    }
+
+    /// Attempt delivery of two messages, using a oneshot channel
+    /// to prompt the second message in order to demonstrate that
+    /// waiting for CAN reads is not blocking.
     #[test]
-    fn test_recv() {
+    fn test_receive() {
         let socket1 = CANSocket::open("vcan0").unwrap();
         let socket2 = CANSocket::open("vcan0").unwrap();
+        let (tx, rx) = futures::sync::oneshot::channel::<()>();
 
-        let test_frame = socketcan::CANFrame::new(0x1, &[0], false, false).unwrap();
-        let send_frame = socket1.write_frame(test_frame).map_err(|err| {
-            println!("io error: {:?}", err);
-        });
+        let send_frames = write_frame(&socket1)
+            .and_then(|_| rx.map(|_| {}).map_err(|_| { panic!() }))
+            .and_then(move |_| write_frame(&socket1));
 
-        let recv_frames = future::lazy(move || {
-            socket2
-                .into_future()
-                .map(|(_frame, _stream_fut)| ())
-                .map_err(|err| format!("io error: {:?}", err))
-                .timeout(Duration::from_millis(10000))
-                .map_err(|timeout| format!("timeout: {:?}", timeout))
+        let recv_frames = recv_frame(socket2).and_then(|stream_continuation| {
+            tx.send(()).unwrap();
+            recv_frame(stream_continuation)
         });
 
         let mut rt = tokio::runtime::Runtime::new().unwrap();
-        rt.spawn(send_frame);
+        rt.spawn(send_frames);
         rt.block_on(recv_frames).unwrap();
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "tokio-socketcan"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Terry Kerr <root@oefd.ca>"]
 edition = "2018"
 description = "Asynchronous Linux SocketCAN sockets with tokio"
