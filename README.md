@@ -30,3 +30,9 @@ sudo ip link add vcan0 type vcan
 sudo ip link set vcan0 up
 cargo test
 ```
+
+# Changelog
+
+## 0.1.2
+
+* Added `futures::sink::Sink` implementation for the `CANSocket`

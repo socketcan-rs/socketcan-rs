@@ -199,9 +199,37 @@ impl Stream for CANSocket {
     }
 }
 
+impl Sink for CANSocket {
+    type SinkItem = CANFrame;
+    type SinkError = io::Error;
+
+    fn start_send(
+        &mut self,
+        item: Self::SinkItem,
+    ) -> Result<AsyncSink<Self::SinkItem>, Self::SinkError> {
+        match self.0.get_ref().0.write_frame_insist(&item) {
+            Ok(_) => Ok(AsyncSink::Ready),
+            Err(err) => {
+                if err.kind() == io::ErrorKind::WouldBlock {
+                    self.0.clear_write_ready()?;
+                    Ok(AsyncSink::NotReady(item))
+                } else {
+                    Err(err)
+                }
+            }
+        }
+    }
+
+    /// All progress is completed immediately in the start_send
+    fn poll_complete(&mut self) -> Result<Async<()>, Self::SinkError> {
+        Ok(Async::Ready(()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::future::ok;
     use std::time::Duration;
 
     /// Receive a frame from the CANSocket
@@ -234,7 +262,7 @@ mod tests {
         let (tx, rx) = futures::sync::oneshot::channel::<()>();
 
         let send_frames = write_frame(&socket1)
-            .and_then(|_| rx.map(|_| {}).map_err(|_| { panic!() }))
+            .and_then(|_| rx.map(|_| {}).map_err(|_| panic!()))
             .and_then(move |_| write_frame(&socket1));
 
         let recv_frames = recv_frame(socket2).and_then(|stream_continuation| {
@@ -245,5 +273,37 @@ mod tests {
         let mut rt = tokio::runtime::Runtime::new().unwrap();
         rt.spawn(send_frames);
         rt.block_on(recv_frames).unwrap();
+    }
+
+    #[test]
+    fn test_sink_stream() {
+        static mut COUNTER: usize = 0;
+
+        let socket1 = CANSocket::open("vcan0").unwrap();
+        let socket2 = CANSocket::open("vcan0").unwrap();
+
+        let frame_id_1 = CANFrame::new(1, &[0u8], false, false).unwrap();
+        let frame_id_2 = CANFrame::new(2, &[0u8], false, false).unwrap();
+        let frame_id_3 = CANFrame::new(3, &[0u8], false, false).unwrap();
+
+        let (sink, _stream) = socket1.split();
+        let (_sink, stream) = socket2.split();
+
+        let take_ids_less_than_3 = stream.take_while(|frame| ok(frame.id() < 3)).for_each(|_| {
+            unsafe { COUNTER += 1 };
+            ok(())
+        });
+
+        let send_frames = sink
+            .send(frame_id_1)
+            .and_then(move |sink| sink.send(frame_id_2))
+            .and_then(move |sink| sink.send(frame_id_3))
+            .and_then(|_| ok(()))
+            .map_err(|_| panic!());
+
+        let mut rt = tokio::runtime::Runtime::new().unwrap();
+        rt.spawn(send_frames);
+        rt.block_on(take_ids_less_than_3).unwrap();
+        unsafe { assert_eq!(COUNTER, 2) };
     }
 }
