@@ -33,6 +33,10 @@ cargo test
 
 # Changelog
 
+## 0.1.3
+
+* Fixed error events being effectively delayed in delivery until the next non-error arrived.
+
 ## 0.1.2
 
 * Added `futures::sink::Sink` implementation for the `CANSocket`
