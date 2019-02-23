@@ -33,7 +33,7 @@ use futures::{self, try_ready};
 
 use mio::event::Evented;
 use mio::unix::EventedFd;
-use mio::{Poll, PollOpt, Ready, Token};
+use mio::{unix::UnixReady, Poll, PollOpt, Ready, Token};
 
 use tokio::prelude::*;
 use tokio::reactor::PollEvented2;
@@ -184,7 +184,9 @@ impl Stream for CANSocket {
     type Error = io::Error;
 
     fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
-        try_ready!(self.0.poll_read_ready(Ready::readable()));
+        try_ready!(self
+            .0
+            .poll_read_ready(Ready::readable() | UnixReady::error()));
         match self.0.get_ref().get_ref().read_frame() {
             Ok(frame) => Ok(Async::Ready(Some(frame))),
             Err(err) => {
