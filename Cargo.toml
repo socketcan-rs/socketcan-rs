@@ -9,7 +9,13 @@ repository = "https://github.com/oefd/tokio-socketcan"
 
 [dependencies]
 socketcan = "1.7"
-futures = "0.1"
-tokio = "0.1"
+futures = "0.3"
+tokio-net = "0.2.0-alpha.6"
 mio = "0.6"
 libc = "0.2"
+
+[dev-dependencies]
+futures-timer = "2.0"
+futures-util = "0.3"
+tokio = "0.2.0-alpha.6"
+tokio-test = "0.2.0-alpha.6"

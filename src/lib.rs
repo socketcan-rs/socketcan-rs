@@ -12,31 +12,38 @@
 //! An example echo server:
 //!
 //! ```no_run
-//! use futures::stream::Stream;
+//! use futures_util::StreamExt;
 //! use futures::future::{self, Future};
+//! use tokio_test::block_on;
 //!
-//! let socket_rx = tokio_socketcan::CANSocket::open("vcan0").unwrap();
-//! let socket_tx = tokio_socketcan::CANSocket::open("vcan0").unwrap();
+//! let mut socket_rx = tokio_socketcan::CANSocket::open("vcan0").unwrap();
+//! let mut socket_tx = tokio_socketcan::CANSocket::open("vcan0").unwrap();
 //!
-//! tokio::run(socket_rx.for_each(move |frame| {
-//!     socket_tx.write_frame(frame)
-//! }).map_err(|_err| {}));
+//! block_on(async {
+//!     while let Some(Ok(frame)) = socket_rx.next().await {
+//!         socket_tx.write_frame(frame).await;
+//!     }
+//! });
 //!
 //! ```
+use std::future::Future;
 use std::io;
 use std::os::raw::c_uint;
 use std::os::unix::io::{AsRawFd, FromRawFd};
+use std::pin::Pin;
+use std::task::Poll;
 
 use libc;
 
-use futures::{self, try_ready};
+use futures::prelude::*;
+use futures::ready;
+use futures::task::Context;
 
 use mio::event::Evented;
 use mio::unix::EventedFd;
-use mio::{unix::UnixReady, Poll, PollOpt, Ready, Token};
+use mio::{unix::UnixReady, PollOpt, Ready, Token};
 
-use tokio::prelude::*;
-use tokio::reactor::PollEvented2;
+use tokio_net::util::PollEvented;
 
 use socketcan;
 pub use socketcan::CANFrame;
@@ -52,14 +59,13 @@ pub struct CANWriteFuture {
 }
 
 impl Future for CANWriteFuture {
-    type Item = ();
-    type Error = io::Error;
+    type Output = io::Result<()>;
 
-    fn poll(&mut self) -> futures::Poll<Self::Item, Self::Error> {
-        try_ready!(self.socket.0.poll_write_ready());
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        ready!(self.socket.0.poll_write_ready(cx))?;
         match self.socket.0.get_ref().0.write_frame_insist(&self.frame) {
-            Ok(_) => Ok(Async::Ready(())),
-            Err(err) => Err(err),
+            Ok(_) => Poll::Ready(Ok(())),
+            Err(err) => Poll::Ready(Err(err)),
         }
     }
 }
@@ -78,7 +84,7 @@ impl EventedCANSocket {
 impl Evented for EventedCANSocket {
     fn register(
         &self,
-        poll: &Poll,
+        poll: &mio::Poll,
         token: Token,
         interest: Ready,
         opts: PollOpt,
@@ -88,7 +94,7 @@ impl Evented for EventedCANSocket {
 
     fn reregister(
         &self,
-        poll: &Poll,
+        poll: &mio::Poll,
         token: Token,
         interest: Ready,
         opts: PollOpt,
@@ -96,28 +102,28 @@ impl Evented for EventedCANSocket {
         EventedFd(&self.0.as_raw_fd()).reregister(poll, token, interest, opts)
     }
 
-    fn deregister(&self, poll: &Poll) -> io::Result<()> {
+    fn deregister(&self, poll: &mio::Poll) -> io::Result<()> {
         EventedFd(&self.0.as_raw_fd()).deregister(poll)
     }
 }
 
 /// An asynchronous I/O wrapped socketcan::CANSocket
 #[derive(Debug)]
-pub struct CANSocket(PollEvented2<EventedCANSocket>);
+pub struct CANSocket(PollEvented<EventedCANSocket>);
 
 impl CANSocket {
     /// Open a named CAN device such as "vcan0"
     pub fn open(ifname: &str) -> Result<CANSocket, CANSocketOpenError> {
         let sock = socketcan::CANSocket::open(ifname)?;
         sock.set_nonblocking(true)?;
-        Ok(CANSocket(PollEvented2::new(EventedCANSocket(sock))))
+        Ok(CANSocket(PollEvented::new(EventedCANSocket(sock))))
     }
 
     /// Open CAN device by kernel interface number
     pub fn open_if(if_index: c_uint) -> Result<CANSocket, CANSocketOpenError> {
         let sock = socketcan::CANSocket::open_if(if_index)?;
         sock.set_nonblocking(true)?;
-        Ok(CANSocket(PollEvented2::new(EventedCANSocket(sock))))
+        Ok(CANSocket(PollEvented::new(EventedCANSocket(sock))))
     }
 
     /// Sets the filter mask on the socket
@@ -174,112 +180,107 @@ impl Clone for CANSocket {
             // the socket as a whole isn't going to be closed.
             let new_fd = libc::dup(fd);
             let new = socketcan::CANSocket::from_raw_fd(new_fd);
-            CANSocket(PollEvented2::new(EventedCANSocket(new)))
+            CANSocket(PollEvented::new(EventedCANSocket(new)))
         }
     }
 }
 
 impl Stream for CANSocket {
-    type Item = CANFrame;
-    type Error = io::Error;
+    type Item = io::Result<CANFrame>;
 
-    fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
-        try_ready!(self
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
+        ready!(self
             .0
-            .poll_read_ready(Ready::readable() | UnixReady::error()));
+            .poll_read_ready(cx, Ready::readable() | UnixReady::error()))?;
         match self.0.get_ref().get_ref().read_frame() {
-            Ok(frame) => Ok(Async::Ready(Some(frame))),
+            Ok(frame) => Poll::Ready(Some(Ok(frame))),
             Err(err) => {
                 if err.kind() == io::ErrorKind::WouldBlock {
-                    self.0.clear_read_ready(Ready::readable())?;
-                    Ok(Async::NotReady)
+                    self.0.clear_read_ready(cx, Ready::readable())?;
+                    Poll::Pending
                 } else {
-                    Err(err)
+                    Poll::Ready(Some(Err(err)))
                 }
             }
         }
     }
 }
 
-impl Sink for CANSocket {
-    type SinkItem = CANFrame;
-    type SinkError = io::Error;
+impl Sink<CANFrame> for CANSocket {
+    type Error = io::Error;
 
-    fn start_send(
-        &mut self,
-        item: Self::SinkItem,
-    ) -> Result<AsyncSink<Self::SinkItem>, Self::SinkError> {
-        match self.0.get_ref().0.write_frame_insist(&item) {
-            Ok(_) => Ok(AsyncSink::Ready),
-            Err(err) => {
-                if err.kind() == io::ErrorKind::WouldBlock {
-                    self.0.clear_write_ready()?;
-                    Ok(AsyncSink::NotReady(item))
-                } else {
-                    Err(err)
-                }
-            }
-        }
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        ready!(self.0.poll_write_ready(cx))?;
+        Poll::Ready(Ok(()))
     }
 
-    /// All progress is completed immediately in the start_send
-    fn poll_complete(&mut self) -> Result<Async<()>, Self::SinkError> {
-        Ok(Async::Ready(()))
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(self.0.clear_write_ready(cx))
+    }
+
+    fn start_send(self: Pin<&mut Self>, item: CANFrame) -> Result<(), Self::Error> {
+        self.0.get_ref().0.write_frame_insist(&item)?;
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::channel::mpsc::channel;
     use futures::future::ok;
+    use futures::{select, try_join};
+    use futures_timer::Delay;
+    use tokio_test::block_on;
+
+    use std::io;
     use std::time::Duration;
 
     /// Receive a frame from the CANSocket
-    fn recv_frame(socket: CANSocket) -> Box<Future<Item = CANSocket, Error = String> + Send> {
-        Box::new(
-            socket
-                .into_future()
-                .map(|(_frame, stream)| stream)
-                .map_err(|err| format!("io error: {:?}", err))
-                .timeout(Duration::from_millis(100))
-                .map_err(|timeout| format!("timeout: {:?}", timeout)),
+    async fn recv_frame(mut socket: CANSocket) -> io::Result<CANSocket> {
+        // let mut frame_stream = socket;
+
+        select!(
+            frame = socket.next().fuse() => { if let Some(frame) = frame { Ok(socket) } else { panic!("unexpected") } },
+            _timeout = Delay::new(Duration::from_millis(100)).fuse() => Err(io::Error::from(io::ErrorKind::TimedOut)),
         )
     }
 
     /// Write a test frame to the CANSocket
-    fn write_frame(socket: &CANSocket) -> Box<Future<Item = (), Error = ()> + Send> {
+    async fn write_frame(socket: &CANSocket) -> io::Result<()> {
         let test_frame = socketcan::CANFrame::new(0x1, &[0], false, false).unwrap();
-        Box::new(socket.write_frame(test_frame).map_err(|err| {
-            println!("io error: {:?}", err);
-        }))
+        socket.write_frame(test_frame).await?;
+        Ok(())
     }
 
     /// Attempt delivery of two messages, using a oneshot channel
     /// to prompt the second message in order to demonstrate that
     /// waiting for CAN reads is not blocking.
     #[test]
-    fn test_receive() {
+    fn test_receive() -> io::Result<()> {
         let socket1 = CANSocket::open("vcan0").unwrap();
         let socket2 = CANSocket::open("vcan0").unwrap();
-        let (tx, rx) = futures::sync::oneshot::channel::<()>();
 
-        let send_frames = write_frame(&socket1)
-            .and_then(|_| rx.map(|_| {}).map_err(|_| panic!()))
-            .and_then(move |_| write_frame(&socket1));
+        let send_frames = future::try_join(write_frame(&socket1), write_frame(&socket1));
 
-        let recv_frames = recv_frame(socket2).and_then(|stream_continuation| {
-            tx.send(()).unwrap();
-            recv_frame(stream_continuation)
-        });
+        let recv_frames = async {
+            let socket2 = recv_frame(socket2).await?;
+            let _socket2 = recv_frame(socket2).await;
+            Ok(())
+        };
 
-        let mut rt = tokio::runtime::Runtime::new().unwrap();
-        rt.spawn(send_frames);
-        rt.block_on(recv_frames).unwrap();
+        block_on(async { try_join!(send_frames, recv_frames) })?;
+
+        Ok(())
     }
 
     #[test]
-    fn test_sink_stream() {
-        static mut COUNTER: usize = 0;
+    fn test_sink_stream() -> io::Result<()> {
+        let (mut counter_tx, counter_rx) = channel::<u32>(20);
 
         let socket1 = CANSocket::open("vcan0").unwrap();
         let socket2 = CANSocket::open("vcan0").unwrap();
@@ -288,24 +289,28 @@ mod tests {
         let frame_id_2 = CANFrame::new(2, &[0u8], false, false).unwrap();
         let frame_id_3 = CANFrame::new(3, &[0u8], false, false).unwrap();
 
-        let (sink, _stream) = socket1.split();
+        let (mut sink, _stream) = socket1.split();
         let (_sink, stream) = socket2.split();
 
-        let take_ids_less_than_3 = stream.take_while(|frame| ok(frame.id() < 3)).for_each(|_| {
-            unsafe { COUNTER += 1 };
-            ok(())
+        let mut take_ids_less_than_3 =
+            stream
+                .try_skip_while(|frame| ok(frame.id() < 3))
+                .map_ok(|frame| {
+                    let id = frame.id().clone();
+                    counter_tx.send(id); // TODO figure out?
+                });
+
+        block_on(async {
+            let _frame_1 = sink.send(frame_id_1).await.unwrap();
+            let _frame_2 = sink.send(frame_id_2).await.unwrap();
+            let _frame_3 = sink.send(frame_id_3).await.unwrap();
+
+            select! {
+               _ = take_ids_less_than_3.next().fuse() => (),
+               x = counter_rx.take(3).collect::<Vec<u32>>() => assert_eq!(x, vec!(3, 2, 3)),
+            };
         });
 
-        let send_frames = sink
-            .send(frame_id_1)
-            .and_then(move |sink| sink.send(frame_id_2))
-            .and_then(move |sink| sink.send(frame_id_3))
-            .and_then(|_| ok(()))
-            .map_err(|_| panic!());
-
-        let mut rt = tokio::runtime::Runtime::new().unwrap();
-        rt.spawn(send_frames);
-        rt.block_on(take_ids_less_than_3).unwrap();
-        unsafe { assert_eq!(COUNTER, 2) };
+        Ok(())
     }
 }
