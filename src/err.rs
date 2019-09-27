@@ -9,7 +9,7 @@ use super::CANFrame;
 /// Helper function to retrieve a specific byte of frame data or returning an
 /// `Err(..)` otherwise.
 fn get_data(frame: &CANFrame, idx: u8) -> Result<u8, CANErrorDecodingFailure> {
-    Ok(*r#try!(frame.data().get(idx as usize).ok_or(CANErrorDecodingFailure::NotEnoughData(idx))))
+    Ok(*frame.data().get(idx as usize).ok_or(CANErrorDecodingFailure::NotEnoughData(idx))?)
 }
 
 
@@ -251,16 +251,16 @@ impl CANError {
 
         match frame.err() {
             0x00000001 => Ok(CANError::TransmitTimeout),
-            0x00000002 => Ok(CANError::LostArbitration(r#try!(get_data(frame, 0)))),
+            0x00000002 => Ok(CANError::LostArbitration(get_data(frame, 0)?)),
             0x00000004 => {
-                Ok(CANError::ControllerProblem(r#try!(ControllerProblem::try_from
-                    (r#try! (get_data(frame, 1))))))
+                Ok(CANError::ControllerProblem(get_data(frame, 1)
+                                              .and_then(ControllerProblem::try_from)?))
             }
 
             0x00000008 => {
                 Ok(CANError::ProtocolViolation {
-                    vtype: r#try!(ViolationType::try_from(r#try!(get_data(frame, 2)))),
-                    location: r#try!(Location::try_from(r#try!(get_data(frame, 3)))),
+                    vtype: get_data(frame, 2).and_then(ViolationType::try_from)?,
+                    location: get_data(frame, 3).and_then(Location::try_from)?,
                 })
             }
 
