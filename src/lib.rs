@@ -41,14 +41,8 @@
 //! is available through the `AsRawFd`, `IntoRawFd` and `FromRawFd`
 //! implementations.
 
-extern crate hex;
-extern crate itertools;
-extern crate libc;
-extern crate nix;
-extern crate try_from;
-
 mod err;
-pub use err::{CANError, CANErrorDecodingFailure};
+pub use crate::err::{CANError, CANErrorDecodingFailure};
 pub mod dump;
 
 #[cfg(test)]
@@ -242,7 +236,7 @@ impl CANSocket {
     /// Usually the more common case, opens a socket can device by name, such
     /// as "vcan0" or "socan0".
     pub fn open(ifname: &str) -> Result<CANSocket, CANSocketOpenError> {
-        let if_index = try!(if_nametoindex(ifname));
+        let if_index = r#try!(if_nametoindex(ifname));
         CANSocket::open_if(if_index)
     }
 
@@ -634,7 +628,7 @@ impl CANFrame {
 
 impl fmt::UpperHex for CANFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        try!(write!(f, "{:X}#", self.id()));
+        r#try!(write!(f, "{:X}#", self.id()));
 
         let mut parts = self.data().iter().map(|v| format!("{:02X}", v));
 

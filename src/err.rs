@@ -1,7 +1,7 @@
 // information from https://raw.githubusercontent.com/torvalds/linux/master/
 //                  /include/uapi/linux/can/error.h
 
-use try_from::TryFrom;
+use std::convert::TryFrom;
 use super::CANFrame;
 
 
@@ -9,7 +9,7 @@ use super::CANFrame;
 /// Helper function to retrieve a specific byte of frame data or returning an
 /// `Err(..)` otherwise.
 fn get_data(frame: &CANFrame, idx: u8) -> Result<u8, CANErrorDecodingFailure> {
-    Ok(*try!(frame.data().get(idx as usize).ok_or(CANErrorDecodingFailure::NotEnoughData(idx))))
+    Ok(*r#try!(frame.data().get(idx as usize).ok_or(CANErrorDecodingFailure::NotEnoughData(idx))))
 }
 
 
@@ -84,7 +84,7 @@ pub enum ControllerProblem {
 }
 
 impl TryFrom<u8> for ControllerProblem {
-    type Err = CANErrorDecodingFailure;
+    type Error = CANErrorDecodingFailure;
 
     fn try_from(val: u8) -> Result<ControllerProblem, CANErrorDecodingFailure> {
         Ok(match val {
@@ -115,7 +115,7 @@ pub enum ViolationType {
 }
 
 impl TryFrom<u8> for ViolationType {
-    type Err = CANErrorDecodingFailure;
+    type Error = CANErrorDecodingFailure;
 
     fn try_from(val: u8) -> Result<ViolationType, CANErrorDecodingFailure> {
         Ok(match val {
@@ -181,7 +181,7 @@ pub enum Location {
 }
 
 impl TryFrom<u8> for Location {
-    type Err = CANErrorDecodingFailure;
+    type Error = CANErrorDecodingFailure;
 
     fn try_from(val: u8) -> Result<Location, CANErrorDecodingFailure> {
         Ok(match val {
@@ -224,7 +224,7 @@ pub enum TransceiverError {
 }
 
 impl TryFrom<u8> for TransceiverError {
-    type Err = CANErrorDecodingFailure;
+    type Error = CANErrorDecodingFailure;
 
     fn try_from(val: u8) -> Result<TransceiverError, CANErrorDecodingFailure> {
         Ok(match val {
@@ -251,16 +251,16 @@ impl CANError {
 
         match frame.err() {
             0x00000001 => Ok(CANError::TransmitTimeout),
-            0x00000002 => Ok(CANError::LostArbitration(try!(get_data(frame, 0)))),
+            0x00000002 => Ok(CANError::LostArbitration(r#try!(get_data(frame, 0)))),
             0x00000004 => {
-                Ok(CANError::ControllerProblem(try!(ControllerProblem::try_from
-                    (try! (get_data(frame, 1))))))
+                Ok(CANError::ControllerProblem(r#try!(ControllerProblem::try_from
+                    (r#try! (get_data(frame, 1))))))
             }
 
             0x00000008 => {
                 Ok(CANError::ProtocolViolation {
-                    vtype: try!(ViolationType::try_from(try!(get_data(frame, 2)))),
-                    location: try!(Location::try_from(try!(get_data(frame, 3)))),
+                    vtype: r#try!(ViolationType::try_from(r#try!(get_data(frame, 2)))),
+                    location: r#try!(Location::try_from(r#try!(get_data(frame, 3)))),
                 })
             }
 
