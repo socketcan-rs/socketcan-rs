@@ -9,129 +9,47 @@
 //! > between different userspace processes, in a way similar to the Unix
 //! > domain sockets.
 //!
-//!
-//! The netlink module currently relies on the
-//! [netlink-rs](https://crates.io/crates/netlink-rs), which has some
-//! deficiencies. If those are not fixed, a reimplmentation of netlink-rs'
-//! functionality might be required.
 
-use byte_conv::As as AsBytes;
-use libc::{self, c_char, c_ushort, c_int, c_uint};
-use netlink_rs::socket::{Msg as NetlinkMessage, Socket as NetlinkSocket, NetlinkAddr,
-                         Payload as NetlinkPayload, NlMsgHeader};
-use netlink_rs::Protocol as NetlinkProtocol;
+use libc::{self, c_int, c_uint};
+use neli;
+use neli::consts::nl::{Rtm, NlmF};
+use neli::consts::rtnl::{Arphrd, Iff, RtAddrFamily};
+use neli::consts::socket::NlFamily;
+use neli::consts::NlType;
+use neli::err::NlError;
+use neli::nl::Nlmsghdr;
+use neli::rtnl::{Ifinfomsg, Rtattrs};
+use neli::socket::*;
 use nix;
 use nix::net::if_::if_nametoindex;
-use std::{mem, io};
-
-// linux/rtnetlink.h
-const RTM_NEWLINK: u16 = 16;
-
-// linux/socket.h
-const AF_UNSPEC: c_char = 0;
-
-// linux/if.h; netdevice(7)
-const IFF_UP: c_uint = 1;
-
-/// Mirrors the `struct ifinfomsg` (see rtnetlink(7))
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-struct IfInfoMsg {
-    /// Address family, should always be `AF_UNSPEC`
-    family: c_char,
-
-    /// Padding bytes, should be set to 0.
-    _pad: c_char, // must be 0
-
-    /// Device type (FIXME: ?)
-    dev_type: c_ushort,
-
-    /// The interface index, can be retrieved using `if_nametoindex` from the
-    /// `nix` crate.
-    index: c_int,
-
-    /// Device flags (FIXME: ?)
-    flags: c_uint,
-
-    /// Change mask
-    change: c_uint,
-}
-
-impl IfInfoMsg {
-    fn new(if_index: i32, flags: c_uint, change: c_uint) -> IfInfoMsg {
-        IfInfoMsg {
-            family: AF_UNSPEC,
-            _pad: 0,
-
-            // dev_type: ARPHRD_CAN,
-            dev_type: 0,
-            index: if_index,
-            flags: flags,
-
-            change: change,
-        }
-    }
-}
-
 
 /// Sends a netlink message down a netlink socket, and checks if an ACK was
 /// properly received.
-fn send_and_read_ack(sock: &mut NetlinkSocket,
-                     msg: NetlinkMessage,
-                     dest: &NetlinkAddr)
-                     -> io::Result<()> {
+fn send_and_read_ack<T, P>(sock: &mut NlSocket, msg: Nlmsghdr<T, P>) -> Result<(), NlError>
+where
+    T: neli::Nl + NlType,
+    P: neli::Nl,
+{
+    sock.send_nl(msg)?;
 
-    let msg_len = msg.header().msg_length() as usize;
-    let bytes_sent = sock.send(msg, dest)?;
-    if bytes_sent != msg_len {
-        return Err(io::Error::new(io::ErrorKind::Other, "Incomplete write"));
-    }
+    println!("Message sent, waiting for ACK");
 
-    // receive all pending messages
-    let (addr, msgs) = sock.recv()?;
+    // receive pending message
+    sock.recv_ack()?;
 
-    match msgs.into_iter().nth(0) {
-        Some(msg) => {
-            println!("Received Address: {:?}", addr);
-            println!("Received Message: {:?}", msg);
-            match *msg.payload() {
-                NetlinkPayload::Ack(_) => (),
-                NetlinkPayload::Err(errno, _) => {
-                    return Err(io::Error::from_raw_os_error(-errno));
-                }
-                NetlinkPayload::None => {
-                    return Err(io::Error::new(io::ErrorKind::InvalidData,
-                                              "Received no payload when
-                                              expecting an ACK"));
-
-                }
-                NetlinkPayload::Data(_) => {
-                    return Err(io::Error::new(io::ErrorKind::InvalidData,
-                                              "Received data when expecting an ACK"));
-                }
-            }
-        }
-        None => {
-            return Err(io::Error::new(io::ErrorKind::UnexpectedEof,
-                                      "ACK expected, but got nothing instead"))
-        }
-    }
+    println!("ACK received");
 
     Ok(())
-
 }
 
 /// Opens a new netlink socket, bound to this process' PID
-fn open_nl_route_socket() -> io::Result<NetlinkSocket> {
-    let sock = NetlinkSocket::new(NetlinkProtocol::Route)?;
-
+fn open_nl_route_socket() -> Result<NlSocket, NlError> {
     // retrieve PID
     let pid = unsafe { libc::getpid() } as u32;
 
-    // after opening the socket, bind it to be able to receive messages back
-    // groups is set to 0, because we want no notifications
-    let bind_addr = NetlinkAddr::new(pid, 0);
-    sock.bind(bind_addr)?;
+    // open and bind socket
+    // groups is set to None(0), because we want no notifications
+    let sock = NlSocket::connect(NlFamily::Route, Some(pid), None, false)?;
 
     Ok(sock)
 }
@@ -164,34 +82,56 @@ impl CanInterface {
     /// Bring down CAN interface
     ///
     /// Use a netlink control socket to set the interface status to "down".
-    pub fn bring_down(&self) -> io::Result<()> {
+    pub fn bring_down(&self) -> Result<(), NlError> {
         let mut nl = open_nl_route_socket()?;
 
-        // prepare message
-        let mut header = NlMsgHeader::user_defined(RTM_NEWLINK, mem::size_of::<IfInfoMsg>() as u32);
-        header.ack();
-
         // settings flags to 0 and change to IFF_UP will disable the IFF_UP flag
-        let info = IfInfoMsg::new(self.if_index as i32, 0, IFF_UP);
-        let msg = NetlinkMessage::new(header, NetlinkPayload::Data(info.as_bytes()));
+        // let info = IfInfoMsg::new(self.if_index as i32, 0, Iff::Up);
+        let mut info = Ifinfomsg::new(
+            RtAddrFamily::Unspecified,
+            Arphrd::Netrom,
+            self.if_index as c_int,
+            vec![],
+            Rtattrs::empty(),
+        );
+        info.set_ifi_change(Iff::Up.into());
 
+        // prepare message
+        let msg = Nlmsghdr::new(
+            None,
+            Rtm::Newlink,
+            vec![NlmF::Request, NlmF::Ack],
+            None,
+            Some(0),
+            info,
+        );
         // send the message
-        send_and_read_ack(&mut nl, msg, &NetlinkAddr::new(0, 0))
+        send_and_read_ack(&mut nl, msg)
     }
 
     /// Bring up CAN interface
     ///
     /// Brings the interface up by settings its "up" flag enabled via netlink.
-    pub fn bring_up(&self) -> io::Result<()> {
+    pub fn bring_up(&self) -> Result<(), NlError> {
         let mut nl = open_nl_route_socket()?;
 
-        let mut header = NlMsgHeader::user_defined(RTM_NEWLINK, mem::size_of::<IfInfoMsg>() as u32);
-        header.ack();
-
-        let info = IfInfoMsg::new(self.if_index as i32, IFF_UP, IFF_UP);
-        let msg = NetlinkMessage::new(header, NetlinkPayload::Data(info.as_bytes()));
-
-        // send the message
-        send_and_read_ack(&mut nl, msg, &NetlinkAddr::new(0, 0))
+        // let info = IfinfoMsg::new(self.if_index as i32, Iff::Up, Iff::Up);
+        let mut info = Ifinfomsg::new(
+            RtAddrFamily::Unspecified,
+            Arphrd::Netrom,
+            self.if_index as c_int,
+            vec![Iff::Up],
+            Rtattrs::empty(),
+        );
+        info.set_ifi_change(Iff::Up.into());
+        let msg = Nlmsghdr::new(
+            None,
+            Rtm::Newlink,
+            vec![NlmF::Request, NlmF::Ack],
+            None,
+            Some(0),
+            info,
+        );
+        send_and_read_ack(&mut nl, msg)
     }
 }

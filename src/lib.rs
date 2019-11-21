@@ -50,7 +50,7 @@ extern crate byte_conv;
 extern crate hex;
 extern crate itertools;
 extern crate libc;
-extern crate netlink_rs;
+extern crate neli;
 extern crate nix;
 extern crate try_from;
 
