@@ -231,11 +231,8 @@ impl Sink<CANFrame> for CANSocket {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures::channel::mpsc::channel;
-    use futures::future::ok;
     use futures::{select, try_join};
     use futures_timer::Delay;
-    use tokio_test::block_on;
 
     use std::io;
     use std::time::Duration;
@@ -260,8 +257,8 @@ mod tests {
     /// Attempt delivery of two messages, using a oneshot channel
     /// to prompt the second message in order to demonstrate that
     /// waiting for CAN reads is not blocking.
-    #[test]
-    fn test_receive() -> io::Result<()> {
+    #[tokio::test]
+    async fn test_receive() -> io::Result<()> {
         let socket1 = CANSocket::open("vcan0").unwrap();
         let socket2 = CANSocket::open("vcan0").unwrap();
 
@@ -273,15 +270,13 @@ mod tests {
             Ok(())
         };
 
-        block_on(async { try_join!(send_frames, recv_frames) })?;
+        try_join!(recv_frames, send_frames)?;
 
         Ok(())
     }
 
-    #[test]
-    fn test_sink_stream() -> io::Result<()> {
-        let (mut counter_tx, counter_rx) = channel::<u32>(20);
-
+    #[tokio::test]
+    async fn test_sink_stream() -> io::Result<()> {
         let socket1 = CANSocket::open("vcan0").unwrap();
         let socket2 = CANSocket::open("vcan0").unwrap();
 
@@ -292,24 +287,26 @@ mod tests {
         let (mut sink, _stream) = socket1.split();
         let (_sink, stream) = socket2.split();
 
-        let mut take_ids_less_than_3 =
-            stream
-                .try_skip_while(|frame| ok(frame.id() < 3))
-                .map_ok(|frame| {
-                    let id = frame.id().clone();
-                    counter_tx.send(id); // TODO figure out?
-                });
+        let count_ids_less_than_3 =
+            stream.map(|x| x.unwrap())
+                .take_while(|frame| future::ready(frame.id() < 3))
+                .fold(0u8, |acc, _frame| async move { acc + 1 });
 
-        block_on(async {
-            let _frame_1 = sink.send(frame_id_1).await.unwrap();
-            let _frame_2 = sink.send(frame_id_2).await.unwrap();
-            let _frame_3 = sink.send(frame_id_3).await.unwrap();
+        let send_frames = async {
+            let _frame_1 = sink.send(frame_id_1).await?;
+            let _frame_2 = sink.send(frame_id_2).await?;
+            let _frame_3 = sink.send(frame_id_3).await?;
+            println!("Sent 3 frames");
+            Ok::<(), io::Error>(())
+        };
 
-            select! {
-               _ = take_ids_less_than_3.next().fuse() => (),
-               x = counter_rx.take(3).collect::<Vec<u32>>() => assert_eq!(x, vec!(3, 2, 3)),
-            };
-        });
+        let (x, frame_send_r) = futures::future::join(
+            count_ids_less_than_3,
+            send_frames,
+        ).await;
+        frame_send_r?;
+
+        assert_eq!(x, 2);
 
         Ok(())
     }
