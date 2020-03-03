@@ -1,6 +1,6 @@
-use tokio_socketcan::CANSocket;
 use futures_util::StreamExt;
 use tokio;
+use tokio_socketcan::CANSocket;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {

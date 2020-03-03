@@ -14,12 +14,14 @@
 //! ```no_run
 //! use futures_util::StreamExt;
 //! use futures::future::{self, Future};
-//! use tokio_test::block_on;
+//! use tokio::runtime::Runtime;
 //!
 //! let mut socket_rx = tokio_socketcan::CANSocket::open("vcan0").unwrap();
 //! let mut socket_tx = tokio_socketcan::CANSocket::open("vcan0").unwrap();
 //!
-//! block_on(async {
+//! let mut rt = Runtime::new().unwrap();
+//!
+//! rt.block_on(async {
 //!     while let Some(Ok(frame)) = socket_rx.next().await {
 //!         socket_tx.write_frame(frame).await;
 //!     }
@@ -43,11 +45,20 @@ use mio::event::Evented;
 use mio::unix::EventedFd;
 use mio::{unix::UnixReady, PollOpt, Ready, Token};
 
-use tokio_net::util::PollEvented;
+use thiserror::Error as ThisError;
+use tokio::io::PollEvented;
 
 use socketcan;
 pub use socketcan::CANFrame;
 pub use socketcan::CANSocketOpenError;
+
+#[derive(Debug, ThisError)]
+pub enum Error {
+    #[error("Failed to open CAN Socket")]
+    CANSocketOpen(#[from] socketcan::CANSocketOpenError),
+    #[error("IO error")]
+    IO(#[from] io::Error),
+}
 
 /// A Future representing the eventual
 /// writing of a CANFrame to the socket
@@ -113,17 +124,17 @@ pub struct CANSocket(PollEvented<EventedCANSocket>);
 
 impl CANSocket {
     /// Open a named CAN device such as "vcan0"
-    pub fn open(ifname: &str) -> Result<CANSocket, CANSocketOpenError> {
+    pub fn open(ifname: &str) -> Result<CANSocket, Error> {
         let sock = socketcan::CANSocket::open(ifname)?;
         sock.set_nonblocking(true)?;
-        Ok(CANSocket(PollEvented::new(EventedCANSocket(sock))))
+        Ok(CANSocket(PollEvented::new(EventedCANSocket(sock))?))
     }
 
     /// Open CAN device by kernel interface number
-    pub fn open_if(if_index: c_uint) -> Result<CANSocket, CANSocketOpenError> {
+    pub fn open_if(if_index: c_uint) -> Result<CANSocket, Error> {
         let sock = socketcan::CANSocket::open_if(if_index)?;
         sock.set_nonblocking(true)?;
-        Ok(CANSocket(PollEvented::new(EventedCANSocket(sock))))
+        Ok(CANSocket(PollEvented::new(EventedCANSocket(sock))?))
     }
 
     /// Sets the filter mask on the socket
@@ -180,7 +191,7 @@ impl Clone for CANSocket {
             // the socket as a whole isn't going to be closed.
             let new_fd = libc::dup(fd);
             let new = socketcan::CANSocket::from_raw_fd(new_fd);
-            CANSocket(PollEvented::new(EventedCANSocket(new)))
+            CANSocket(PollEvented::new(EventedCANSocket(new)).unwrap())
         }
     }
 }
@@ -287,10 +298,10 @@ mod tests {
         let (mut sink, _stream) = socket1.split();
         let (_sink, stream) = socket2.split();
 
-        let count_ids_less_than_3 =
-            stream.map(|x| x.unwrap())
-                .take_while(|frame| future::ready(frame.id() < 3))
-                .fold(0u8, |acc, _frame| async move { acc + 1 });
+        let count_ids_less_than_3 = stream
+            .map(|x| x.unwrap())
+            .take_while(|frame| future::ready(frame.id() < 3))
+            .fold(0u8, |acc, _frame| async move { acc + 1 });
 
         let send_frames = async {
             let _frame_1 = sink.send(frame_id_1).await?;
@@ -300,10 +311,7 @@ mod tests {
             Ok::<(), io::Error>(())
         };
 
-        let (x, frame_send_r) = futures::future::join(
-            count_ids_less_than_3,
-            send_frames,
-        ).await;
+        let (x, frame_send_r) = futures::future::join(count_ids_less_than_3, send_frames).await;
         frame_send_r?;
 
         assert_eq!(x, 2);
