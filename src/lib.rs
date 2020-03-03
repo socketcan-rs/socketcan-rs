@@ -12,21 +12,19 @@
 //! An example echo server:
 //!
 //! ```no_run
-//! use futures_util::StreamExt;
-//! use futures::future::{self, Future};
-//! use tokio::runtime::Runtime;
+//! use futures_util::stream::StreamExt;
+//! use tokio_socketcan::{CANSocket, Error};
 //!
-//! let mut socket_rx = tokio_socketcan::CANSocket::open("vcan0").unwrap();
-//! let mut socket_tx = tokio_socketcan::CANSocket::open("vcan0").unwrap();
+//! #[tokio::main]
+//! async fn main() -> Result<(), Error> {
+//!     let mut socket_rx = CANSocket::open("vcan0")?;
+//!     let mut socket_tx = CANSocket::open("vcan0")?;
 //!
-//! let mut rt = Runtime::new().unwrap();
-//!
-//! rt.block_on(async {
 //!     while let Some(Ok(frame)) = socket_rx.next().await {
-//!         socket_tx.write_frame(frame).await;
+//!         socket_tx.write_frame(frame)?.await;
 //!     }
-//! });
-//!
+//!     Ok(())
+//! }
 //! ```
 use std::future::Future;
 use std::io;
@@ -168,19 +166,17 @@ impl CANSocket {
     ///
     /// This uses the semantics of socketcan's `write_frame_insist`,
     /// IE: it will automatically retry when it fails on an EINTR
-    pub fn write_frame(&self, frame: CANFrame) -> CANWriteFuture {
-        CANWriteFuture {
-            socket: self.clone(),
+    pub fn write_frame(&self, frame: CANFrame) -> Result<CANWriteFuture, Error> {
+        Ok(CANWriteFuture {
+            socket: self.try_clone()?,
             frame,
-        }
+        })
     }
-}
 
-impl Clone for CANSocket {
     /// Clone the CANSocket by using the `dup` syscall to get another
     /// file descriptor. This method makes clones fairly cheap and
     /// avoids complexity around ownership
-    fn clone(&self) -> Self {
+    fn try_clone(&self) -> Result<Self, Error> {
         let fd = self.0.get_ref().0.as_raw_fd();
         unsafe {
             // essentially we're cheating and making it cheaper/easier
@@ -191,7 +187,7 @@ impl Clone for CANSocket {
             // the socket as a whole isn't going to be closed.
             let new_fd = libc::dup(fd);
             let new = socketcan::CANSocket::from_raw_fd(new_fd);
-            CANSocket(PollEvented::new(EventedCANSocket(new)).unwrap())
+            Ok(CANSocket(PollEvented::new(EventedCANSocket(new))?))
         }
     }
 }
@@ -259,9 +255,9 @@ mod tests {
     }
 
     /// Write a test frame to the CANSocket
-    async fn write_frame(socket: &CANSocket) -> io::Result<()> {
+    async fn write_frame(socket: &CANSocket) -> Result<(), Error> {
         let test_frame = socketcan::CANFrame::new(0x1, &[0], false, false).unwrap();
-        socket.write_frame(test_frame).await?;
+        socket.write_frame(test_frame)?.await?;
         Ok(())
     }
 
@@ -269,7 +265,7 @@ mod tests {
     /// to prompt the second message in order to demonstrate that
     /// waiting for CAN reads is not blocking.
     #[tokio::test]
-    async fn test_receive() -> io::Result<()> {
+    async fn test_receive() -> Result<(), Error> {
         let socket1 = CANSocket::open("vcan0").unwrap();
         let socket2 = CANSocket::open("vcan0").unwrap();
 
