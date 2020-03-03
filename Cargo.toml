@@ -16,5 +16,5 @@ thiserror = "1.0"
 tokio = { version = "0.2", features = ["net", "macros"] }
 
 [dev-dependencies]
-futures-timer = "2.0"
+futures-timer = "3.0"
 futures-util = "0.3"

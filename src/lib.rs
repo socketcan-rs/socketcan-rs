@@ -171,7 +171,7 @@ impl CANSocket {
     pub fn write_frame(&self, frame: CANFrame) -> CANWriteFuture {
         CANWriteFuture {
             socket: self.clone(),
-            frame: frame,
+            frame,
         }
     }
 }
