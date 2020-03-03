@@ -7,15 +7,18 @@
 # Example  echo server
 
 ```rust
-use futures::stream::Stream;
-use futures::future::{self, Future};
+use futures_util::stream::StreamExt;
+use tokio_socketcan::{CANSocket, Error};
 
-let socket_rx = tokio_socketcan::CANSocket::open("vcan0").unwrap();
-let socket_tx = tokio_socketcan::CANSocket::open("vcan0").unwrap();
-
-tokio::run(socket_rx.for_each(move |frame| {
-    socket_tx.write_frame(frame)
-}).map_err(|_err| {}));
+#[tokio::main]
+async fn main() -> Result<(), Error> {
+    let mut socket_rx = CANSocket::open("vcan0")?;
+    let socket_tx = CANSocket::open("vcan0")?;
+    while let Some(Ok(frame)) = socket_rx.next().await {
+        socket_tx.write_frame(frame)?.await?;
+    }
+    Ok(())
+}
 ```
 
 # Testing
