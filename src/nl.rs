@@ -12,7 +12,7 @@
 
 use libc::{self, c_int, c_uint};
 use neli;
-use neli::consts::nl::{Rtm, NlmF};
+use neli::consts::nl::{NlmF, Rtm};
 use neli::consts::rtnl::{Arphrd, Iff, RtAddrFamily};
 use neli::consts::socket::NlFamily;
 use neli::consts::NlType;
@@ -22,13 +22,14 @@ use neli::rtnl::{Ifinfomsg, Rtattrs};
 use neli::socket::*;
 use nix;
 use nix::net::if_::if_nametoindex;
+use std::fmt::Debug;
 
 /// Sends a netlink message down a netlink socket, and checks if an ACK was
 /// properly received.
 fn send_and_read_ack<T, P>(sock: &mut NlSocket, msg: Nlmsghdr<T, P>) -> Result<(), NlError>
 where
-    T: neli::Nl + NlType,
-    P: neli::Nl,
+    T: neli::Nl + NlType + Debug,
+    P: neli::Nl + Debug,
 {
     sock.send_nl(msg)?;
 
@@ -86,15 +87,12 @@ impl CanInterface {
         let mut nl = open_nl_route_socket()?;
 
         // settings flags to 0 and change to IFF_UP will disable the IFF_UP flag
-        // let info = IfInfoMsg::new(self.if_index as i32, 0, Iff::Up);
-        let mut info = Ifinfomsg::new(
+        let info = Ifinfomsg::down(
             RtAddrFamily::Unspecified,
             Arphrd::Netrom,
             self.if_index as c_int,
-            vec![],
             Rtattrs::empty(),
         );
-        info.set_ifi_change(Iff::Up.into());
 
         // prepare message
         let msg = Nlmsghdr::new(
@@ -115,15 +113,12 @@ impl CanInterface {
     pub fn bring_up(&self) -> Result<(), NlError> {
         let mut nl = open_nl_route_socket()?;
 
-        // let info = IfinfoMsg::new(self.if_index as i32, Iff::Up, Iff::Up);
-        let mut info = Ifinfomsg::new(
+        let info = Ifinfomsg::up(
             RtAddrFamily::Unspecified,
             Arphrd::Netrom,
             self.if_index as c_int,
-            vec![Iff::Up],
             Rtattrs::empty(),
         );
-        info.set_ifi_change(Iff::Up.into());
         let msg = Nlmsghdr::new(
             None,
             Rtm::Newlink,
