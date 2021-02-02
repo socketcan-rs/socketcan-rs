@@ -16,3 +16,4 @@ nix = "0.15"
 
 [features]
 vcan_tests = []
+can_fd = []

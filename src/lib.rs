@@ -108,6 +108,8 @@ const SOL_CAN_BASE: c_int = 100;
 const SOL_CAN_RAW: c_int = SOL_CAN_BASE + CAN_RAW;
 const CAN_RAW_FILTER: c_int = 1;
 const CAN_RAW_ERR_FILTER: c_int = 2;
+#[cfg(feature = "can_fd")]
+const CAN_RAW_FD_FRAMES: c_int = 5;
 
 /// if set, indicate 29 bit extended format
 pub const EFF_FLAG: u32 = 0x80000000;
@@ -126,6 +128,18 @@ pub const EFF_MASK: u32 = 0x1fffffff;
 
 /// valid bits in error frame
 pub const ERR_MASK: u32 = 0x1fffffff;
+
+/// 'legacy' CAN frame
+const CAN_MTU: usize = 16;
+
+/// CAN FD frame
+#[cfg(feature = "can_fd")]
+const CANFD_MTU: usize = 72;
+
+#[cfg(feature = "can_fd")]
+const CAN_FRAME_DATA_LEN_MAX: usize = 64;
+#[cfg(not(feature = "can_fd"))]
+const CAN_FRAME_DATA_LEN_MAX: usize = 8;
 
 
 fn c_timeval_new(t: time::Duration) -> timeval {
@@ -315,6 +329,21 @@ impl CANSocket {
         Ok(())
     }
 
+    /// Control Flexible Data Rate
+    #[cfg(feature = "can_fd")]
+    pub fn set_fd_frames(&self, fd_frames_enable: bool) -> io::Result<()> {
+        let fd_frames_enable = fd_frames_enable as c_int;
+        let opt_ptr = &fd_frames_enable as *const c_int;
+        let rv = unsafe {
+            setsockopt(self.fd, SOL_CAN_RAW, CAN_RAW_FD_FRAMES, opt_ptr as *const c_void, size_of::<c_int>() as u32)
+        };
+
+        if rv != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
     /// Sets the read timeout on the socket
     ///
     /// For convenience, the result value can be checked using
@@ -359,20 +388,36 @@ impl CANSocket {
     /// Blocking read a single can frame.
     pub fn read_frame(&self) -> io::Result<CANFrame> {
         let mut frame = CANFrame {
-            _id: 0,
-            _data_len: 0,
-            _pad: 0,
-            _res0: 0,
-            _res1: 0,
-            _data: [0; 8],
+            tag: CANFrameType::Normal,
+
+            /// NOTE: Can't use `std::mem::MaybeUninit::uninit().assume_init()`, which
+            /// would be very appropriate here, because that would result in undefined
+            /// behavior, according to `std::mem::MaybeUninit` docs (1.36.0):
+            ///
+            /// > [...] uninitialized memory is special in that the compiler knows that it
+            /// > does not have a fixed value. This makes it undefined behavior to have
+            /// > uninitialized data in a variable even if that variable has an integer type,
+            /// > which otherwise can hold any fixed bit pattern [...]
+            ///
+            s: unsafe { std::mem::MaybeUninit::zeroed().assume_init() }
         };
 
         let read_rv = unsafe {
-            let frame_ptr = &mut frame as *mut CANFrame;
-            read(self.fd, frame_ptr as *mut c_void, size_of::<CANFrame>())
+            let frame_ptr = &mut frame.s as *mut CANFrameStruct;
+            read(self.fd, frame_ptr as *mut c_void, size_of::<CANFrameStruct>())
         };
 
-        if read_rv as usize != size_of::<CANFrame>() {
+        #[cfg(feature = "can_fd")]
+        if read_rv as usize == CAN_MTU {
+            frame.tag = CANFrameType::Normal;
+        } else if read_rv as usize == CANFD_MTU {
+            frame.tag = CANFrameType::Fd;
+        } else {
+            return Err(io::Error::last_os_error());
+        }
+
+        #[cfg(not(feature = "can_fd"))]
+        if read_rv as usize != CAN_MTU {
             return Err(io::Error::last_os_error());
         }
 
@@ -389,12 +434,19 @@ impl CANSocket {
         // a comparison
         // debug!("Sending: {:?}", frame);
 
-        let write_rv = unsafe {
-            let frame_ptr = frame as *const CANFrame;
-            write(self.fd, frame_ptr as *const c_void, size_of::<CANFrame>())
+        let frame_size = match frame.tag {
+            CANFrameType::Normal => CAN_MTU,
+
+            #[cfg(feature = "can_fd")]
+            CANFrameType::Fd => CANFD_MTU
         };
 
-        if write_rv as usize != size_of::<CANFrame>() {
+        let write_rv = unsafe {
+            let frame_ptr = &frame.s as *const CANFrameStruct;
+            write(self.fd, frame_ptr as *const c_void, frame_size)
+        };
+
+        if write_rv as usize != frame_size {
             return Err(io::Error::last_os_error());
         }
 
@@ -512,21 +564,23 @@ impl Drop for CANSocket {
     }
 }
 
-/// CANFrame
+/// CANFrameStruct
 ///
 /// Uses the same memory layout as the underlying kernel struct for performance
 /// reasons.
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
-pub struct CANFrame {
+struct CANFrameStruct {
     /// 32 bit CAN_ID + EFF/RTR/ERR flags
     _id: u32,
 
-    /// data length. Bytes beyond are not valid
+    /// frame payload length in bytes (0 .. 8) for classical frame,
+    /// (0 .. 64) for FD frame
     _data_len: u8,
 
-    /// padding
-    _pad: u8,
+    /// padding for classical frame, additional
+    /// flags for CAN FD
+    _pad_flags: u8,
 
     /// reserved
     _res0: u8,
@@ -534,15 +588,60 @@ pub struct CANFrame {
     /// reserved
     _res1: u8,
 
-    /// buffer for data
-    _data: [u8; 8],
+    /// buffer for data (classical or FD frame)
+    _data: [u8; CAN_FRAME_DATA_LEN_MAX]
+}
+
+enum CANFrameType {
+    Normal,
+
+    #[cfg(feature = "can_fd")]
+    Fd
+}
+
+pub struct CANFrame {
+    tag: CANFrameType,
+    s: CANFrameStruct,
+}
+
+impl fmt::Debug for CANFrame {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.tag {
+            CANFrameType::Normal => {
+                write!(f, "CAN Classical Frame {:?}", self.s )
+            }
+
+            #[cfg(feature = "can_fd")]
+            CANFrameType::Fd => {
+                write!(f, "CAN FD Frame {:?}", self.s )
+            }
+        }
+    }
 }
 
 impl CANFrame {
+    /// constructor for a classical CAN frame
     pub fn new(id: u32, data: &[u8], rtr: bool, err: bool) -> Result<CANFrame, ConstructionError> {
+        CANFrame::new_common(CANFrameType::Normal, id, data, rtr, err)
+    }
+
+    #[cfg(feature = "can_fd")]
+    /// constructor for a new CAN FD frame
+    pub fn new_fd(id: u32, data: &[u8], rtr: bool, err: bool) -> Result<CANFrame, ConstructionError> {
+        CANFrame::new_common(CANFrameType::Fd, id, data, rtr, err)
+    }
+
+    fn new_common(frame_type: CANFrameType, id: u32, data: &[u8], rtr: bool, err: bool) -> Result<CANFrame, ConstructionError> {
         let mut _id = id;
 
-        if data.len() > 8 {
+        let max_valid_data_len = match frame_type {
+            CANFrameType::Normal => 8,
+
+            #[cfg(feature = "can_fd")]
+            CANFrameType::Fd => 64
+        };
+
+        if data.len() > max_valid_data_len {
             return Err(ConstructionError::TooMuchData);
         }
 
@@ -564,7 +663,7 @@ impl CANFrame {
             _id |= ERR_FLAG;
         }
 
-        let mut full_data = [0; 8];
+        let mut full_data = [0; CAN_FRAME_DATA_LEN_MAX];
 
         // not cool =/
         for (n, c) in data.iter().enumerate() {
@@ -572,53 +671,62 @@ impl CANFrame {
         }
 
         Ok(CANFrame {
-               _id: _id,
-               _data_len: data.len() as u8,
-               _pad: 0,
-               _res0: 0,
-               _res1: 0,
-               _data: full_data,
-           })
+            tag: frame_type,
+            s: CANFrameStruct {
+                _id: _id,
+                _data_len: data.len() as u8,
+                _pad_flags: 0,
+                _res0: 0,
+                _res1: 0,
+                _data: full_data,
+            }
+        })
+    }
+
+    #[cfg(feature = "can_fd")]
+    pub fn is_fd(&self) -> bool {
+        if let CANFrameType::Fd = self.tag { true } else { false }
     }
 
     /// Return the actual CAN ID (without EFF/RTR/ERR flags)
     #[inline(always)]
     pub fn id(&self) -> u32 {
         if self.is_extended() {
-            self._id & EFF_MASK
+            self.s._id & EFF_MASK
         } else {
-            self._id & SFF_MASK
+            self.s._id & SFF_MASK
         }
     }
 
     /// Return the error message
     #[inline(always)]
     pub fn err(&self) -> u32 {
-        return self._id & ERR_MASK;
+        self.s._id & ERR_MASK
     }
 
     /// Check if frame uses 29 bit extended frame format
     #[inline(always)]
     pub fn is_extended(&self) -> bool {
-        self._id & EFF_FLAG != 0
+        self.s._id & EFF_FLAG != 0
     }
 
     /// Check if frame is an error message
     #[inline(always)]
     pub fn is_error(&self) -> bool {
-        self._id & ERR_FLAG != 0
+        self.s._id & ERR_FLAG != 0
     }
 
     /// Check if frame is a remote transmission request
     #[inline(always)]
     pub fn is_rtr(&self) -> bool {
-        self._id & RTR_FLAG != 0
+        self.s._id & RTR_FLAG != 0
     }
 
     /// A slice into the actual data. Slice will always be <= 8 bytes in length
+    /// for normal frames and <= 64 bytes for FD frames
     #[inline(always)]
     pub fn data(&self) -> &[u8] {
-        &self._data[..(self._data_len as usize)]
+        &self.s._data[..(self.s._data_len as usize)]
     }
 
     #[inline(always)]
@@ -629,7 +737,13 @@ impl CANFrame {
 
 impl fmt::UpperHex for CANFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{:X}#", self.id())?;
+        write!(f, "{:X}{}", self.id(),
+               match self.tag {
+                   CANFrameType::Normal => "#",
+
+                   #[cfg(feature = "can_fd")]
+                   CANFrameType::Fd => "##"
+               })?;
 
         let mut parts = self.data().iter().map(|v| format!("{:02X}", v));
 
