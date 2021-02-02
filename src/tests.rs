@@ -1,5 +1,7 @@
 
 use crate::{CANSocket};
+use std::time;
+use crate::ShouldRetry;
 
 #[test]
 fn test_nonexistant_device() {
@@ -28,7 +30,7 @@ fn vcan0_set_error_mask() {
 #[cfg(feature = "vcan_tests")]
 fn vcan0_test_nonblocking() {
     let cs = CANSocket::open("vcan0").unwrap();
-    cs.set_nonblocking(true);
+    cs.set_nonblocking(true).unwrap();
 
     // no timeout set, but should return immediately
     assert!(cs.read_frame().should_retry());

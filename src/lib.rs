@@ -163,6 +163,7 @@ impl fmt::Display for CANSocketOpenError {
     }
 }
 
+#[allow(deprecated)]
 impl error::Error for CANSocketOpenError {
     fn description(&self) -> &str {
         match *self {
@@ -171,7 +172,7 @@ impl error::Error for CANSocketOpenError {
         }
     }
 
-    fn cause(&self) -> Option<&error::Error> {
+    fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
             CANSocketOpenError::LookupError(ref e) => Some(e),
             CANSocketOpenError::IOError(ref e) => Some(e),
