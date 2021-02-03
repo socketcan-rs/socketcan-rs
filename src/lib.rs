@@ -299,7 +299,7 @@ impl CANSocket {
     fn close(&mut self) -> io::Result<()> {
         unsafe {
             let rv = close(self.fd);
-            if rv != -1 {
+            if rv == -1 {
                 return Err(io::Error::last_os_error());
             }
         }
@@ -560,7 +560,9 @@ impl IntoRawFd for CANSocket {
 
 impl Drop for CANSocket {
     fn drop(&mut self) {
-        self.close().ok(); // ignore result
+        self.close()
+            // .map_err(|e|eprintln!("CANSocket close error: {}", e.to_string()))
+            .ok(); // ignore result
     }
 }
 
