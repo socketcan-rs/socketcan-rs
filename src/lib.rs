@@ -26,12 +26,12 @@
 //!     Ok(())
 //! }
 //! ```
-use std::future::Future;
 use std::io;
 use std::os::raw::c_uint;
 use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::pin::Pin;
 use std::task::Poll;
+use std::{future::Future, os::unix::prelude::RawFd};
 
 use libc;
 
@@ -39,16 +39,14 @@ use futures::prelude::*;
 use futures::ready;
 use futures::task::Context;
 
-use mio::event::Evented;
-use mio::unix::EventedFd;
-use mio::{unix::UnixReady, PollOpt, Ready, Token};
+use mio::{event, unix::SourceFd, Interest, Registry, Token};
 
 use thiserror::Error as ThisError;
-use tokio::io::PollEvented;
 
 use socketcan;
 pub use socketcan::CANFrame;
 pub use socketcan::CANSocketOpenError;
+use tokio::io::unix::AsyncFd;
 
 #[derive(Debug, ThisError)]
 pub enum Error {
@@ -71,7 +69,7 @@ impl Future for CANWriteFuture {
     type Output = io::Result<()>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        ready!(self.socket.0.poll_write_ready(cx))?;
+        let _ = ready!(self.socket.0.poll_write_ready(cx))?;
         match self.socket.0.get_ref().0.write_frame_insist(&self.frame) {
             Ok(_) => Poll::Ready(Ok(())),
             Err(err) => Poll::Ready(Err(err)),
@@ -90,49 +88,53 @@ impl EventedCANSocket {
     }
 }
 
-impl Evented for EventedCANSocket {
+impl AsRawFd for EventedCANSocket {
+    fn as_raw_fd(&self) -> RawFd {
+        self.0.as_raw_fd()
+    }
+}
+
+impl event::Source for EventedCANSocket {
     fn register(
-        &self,
-        poll: &mio::Poll,
+        &mut self,
+        registry: &Registry,
         token: Token,
-        interest: Ready,
-        opts: PollOpt,
+        interests: Interest,
     ) -> io::Result<()> {
-        EventedFd(&self.0.as_raw_fd()).register(poll, token, interest, opts)
+        SourceFd(&self.0.as_raw_fd()).register(registry, token, interests)
     }
 
     fn reregister(
-        &self,
-        poll: &mio::Poll,
+        &mut self,
+        registry: &Registry,
         token: Token,
-        interest: Ready,
-        opts: PollOpt,
+        interests: Interest,
     ) -> io::Result<()> {
-        EventedFd(&self.0.as_raw_fd()).reregister(poll, token, interest, opts)
+        SourceFd(&self.0.as_raw_fd()).reregister(registry, token, interests)
     }
 
-    fn deregister(&self, poll: &mio::Poll) -> io::Result<()> {
-        EventedFd(&self.0.as_raw_fd()).deregister(poll)
+    fn deregister(&mut self, registry: &Registry) -> io::Result<()> {
+        SourceFd(&self.0.as_raw_fd()).deregister(registry)
     }
 }
 
 /// An asynchronous I/O wrapped socketcan::CANSocket
 #[derive(Debug)]
-pub struct CANSocket(PollEvented<EventedCANSocket>);
+pub struct CANSocket(AsyncFd<EventedCANSocket>);
 
 impl CANSocket {
     /// Open a named CAN device such as "vcan0"
     pub fn open(ifname: &str) -> Result<CANSocket, Error> {
         let sock = socketcan::CANSocket::open(ifname)?;
         sock.set_nonblocking(true)?;
-        Ok(CANSocket(PollEvented::new(EventedCANSocket(sock))?))
+        Ok(CANSocket(AsyncFd::new(EventedCANSocket(sock))?))
     }
 
     /// Open CAN device by kernel interface number
     pub fn open_if(if_index: c_uint) -> Result<CANSocket, Error> {
         let sock = socketcan::CANSocket::open_if(if_index)?;
         sock.set_nonblocking(true)?;
-        Ok(CANSocket(PollEvented::new(EventedCANSocket(sock))?))
+        Ok(CANSocket(AsyncFd::new(EventedCANSocket(sock))?))
     }
 
     /// Sets the filter mask on the socket
@@ -187,7 +189,7 @@ impl CANSocket {
             // the socket as a whole isn't going to be closed.
             let new_fd = libc::dup(fd);
             let new = socketcan::CANSocket::from_raw_fd(new_fd);
-            Ok(CANSocket(PollEvented::new(EventedCANSocket(new))?))
+            Ok(CANSocket(AsyncFd::new(EventedCANSocket(new))?))
         }
     }
 }
@@ -196,18 +198,11 @@ impl Stream for CANSocket {
     type Item = io::Result<CANFrame>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
-        ready!(self
-            .0
-            .poll_read_ready(cx, Ready::readable() | UnixReady::error()))?;
-        match self.0.get_ref().get_ref().read_frame() {
-            Ok(frame) => Poll::Ready(Some(Ok(frame))),
-            Err(err) => {
-                if err.kind() == io::ErrorKind::WouldBlock {
-                    self.0.clear_read_ready(cx, Ready::readable())?;
-                    Poll::Pending
-                } else {
-                    Poll::Ready(Some(Err(err)))
-                }
+        loop {
+            let mut ready_guard = ready!(self.0.poll_read_ready(cx))?;
+            match ready_guard.try_io(|inner| inner.get_ref().get_ref().read_frame()) {
+                Ok(result) => return Poll::Ready(Some(result)),
+                Err(_would_block) => continue,
             }
         }
     }
@@ -217,7 +212,7 @@ impl Sink<CANFrame> for CANSocket {
     type Error = io::Error;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        ready!(self.0.poll_write_ready(cx))?;
+        let _ = ready!(self.0.poll_write_ready(cx))?;
         Poll::Ready(Ok(()))
     }
 
@@ -226,7 +221,9 @@ impl Sink<CANFrame> for CANSocket {
     }
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(self.0.clear_write_ready(cx))
+        let mut ready_guard = ready!(self.0.poll_write_ready(cx))?;
+        ready_guard.clear_ready();
+        Poll::Ready(Ok(()))
     }
 
     fn start_send(self: Pin<&mut Self>, item: CANFrame) -> Result<(), Self::Error> {
@@ -249,7 +246,7 @@ mod tests {
         // let mut frame_stream = socket;
 
         select!(
-            frame = socket.next().fuse() => { if let Some(frame) = frame { Ok(socket) } else { panic!("unexpected") } },
+            frame = socket.next().fuse() => if let Some(_frame) = frame { Ok(socket) } else { panic!("unexpected") },
             _timeout = Delay::new(Duration::from_millis(100)).fuse() => Err(io::Error::from(io::ErrorKind::TimedOut)),
         )
     }
