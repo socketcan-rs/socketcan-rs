@@ -9,7 +9,9 @@ repository = "https://github.com/mbr/socketcan-rs"
 version = "2.0.0"
 
 [features]
-vcan_tests = []
+default = ["netlink"]
+netlink = []
+vcan_tests = ["netlink"]
 
 [dependencies]
 byte_conv = "0.1.1"
@@ -17,6 +19,8 @@ hex = "0.4"
 itertools = "0.10"
 libc = "0.2"
 nix = "0.20"
+clap = "2.33"
+anyhow = "1.0"
 # Update this when 0.5.3 is released
 #neli = "0.5.3"
 neli = { git = "https://github.com/jbaublitz/neli.git" }
