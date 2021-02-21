@@ -3,18 +3,22 @@ authors = ["Marc Brinkmann <git@marcbrinkmann.de>"]
 description = "Linux SocketCAN library. Send and receive CAN frames via CAN bus on Linux."
 documentation = "https://docs.rs/socketcan"
 license = "MIT"
+edition = "2018"
 name = "socketcan"
 repository = "https://github.com/mbr/socketcan-rs"
 version = "2.0.0"
 
-[dependencies]
-byte_conv = "0.1.1"
-hex = "^0.2"
-itertools = "^0.4"
-libc = "^0.2"
-netlink-rs = { git = "https://github.com/mbr/netlink-rs", rev = "01cba6fcc7b11917890bc3d2b4635009fde8082c" }
-nix = "^0.5"
-try_from = "0.2.0"
-
 [features]
 vcan_tests = []
+
+[dependencies]
+byte_conv = "0.1.1"
+hex = "0.4"
+itertools = "0.10"
+libc = "0.2"
+nix = "0.20"
+# Update this when 0.5.3 is released
+#neli = "0.5.3"
+neli = { git = "https://github.com/jbaublitz/neli.git" }
+
+

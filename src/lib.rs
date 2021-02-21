@@ -41,18 +41,8 @@
 //! is available through the `AsRawFd`, `IntoRawFd` and `FromRawFd`
 //! implementations.
 
-
-
 // clippy: do not warn about things like "SocketCAN" inside the docs
 #![cfg_attr(feature = "cargo-clippy", allow(doc_markdown))]
-
-extern crate byte_conv;
-extern crate hex;
-extern crate itertools;
-extern crate libc;
-extern crate netlink_rs;
-extern crate nix;
-extern crate try_from;
 
 mod err;
 pub use err::{CanError, CanErrorDecodingFailure};
@@ -69,8 +59,13 @@ use libc::{c_int, c_short, c_void, c_uint, c_ulong, socket, SOCK_RAW, close, bin
 use itertools::Itertools;
 use nix::net::if_::if_nametoindex;
 pub use nl::CanInterface;
-use std::{error, fmt, io, time};
-use std::mem::{size_of, uninitialized};
+use std::{
+    error,
+    fmt,
+    io,
+    time,
+    mem::size_of,
+};
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use util::{set_socket_option, set_socket_option_mult};
 
@@ -198,22 +193,7 @@ impl fmt::Display for CanSocketOpenError {
     }
 }
 
-impl error::Error for CanSocketOpenError {
-    fn description(&self) -> &str {
-        match *self {
-            CanSocketOpenError::LookupError(_) => "can device not found",
-            CanSocketOpenError::IOError(ref e) => e.description(),
-        }
-    }
-
-    fn cause(&self) -> Option<&error::Error> {
-        match *self {
-            CanSocketOpenError::LookupError(ref e) => Some(e),
-            CanSocketOpenError::IOError(ref e) => Some(e),
-        }
-    }
-}
-
+impl error::Error for CanSocketOpenError {}
 
 #[derive(Debug, Copy, Clone)]
 /// Error that occurs when creating CAN packets
@@ -235,14 +215,7 @@ impl fmt::Display for ConstructionError {
     }
 }
 
-impl error::Error for ConstructionError {
-    fn description(&self) -> &str {
-        match *self {
-            ConstructionError::IDTooLarge => "can id too large",
-            ConstructionError::TooMuchData => "too much data",
-        }
-    }
-}
+impl error::Error for ConstructionError {}
 
 impl From<nix::Error> for CanSocketOpenError {
     fn from(e: nix::Error) -> CanSocketOpenError {
@@ -394,10 +367,8 @@ impl CanSocket {
     pub fn read_frame_with_timestamp(&mut self) -> io::Result<(CanFrame, time::SystemTime)> {
         let frame = self.read_frame()?;
 
-        let mut ts: timespec;
+        let mut ts = timespec { tv_sec: 0, tv_nsec: 0 };
         let rval = unsafe {
-            // we initialize tv calling ioctl, passing this responsibility on
-            ts = uninitialized();
             libc::ioctl(self.fd, SIOCGSTAMPNS as c_ulong, &mut ts as *mut timespec)
         };
 
