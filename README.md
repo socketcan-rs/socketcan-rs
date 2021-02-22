@@ -1,7 +1,7 @@
 Rust SocketCAN support
 ======================
 
-**Maintenance status**: This crate is in the process of entering renewed joint-maintership with [@fpagliughi](https://github.com/fpagliughi). Please stay patient for a while for this to get cleaned up. -- @mbr.
+**Maintenance status**: This crate is in the process of entering renewed joint maintainership with [@fpagliughi](https://github.com/fpagliughi). Please stay patient for a while for this to get cleaned up. -- @mbr.
 
 The Linux kernel supports using CAN-devices through a network-like API
 (see https://www.kernel.org/doc/Documentation/networking/can.txt). This
