@@ -47,6 +47,7 @@
 #![cfg_attr(feature = "cargo-clippy", allow(doc_markdown))]
 
 extern crate byte_conv;
+extern crate embedded_can;
 extern crate hex;
 extern crate itertools;
 extern crate libc;
@@ -55,6 +56,7 @@ extern crate nix;
 extern crate try_from;
 
 mod err;
+pub use embedded_can::{ExtendedId, Id, StandardId};
 pub use err::{CanError, CanErrorDecodingFailure};
 pub mod dump;
 mod nl;
@@ -522,6 +524,32 @@ impl Drop for CanSocket {
     }
 }
 
+impl embedded_can::Can for CanSocket {
+    type Frame = CanFrame;
+    type Error = io::Error;
+    fn try_transmit(
+        &mut self,
+        frame: &Self::Frame,
+    ) -> Result<Option<Self::Frame>, nb::Error<Self::Error>> {
+        self.write_frame(frame).map(|_| None).map_err(|io_err| {
+            if io_err.kind() == io::ErrorKind::WouldBlock {
+                nb::Error::WouldBlock
+            } else {
+                nb::Error::Other(io_err)
+            }
+        })
+    }
+    fn try_receive(&mut self) -> nb::Result<Self::Frame, Self::Error> {
+        self.read_frame().map_err(|io_err| {
+            if io_err.kind() == io::ErrorKind::WouldBlock {
+                nb::Error::WouldBlock
+            } else {
+                nb::Error::Other(io_err)
+            }
+        })
+    }
+}
+
 /// CanFrame
 ///
 /// Uses the same memory layout as the underlying kernel struct for performance
@@ -549,21 +577,17 @@ pub struct CanFrame {
 }
 
 impl CanFrame {
-    pub fn new(id: u32, data: &[u8], rtr: bool, err: bool) -> Result<CanFrame, ConstructionError> {
-        let mut _id = id;
+    pub fn new(id: Id, data: &[u8], rtr: bool, err: bool) -> Result<CanFrame, ConstructionError> {
 
         if data.len() > 8 {
             return Err(ConstructionError::TooMuchData);
         }
 
-        if id > EFF_MASK {
-            return Err(ConstructionError::IDTooLarge);
-        }
-
-        // set EFF_FLAG on large message
-        if id > SFF_MASK {
-            _id |= EFF_FLAG;
-        }
+        let mut _id = match id {
+            Id::Standard(standard_id) => standard_id.as_raw() as u32,
+            // set EFF_FLAG on large message
+            Id::Extended(extended_id) => extended_id.as_raw() | EFF_FLAG,
+        };
 
 
         if rtr {
@@ -582,18 +606,28 @@ impl CanFrame {
         }
 
         Ok(CanFrame {
-               _id: _id,
-               _data_len: data.len() as u8,
-               _pad: 0,
-               _res0: 0,
-               _res1: 0,
-               _data: full_data,
-           })
+            _id: _id,
+            _data_len: data.len() as u8,
+            _pad: 0,
+            _res0: 0,
+            _res1: 0,
+            _data: full_data,
+        })
+    }
+
+    pub fn id(&self) -> Id {
+        if self.is_extended() {
+            let id = unsafe {ExtendedId::new_unchecked(self._id & EFF_MASK)};
+            Id::Extended(id)
+        } else {
+            let id = unsafe {StandardId::new_unchecked((self._id & SFF_MASK) as u16)};
+            Id::Standard(id)
+        }
     }
 
     /// Return the actual CAN ID (without EFF/RTR/ERR flags)
     #[inline]
-    pub fn id(&self) -> u32 {
+    pub fn id_raw(&self) -> u32 {
         if self.is_extended() {
             self._id & EFF_MASK
         } else {
@@ -647,7 +681,7 @@ impl CanFrame {
 
 impl fmt::UpperHex for CanFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{:X}#", self.id())?;
+        write!(f, "{:X}#", self.id_raw())?;
 
         let mut parts = self.data().iter().map(|v| format!("{:02X}", v));
 
@@ -655,6 +689,33 @@ impl fmt::UpperHex for CanFrame {
         write!(f, "{}", parts.join(sep))
     }
 }
+
+impl embedded_can::Frame for CanFrame {
+    fn new(id: impl Into<Id>, data: &[u8]) -> Result<Self, ()> {
+        CanFrame::new(id.into(), data, false, false).map_err(|_err| ())
+    }
+    fn new_remote(id: impl Into<Id>, dlc: usize) -> Result<Self, ()> {
+        CanFrame::new(id.into(), &[], true, false).map_err(|_err| ())
+    }
+
+    fn is_extended(&self) -> bool {
+        self.is_extended()
+    }
+    fn is_remote_frame(&self) -> bool {
+        self.is_rtr()
+    }
+
+    fn dlc(&self) -> usize {
+        self._data_len as usize
+    }
+    fn data(&self) -> &[u8] {
+        self.data()
+    }
+    fn id(&self) -> embedded_can::Id {
+        self.id()
+    }
+}
+
 
 /// CanFilter
 ///

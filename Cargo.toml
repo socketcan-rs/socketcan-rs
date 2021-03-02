@@ -9,9 +9,11 @@ version = "2.0.0"
 
 [dependencies]
 byte_conv = "0.1.1"
+embedded-can = "0.3"
 hex = "^0.2"
 itertools = "^0.4"
 libc = "^0.2"
+nb = "1.0"
 netlink-rs = { git = "https://github.com/mbr/netlink-rs", rev = "01cba6fcc7b11917890bc3d2b4635009fde8082c" }
 nix = "^0.5"
 try_from = "0.2.0"
