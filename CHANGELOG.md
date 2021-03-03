@@ -11,3 +11,9 @@ All notable changes to this project will be documented in this file.
   to use async/await syntax for reading and writing frames :rocket:.
 - [BREAKING CHANGE] Add dependency to `thiserror 1.0` and introduce common error type `Error`.
 - Update examples to async/await syntax.
+
+## 0.1.3
+- Fixed error events being effectively delayed in delivery until the next non-error arrived.
+
+## [0.1.1](https://github.com/oefd/tokio-socketcan/tree/0.1.1) - 2019-01-10
+- Added `futures::sink::Sink` implementation for the `CANSocket`
