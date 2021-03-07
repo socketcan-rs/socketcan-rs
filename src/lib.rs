@@ -338,7 +338,7 @@ impl CANSocket {
             setsockopt(self.fd, SOL_CAN_RAW, CAN_RAW_FD_FRAMES, opt_ptr as *const c_void, size_of::<c_int>() as u32)
         };
 
-        if rv != 0 {
+        if rv == -1 {
             return Err(io::Error::last_os_error());
         }
         Ok(())
@@ -407,19 +407,14 @@ impl CANSocket {
             read(self.fd, frame_ptr as *mut c_void, size_of::<CANFrameStruct>())
         };
 
-        #[cfg(feature = "can_fd")]
-        if read_rv as usize == CAN_MTU {
-            frame.tag = CANFrameType::Normal;
-        } else if read_rv as usize == CANFD_MTU {
-            frame.tag = CANFrameType::Fd;
-        } else {
-            return Err(io::Error::last_os_error());
-        }
+        frame.tag = match read_rv as usize {
+            CAN_MTU => CANFrameType::Normal,
 
-        #[cfg(not(feature = "can_fd"))]
-        if read_rv as usize != CAN_MTU {
-            return Err(io::Error::last_os_error());
-        }
+            #[cfg(feature = "can_fd")]
+            CANFD_MTU => CANFrameType::Fd,
+
+            _ => return Err(io::Error::last_os_error()),
+        };
 
         Ok(frame)
     }
@@ -560,9 +555,7 @@ impl IntoRawFd for CANSocket {
 
 impl Drop for CANSocket {
     fn drop(&mut self) {
-        self.close()
-            // .map_err(|e|eprintln!("CANSocket close error: {}", e.to_string()))
-            .ok(); // ignore result
+        self.close().ok(); // ignore result
     }
 }
 
