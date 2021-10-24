@@ -45,20 +45,10 @@ fn vcan0_test_nonblocking() {
 #[cfg(feature = "vcan_tests")]
 fn vcan0_test_fd() {
     let cs = CANSocket::open("vcan0").unwrap();
-    maybe_enable_fd_frames(&cs);
+    cs.set_fd_frames(true).unwrap();
     for _ in 0..3 {
         let frame = cs.read_frame().unwrap();
         println!("Received frame: {:X}", frame);
         cs.write_frame(&frame).unwrap();
     }
-}
-
-#[cfg(all(feature = "can_fd", feature = "vcan_tests"))]
-fn maybe_enable_fd_frames(can_socket: &CANSocket) {
-    can_socket.set_fd_frames(true).unwrap();
-}
-
-#[cfg(all(feature = "vcan_tests", not(feature = "can_fd")))]
-fn maybe_enable_fd_frames(_: &CANSocket) {
-    /* do nothing */
 }

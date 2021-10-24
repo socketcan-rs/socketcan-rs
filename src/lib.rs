@@ -108,7 +108,6 @@ const SOL_CAN_BASE: c_int = 100;
 const SOL_CAN_RAW: c_int = SOL_CAN_BASE + CAN_RAW;
 const CAN_RAW_FILTER: c_int = 1;
 const CAN_RAW_ERR_FILTER: c_int = 2;
-#[cfg(feature = "can_fd")]
 const CAN_RAW_FD_FRAMES: c_int = 5;
 
 /// if set, indicate 29 bit extended format
@@ -133,13 +132,8 @@ pub const ERR_MASK: u32 = 0x1fffffff;
 const CAN_MTU: usize = 16;
 
 /// CAN FD frame
-#[cfg(feature = "can_fd")]
 const CANFD_MTU: usize = 72;
-
-#[cfg(feature = "can_fd")]
 const CAN_FRAME_DATA_LEN_MAX: usize = 64;
-#[cfg(not(feature = "can_fd"))]
-const CAN_FRAME_DATA_LEN_MAX: usize = 8;
 
 
 fn c_timeval_new(t: time::Duration) -> timeval {
@@ -330,7 +324,6 @@ impl CANSocket {
     }
 
     /// Control Flexible Data Rate
-    #[cfg(feature = "can_fd")]
     pub fn set_fd_frames(&self, fd_frames_enable: bool) -> io::Result<()> {
         let fd_frames_enable = fd_frames_enable as c_int;
         let opt_ptr = &fd_frames_enable as *const c_int;
@@ -409,10 +402,7 @@ impl CANSocket {
 
         frame.tag = match read_rv as usize {
             CAN_MTU => CANFrameType::Normal,
-
-            #[cfg(feature = "can_fd")]
             CANFD_MTU => CANFrameType::Fd,
-
             _ => return Err(io::Error::last_os_error()),
         };
 
@@ -431,8 +421,6 @@ impl CANSocket {
 
         let frame_size = match frame.tag {
             CANFrameType::Normal => CAN_MTU,
-
-            #[cfg(feature = "can_fd")]
             CANFrameType::Fd => CANFD_MTU
         };
 
@@ -589,8 +577,6 @@ struct CANFrameStruct {
 
 enum CANFrameType {
     Normal,
-
-    #[cfg(feature = "can_fd")]
     Fd
 }
 
@@ -606,7 +592,6 @@ impl fmt::Debug for CANFrame {
                 write!(f, "CAN Classical Frame {:?}", self.s )
             }
 
-            #[cfg(feature = "can_fd")]
             CANFrameType::Fd => {
                 write!(f, "CAN FD Frame {:?}", self.s )
             }
@@ -620,7 +605,6 @@ impl CANFrame {
         CANFrame::new_common(CANFrameType::Normal, id, data, rtr, err)
     }
 
-    #[cfg(feature = "can_fd")]
     /// constructor for a new CAN FD frame
     pub fn new_fd(id: u32, data: &[u8], rtr: bool, err: bool) -> Result<CANFrame, ConstructionError> {
         CANFrame::new_common(CANFrameType::Fd, id, data, rtr, err)
@@ -631,8 +615,6 @@ impl CANFrame {
 
         let max_valid_data_len = match frame_type {
             CANFrameType::Normal => 8,
-
-            #[cfg(feature = "can_fd")]
             CANFrameType::Fd => 64
         };
 
@@ -678,7 +660,6 @@ impl CANFrame {
         })
     }
 
-    #[cfg(feature = "can_fd")]
     pub fn is_fd(&self) -> bool {
         if let CANFrameType::Fd = self.tag { true } else { false }
     }
@@ -735,8 +716,6 @@ impl fmt::UpperHex for CANFrame {
         write!(f, "{:X}{}", self.id(),
                match self.tag {
                    CANFrameType::Normal => "#",
-
-                   #[cfg(feature = "can_fd")]
                    CANFrameType::Fd => "##"
                })?;
 
