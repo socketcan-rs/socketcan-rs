@@ -135,6 +135,10 @@ const CAN_MTU: usize = 16;
 const CANFD_MTU: usize = 72;
 const CAN_FRAME_DATA_LEN_MAX: usize = 64;
 
+/// CAN FD flags
+const CANFD_BRS: u8 = 0x01; /* bit rate switch (second bitrate for payload data) */
+const CANFD_ESI: u8 = 0x02; /* error state indicator of the transmitting node */
+
 
 fn c_timeval_new(t: time::Duration) -> timeval {
     timeval {
@@ -602,15 +606,22 @@ impl fmt::Debug for CANFrame {
 impl CANFrame {
     /// constructor for a classical CAN frame
     pub fn new(id: u32, data: &[u8], rtr: bool, err: bool) -> Result<CANFrame, ConstructionError> {
-        CANFrame::new_common(CANFrameType::Normal, id, data, rtr, err)
+        CANFrame::new_common(CANFrameType::Normal, id, data, rtr, err, 0)
     }
 
     /// constructor for a new CAN FD frame
-    pub fn new_fd(id: u32, data: &[u8], rtr: bool, err: bool) -> Result<CANFrame, ConstructionError> {
-        CANFrame::new_common(CANFrameType::Fd, id, data, rtr, err)
+    pub fn new_fd(id: u32, data: &[u8], rtr: bool, err: bool, brs: bool, esi: bool) -> Result<CANFrame, ConstructionError> {
+        let mut flags: u8 = 0;
+        if brs {
+            flags = flags | CANFD_BRS;
+        }
+        if esi {
+            flags = flags | CANFD_ESI;
+        }
+        CANFrame::new_common(CANFrameType::Fd, id, data, rtr, err, flags)
     }
 
-    fn new_common(frame_type: CANFrameType, id: u32, data: &[u8], rtr: bool, err: bool) -> Result<CANFrame, ConstructionError> {
+    fn new_common(frame_type: CANFrameType, id: u32, data: &[u8], rtr: bool, err: bool, flags: u8) -> Result<CANFrame, ConstructionError> {
         let mut _id = id;
 
         let max_valid_data_len = match frame_type {
@@ -652,7 +663,7 @@ impl CANFrame {
             s: CANFrameStruct {
                 _id: _id,
                 _data_len: data.len() as u8,
-                _pad_flags: 0,
+                _pad_flags: flags,
                 _res0: 0,
                 _res1: 0,
                 _data: full_data,
@@ -662,6 +673,12 @@ impl CANFrame {
 
     pub fn is_fd(&self) -> bool {
         if let CANFrameType::Fd = self.tag { true } else { false }
+    }
+    pub fn is_fd_brs(&self) -> bool {
+        return self.is_fd() && (self.s._pad_flags & CANFD_BRS == CANFD_BRS);
+    }
+    pub fn is_fd_esi(&self) -> bool {
+        return self.is_fd() && (self.s._pad_flags & CANFD_ESI == CANFD_ESI);
     }
 
     /// Return the actual CAN ID (without EFF/RTR/ERR flags)
@@ -718,6 +735,10 @@ impl fmt::UpperHex for CANFrame {
                    CANFrameType::Normal => "#",
                    CANFrameType::Fd => "##"
                })?;
+
+        if let CANFrameType::Fd = self.tag {
+            write!(f, "{} ", self.s._pad_flags)?;
+        };
 
         let mut parts = self.data().iter().map(|v| format!("{:02X}", v));
 
