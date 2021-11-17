@@ -33,8 +33,6 @@ use std::pin::Pin;
 use std::task::Poll;
 use std::{future::Future, os::unix::prelude::RawFd};
 
-use libc;
-
 use futures::prelude::*;
 use futures::ready;
 use futures::task::Context;
@@ -43,7 +41,6 @@ use mio::{event, unix::SourceFd, Interest, Registry, Token};
 
 use thiserror::Error as ThisError;
 
-use socketcan;
 pub use socketcan::{CANFilter, CANFrame, CANSocketOpenError};
 use tokio::io::unix::AsyncFd;
 
