@@ -44,8 +44,7 @@ use mio::{event, unix::SourceFd, Interest, Registry, Token};
 use thiserror::Error as ThisError;
 
 use socketcan;
-pub use socketcan::CANFrame;
-pub use socketcan::CANSocketOpenError;
+pub use socketcan::{CANFilter, CANFrame, CANSocketOpenError};
 use tokio::io::unix::AsyncFd;
 
 #[derive(Debug, ThisError)]
@@ -138,7 +137,7 @@ impl CANSocket {
     }
 
     /// Sets the filter mask on the socket
-    pub fn set_filter(&self, filters: &[socketcan::CANFilter]) -> io::Result<()> {
+    pub fn set_filter(&self, filters: &[CANFilter]) -> io::Result<()> {
         self.0.get_ref().0.set_filter(filters)
     }
 
