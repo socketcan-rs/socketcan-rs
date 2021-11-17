@@ -1,4 +1,5 @@
 [![crates.io badge](https://img.shields.io/crates/v/tokio-socketcan.svg)](https://crates.io/crates/tokio-socketcan) [![documentation](https://img.shields.io/badge/documentation-docs.rs-green.svg)](https://docs.rs/tokio-socketcan)
+[![Continuous integration](https://github.com/oefd/tokio-socketcan/actions/workflows/ci.yml/badge.svg)](https://github.com/oefd/tokio-socketcan/actions/workflows/ci.yml)
 
 # tokio-socketcan
 
