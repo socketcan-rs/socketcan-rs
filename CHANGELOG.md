@@ -3,6 +3,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.1](https://github.com/oefd/tokio-socketcan/tree/0.3.1) - 2021-11-17
+- Reexport `socketcan::CANFilter`. Thank you @andresv.
+- Update to `mio 0.8`.
+
 ## [0.3.0](https://github.com/oefd/tokio-socketcan/tree/0.3.0) - 2021-02-10
 - [BREAKING CHANGE] Migrate code to `tokio 1` and mio 0.7.
 
