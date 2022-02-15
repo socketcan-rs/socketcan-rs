@@ -3,39 +3,47 @@
 //! Simple CLI tool to run basic CAN bus functionality from the Linux
 //! command line, similar to 'can-utils'.
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use clap::{
     App,
     Arg,
+    ArgMatches,
     SubCommand,
-    //value_t_or_exit,
-    crate_version,
 };
-use socketcan::*;
+use socketcan::CanInterface;
 use std::process;
 
-#[cfg(not(feature = "netlink"))]
-use anyhow::anyhow;
+// Make the app version the same as the package.
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // --------------------------------------------------------------------------
 
-/// Bring the interface up or down
+/// Process the 'iface' subcommand.
+///
+/// Set parameters on the interface, or bring it up or down.
 #[cfg(feature = "netlink")]
-fn iface_up(iface_name: &str, up: bool) -> Result<()> {
+fn iface_cmd(iface_name: &str, opts: &ArgMatches) -> Result<()> {
     let iface = CanInterface::open(iface_name)?;
-    if up {
-        iface.bring_up()
-    }
-    else {
-        iface.bring_down()
+
+    match opts.subcommand_name() {
+        Some("up") => {
+            iface.bring_up()
+        },
+        Some("down") => {
+            iface.bring_down()
+        },
+        Some("bitrate") => {
+            return Err(anyhow!("Unimplemented"))
+        },
+        _ => return Err(anyhow!("Unknown 'iface' subcommand"))
     }?;
     Ok(())
 }
 
 #[cfg(not(feature = "netlink"))]
-fn iface_up(_iface_name: &str, _up: bool) -> Result<()> {
+fn iface_cmd(_iface_name: &str, _opts: &ArgMatches) -> Result<()> {
     Err(anyhow!(
-        "The 'netlink' feature is required to bring an inteface up or down."
+        "The 'netlink' feature is required to configure an inteface."
     ))
 }
 
@@ -43,7 +51,8 @@ fn iface_up(_iface_name: &str, _up: bool) -> Result<()> {
 
 fn main() {
     let opts = App::new("can")
-        .version(crate_version!())
+        .author("Frank Pagliughi")
+        .version(VERSION)
         .about("Command line tool to interact with the CAN bus on Linux")
         .help_short("?")
         .arg(Arg::with_name("iface")
@@ -51,35 +60,37 @@ fn main() {
             .required(true)
             .index(1))
         .subcommand(
-            // Actually, we probably want 'up' and 'down' to be under an iface command?
-            //   like "./can can0 iface [up | down]
-            SubCommand::with_name("up")
-                .about("Bring the interface up")
-        )
-        .subcommand(
-            SubCommand::with_name("down")
-                .about("Bring the interface up")
+            SubCommand::with_name("iface")
+                .help_short("?")
+                .about("Get/set parameters on the CAN interface")
+                .subcommand(
+                    SubCommand::with_name("up")
+                        .about("Bring the interface up")
+                )
+                .subcommand(
+                    SubCommand::with_name("down")
+                        .about("Bring the interface down")
+                )
+                .subcommand(
+                    SubCommand::with_name("bitrate")
+                        .about("Set the bit rate on the interface.")
+                )
+
         )
         .get_matches();
 
     let iface_name = opts.value_of("iface").unwrap();
 
-    let res = match opts.subcommand_name() {
-        Some("up") => {
-            iface_up(&iface_name, true)
-        },
-        Some("down") => {
-            iface_up(&iface_name, false)
-        },
-        Some(_) | None => {
-            eprintln!("Need to specify a subcommand (-? for help).");
-            eprintln!("{}", opts.usage());
-            process::exit(1);
-        },
+    let res = if let Some(sub_opts) = opts.subcommand_matches("iface") {
+        iface_cmd(&iface_name, &sub_opts)
+    }
+    else {
+        Err(anyhow!("Need to specify a subcommand (-? for help)."))
     };
 
     if let Err(err) = res {
         eprintln!("{}", err);
+        process::exit(1);
     }
 }
 
