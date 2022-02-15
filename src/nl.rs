@@ -19,12 +19,11 @@ use neli::{
     },
     err::NlError,
     nl::{Nlmsghdr, NlPayload},
-    utils::U32Bitmask,
     rtnl::Ifinfomsg,
     types::RtBuffer,
     socket::*,
 };
-use nix::{self, net::if_::if_nametoindex};
+use nix::{self, unistd, net::if_::if_nametoindex};
 use std::{
     result,
     fmt::Debug,
@@ -92,15 +91,11 @@ impl CanInterface {
     /// Opens a new netlink socket, bound to this process' PID
     fn open_route_socket() -> NlResult<NlSocketHandle> {
         // retrieve PID
-        let pid = unsafe { libc::getpid() } as u32;
+        let pid = unistd::getpid().as_raw() as u32;
 
         // open and bind socket
         // groups is set to None(0), because we want no notifications
-        let sock = NlSocketHandle::connect(
-            NlFamily::Route,
-            Some(pid),
-            U32Bitmask::empty()
-        )?;
+        let sock = NlSocketHandle::connect(NlFamily::Route, Some(pid), &[])?;
         Ok(sock)
     }
 
