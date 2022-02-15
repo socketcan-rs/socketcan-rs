@@ -20,8 +20,9 @@ use neli::{
     err::NlError,
     nl::{Nlmsghdr, NlPayload},
     rtnl::Ifinfomsg,
+    ToBytes,
     types::RtBuffer,
-    socket::*,
+    socket::NlSocketHandle,
 };
 use nix::{self, unistd, net::if_::if_nametoindex};
 use std::{
@@ -79,8 +80,8 @@ impl CanInterface {
     /// properly received.
     fn send_and_read_ack<T, P>(sock: &mut NlSocketHandle, msg: Nlmsghdr<T, P>) -> NlResult<()>
     where
-        T: neli::Nl + NlType + Debug,
-        P: neli::Nl + Debug,
+        T: NlType + Debug,
+        P: ToBytes + Debug,
     {
         sock.send(msg)?;
         // TODO: Implement this
