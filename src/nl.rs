@@ -10,7 +10,6 @@
 //! > domain sockets.
 //!
 
-use libc::{self, c_int, c_uint};
 use neli::{
     consts::{
         nl::{NlmF, NlmFFlags, NlType},
@@ -26,6 +25,7 @@ use neli::{
 };
 use nix::{self, unistd, net::if_::if_nametoindex};
 use std::{
+    os::raw::{c_int, c_uint},
     result,
     fmt::Debug,
 };

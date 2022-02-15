@@ -46,7 +46,9 @@
 
 mod err;
 pub use err::{CanError, CanErrorDecodingFailure};
+
 pub mod dump;
+
 mod util;
 
 #[cfg(feature = "netlink")]
@@ -58,12 +60,13 @@ pub use nl::CanInterface;
 #[cfg(test)]
 mod tests;
 
-use libc::{c_int, c_short, c_void, c_uint, c_ulong, socket, SOCK_RAW, close, bind, sockaddr, read,
+use libc::{socket, SOCK_RAW, close, bind, sockaddr, read,
            write, SOL_SOCKET, SO_RCVTIMEO, timespec, timeval, EINPROGRESS, SO_SNDTIMEO, time_t,
            suseconds_t, fcntl, F_GETFL, F_SETFL, O_NONBLOCK};
 use itertools::Itertools;
 use nix::net::if_::if_nametoindex;
 use std::{
+    os::raw::{c_int, c_short, c_void, c_uint, c_ulong},
     error,
     fmt,
     io,
