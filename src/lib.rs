@@ -1,7 +1,7 @@
 //! SocketCAN support.
 //!
 //! The Linux kernel supports using CAN-devices through a network-like API
-//! (see https://www.kernel.org/doc/Documentation/networking/can.txt). This
+//! (see <https://www.kernel.org/doc/Documentation/networking/can.txt>). This
 //! crate allows easy access to this functionality without having to wrestle
 //! libc calls.
 //!
@@ -40,6 +40,23 @@
 //! Raw access to the underlying file descriptor and construction through
 //! is available through the `AsRawFd`, `IntoRawFd` and `FromRawFd`
 //! implementations.
+//!
+//! # Crate Features
+//!
+//! ### Default
+//!
+//! * **netlink** -
+//!   Whether to include programmable CAN interface configuration capabilities
+//!   based on netlink kernel communications. This brings in the
+//!   [neli](https://docs.rs/neli/latest/neli/) library and its dependencies.
+//!
+//! ### Non-default
+//!
+//! * **utils** -
+//!   Whether to build command-line utilities. This brings in additional
+//!   dependencies like [anyhow](https://docs.rs/anyhow/latest/anyhow/) and
+//!   [clap](https://docs.rs/clap/latest/clap/)
+//!
 
 // clippy: do not warn about things like "SocketCAN" inside the docs
 #![cfg_attr(feature = "cargo-clippy", allow(doc_markdown))]
