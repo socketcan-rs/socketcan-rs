@@ -59,7 +59,7 @@
 //!
 
 // clippy: do not warn about things like "SocketCAN" inside the docs
-#![cfg_attr(feature = "cargo-clippy", allow(doc_markdown))]
+#![allow(clippy::doc_markdown)]
 
 mod err;
 pub use err::{CanError, CanErrorDecodingFailure, CanSocketOpenError, ConstructionError};
@@ -184,7 +184,7 @@ pub const ERR_MASK_NONE: u32 = 0;
 fn c_timeval_new(t: time::Duration) -> timeval {
     timeval {
         tv_sec: t.as_secs() as time_t,
-        tv_usec: (t.subsec_nanos() / 1000) as suseconds_t,
+        tv_usec: t.subsec_micros() as suseconds_t,
     }
 }
 
@@ -445,7 +445,7 @@ impl AsRawFd for CanSocket {
 
 impl FromRawFd for CanSocket {
     unsafe fn from_raw_fd(fd: RawFd) -> CanSocket {
-        CanSocket { fd: fd }
+        CanSocket { fd, }
     }
 }
 
@@ -521,7 +521,7 @@ impl CanFrame {
         }
 
         Ok(CanFrame {
-               _id: _id,
+               _id,
                _data_len: data.len() as u8,
                _pad: 0,
                _res0: 0,

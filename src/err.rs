@@ -16,7 +16,7 @@ use std::{
 fn get_data(frame: &CanFrame, idx: u8) -> Result<u8, CanErrorDecodingFailure> {
     Ok(*(frame.data()
         .get(idx as usize)
-        .ok_or_else(|| CanErrorDecodingFailure::NotEnoughData(idx)))?)
+        .ok_or(CanErrorDecodingFailure::NotEnoughData(idx)))?)
 }
 
 
