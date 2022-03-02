@@ -62,7 +62,7 @@
 #![cfg_attr(feature = "cargo-clippy", allow(doc_markdown))]
 
 mod err;
-pub use err::{CanError, CanErrorDecodingFailure};
+pub use err::{CanError, CanErrorDecodingFailure, CanSocketOpenError, ConstructionError};
 
 pub mod dump;
 
@@ -84,7 +84,6 @@ use itertools::Itertools;
 use nix::net::if_::if_nametoindex;
 use std::{
     os::raw::{c_int, c_short, c_void, c_uint, c_ulong},
-    error,
     fmt,
     io,
     time,
@@ -196,61 +195,6 @@ struct CanAddr {
     if_index: c_int, // address familiy,
     rx_id: u32,
     tx_id: u32,
-}
-
-#[derive(Debug)]
-/// Errors opening socket
-pub enum CanSocketOpenError {
-    /// Device could not be found
-    LookupError(nix::Error),
-
-    /// System error while trying to look up device name
-    IOError(io::Error),
-}
-
-impl fmt::Display for CanSocketOpenError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            CanSocketOpenError::LookupError(ref e) => write!(f, "CAN Device not found: {}", e),
-            CanSocketOpenError::IOError(ref e) => write!(f, "IO: {}", e),
-        }
-    }
-}
-
-impl error::Error for CanSocketOpenError {}
-
-#[derive(Debug, Copy, Clone)]
-/// Error that occurs when creating CAN packets
-pub enum ConstructionError {
-    /// CAN ID was outside the range of valid IDs
-    IDTooLarge,
-    /// More than 8 Bytes of payload data were passed in
-    TooMuchData,
-}
-
-impl fmt::Display for ConstructionError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            ConstructionError::IDTooLarge => write!(f, "CAN ID too large"),
-            ConstructionError::TooMuchData => {
-                write!(f, "Payload is larger than CAN maximum of 8 bytes")
-            }
-        }
-    }
-}
-
-impl error::Error for ConstructionError {}
-
-impl From<nix::Error> for CanSocketOpenError {
-    fn from(e: nix::Error) -> CanSocketOpenError {
-        CanSocketOpenError::LookupError(e)
-    }
-}
-
-impl From<io::Error> for CanSocketOpenError {
-    fn from(e: io::Error) -> CanSocketOpenError {
-        CanSocketOpenError::IOError(e)
-    }
 }
 
 /// A socket for a CAN device.

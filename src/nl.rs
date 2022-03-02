@@ -26,12 +26,11 @@ use neli::{
 use nix::{self, unistd, net::if_::if_nametoindex};
 use std::{
     os::raw::{c_int, c_uint},
-    result,
     fmt::Debug,
 };
 
 /// A result for Netlink errors.
-type NlResult<T> = result::Result<T, NlError>;
+type NlResult<T> = Result<T, NlError>;
 
 /// SocketCAN interface
 ///
@@ -45,7 +44,7 @@ impl CanInterface {
     /// Open CAN interface by name
     ///
     /// Similar to `open_if`, but looks up the device by name instead
-    pub fn open(ifname: &str) -> result::Result<Self, nix::Error> {
+    pub fn open(ifname: &str) -> Result<Self, nix::Error> {
         let if_index = if_nametoindex(ifname)?;
         Ok(Self::open_iface(if_index))
     }
