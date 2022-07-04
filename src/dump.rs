@@ -159,9 +159,9 @@ impl<R: io::BufRead> Reader<R> {
                                               false)?;
 
         Ok(Some(CanDumpRecord {
-            t_us: t_us,
-            device: device,
-            frame: frame,
+            t_us,
+            device,
+            frame,
         }))
     }
 }
