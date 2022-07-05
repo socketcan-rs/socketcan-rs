@@ -2,6 +2,7 @@
 //                  /include/uapi/linux/can/error.h
 
 use super::CanFrame;
+use embedded_hal::can::Frame;
 use std::{
     convert::TryFrom,
     error,
@@ -125,6 +126,14 @@ impl fmt::Display for CanError {
     }
 }
 
+impl embedded_hal::can::Error for CanError {
+    fn kind(&self) -> embedded_hal::can::ErrorKind {
+        match *self {
+            // TODO: Map errors
+            _ => embedded_hal::can::ErrorKind::Other,
+        }
+    }
+}
 
 #[derive(Copy, Clone, Debug)]
 pub enum ControllerProblem {

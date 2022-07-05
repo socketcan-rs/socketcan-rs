@@ -147,7 +147,7 @@ impl<R: io::BufRead> Reader<R> {
         } else {
             Vec::from_hex(&can_data).map_err(|_| ParseError::InvalidCanFrame)?
         };
-        let frame = super::CanFrame::new((parse_raw(can_id, 16)
+        let frame = super::CanFrame::init((parse_raw(can_id, 16)
                                                   .ok_or
 
 
