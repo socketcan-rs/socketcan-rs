@@ -444,17 +444,28 @@ impl Can for CanSocket {
     type Error = CanError;
 
     fn receive(&mut self) -> Result<Self::Frame, Self::Error> {
-        // TODO: Error handling
         match self.read_frame() {
-            Ok(frame) => Ok(frame),
-            Err(_) => Err(CanError::Unknown(0)),
+            Ok(frame) => {
+                if !frame.is_error() {
+                    Ok(frame)
+                } else {
+                    Err(frame.error().unwrap_or(CanError::Unknown(0)))
+                }
+            },
+            Err(e) => {
+                let code = e.raw_os_error().unwrap_or(0);
+                Err(CanError::Unknown(code as u32))
+            },
         }
     }
 
     fn transmit(&mut self, frame: &Self::Frame) -> Result<(), Self::Error> {
         match self.write_frame_insist(frame) {
             Ok(_) => Ok(()),
-            Err(_) => Err(CanError::Unknown(0)),
+            Err(e) => {
+                let code = e.raw_os_error().unwrap_or(0);
+                Err(CanError::Unknown(code as u32))
+            },
         }
     }
 }
@@ -562,6 +573,19 @@ impl CanFrame {
         self._id & ERR_FLAG != 0
     }
 
+    // Read error from message and transform it into a `CanError`.
+    //
+    // SocketCAN errors are indicated using the error bit and coded inside
+    // id and data payload. Call `error()` converts these into usable
+    // `CanError` instances.
+    //
+    // If the frame is malformed, this may fail with a
+    // `CanErrorDecodingFailure`.
+    #[inline]
+    pub fn error(&self) -> Result<CanError, CanErrorDecodingFailure> {
+        CanError::from_frame(self)
+    }
+
 }
 
 fn hal_id_to_raw(id: Id) -> u32 {
@@ -617,19 +641,6 @@ impl Frame for CanFrame {
     fn data(&self) -> &[u8] {
         &self._data[..(self._data_len as usize)]
     }
-
-    // / Read error from message and transform it into a `CanError`.
-    // /
-    // / SocketCAN errors are indicated using the error bit and coded inside
-    // / id and data payload. Call `error()` converts these into usable
-    // / `CanError` instances.
-    // /
-    // / If the frame is malformed, this may fail with a
-    // / `CanErrorDecodingFailure`.
-    // #[inline]
-    // pub fn error(&self) -> Result<CanError, CanErrorDecodingFailure> {
-    //     CanError::from_frame(self)
-    // }
 }
 
 impl fmt::UpperHex for CanFrame {
