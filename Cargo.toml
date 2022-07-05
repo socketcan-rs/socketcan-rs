@@ -22,6 +22,8 @@ vcan_tests = ["netlink"]
 utils = ["clap", "anyhow"]
 
 [dependencies]
+embedded-hal = {version = "0.2", features = ["unproven"]}
+nb = "1"
 byte_conv = "0.1.1"
 hex = "0.4"
 itertools = "0.10"
