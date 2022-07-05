@@ -92,8 +92,7 @@ use std::{
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use util::{set_socket_option, set_socket_option_mult};
 
-use embedded_hal::can::{Can, Frame, Id, StandardId, ExtendedId};
-use nb;
+use embedded_hal::can::{blocking::Can, Frame, Id, StandardId, ExtendedId};
 
 /// Check an error return value for timeouts.
 ///
@@ -444,18 +443,18 @@ impl Can for CanSocket {
     type Frame = CanFrame;
     type Error = CanError;
 
-    fn receive(&mut self) -> nb::Result<Self::Frame, Self::Error> {
+    fn receive(&mut self) -> Result<Self::Frame, Self::Error> {
         // TODO: Error handling
         match self.read_frame() {
             Ok(frame) => Ok(frame),
-            Err(_) => Err(nb::Error::Other(CanError::Unknown(0))),
+            Err(_) => Err(CanError::Unknown(0)),
         }
     }
 
-    fn transmit(&mut self, frame: &Self::Frame) -> nb::Result<Option<Self::Frame>, Self::Error> {
+    fn transmit(&mut self, frame: &Self::Frame) -> Result<(), Self::Error> {
         match self.write_frame(frame) {
-            Ok(_) => Ok(None),
-            Err(_) => Err(nb::Error::Other(CanError::Unknown(0))),
+            Ok(_) => Ok(()),
+            Err(_) => Err(CanError::Unknown(0)),
         }
     }
 }
