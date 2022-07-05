@@ -452,7 +452,7 @@ impl Can for CanSocket {
     }
 
     fn transmit(&mut self, frame: &Self::Frame) -> Result<(), Self::Error> {
-        match self.write_frame(frame) {
+        match self.write_frame_insist(frame) {
             Ok(_) => Ok(()),
             Err(_) => Err(CanError::Unknown(0)),
         }
