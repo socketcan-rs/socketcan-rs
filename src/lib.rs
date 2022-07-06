@@ -64,6 +64,12 @@
 mod err;
 pub use err::{CanError, CanErrorDecodingFailure, CanSocketOpenError, ConstructionError};
 
+mod frame;
+pub use frame::CanFrame;
+
+pub mod constants;
+use constants::*;
+
 pub mod dump;
 
 mod util;
@@ -80,7 +86,6 @@ mod tests;
 use libc::{socket, SOCK_RAW, close, bind, sockaddr, read,
            write, SOL_SOCKET, SO_RCVTIMEO, timespec, timeval, EINPROGRESS, SO_SNDTIMEO, time_t,
            suseconds_t, fcntl, F_GETFL, F_SETFL, O_NONBLOCK};
-use itertools::Itertools;
 use nix::net::if_::if_nametoindex;
 use std::{
     os::raw::{c_int, c_short, c_void, c_uint, c_ulong},
@@ -92,7 +97,7 @@ use std::{
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use util::{set_socket_option, set_socket_option_mult};
 
-use embedded_hal::can::{blocking::Can, Frame, Id, StandardId, ExtendedId};
+use embedded_hal::can::blocking::Can;
 
 /// Check an error return value for timeouts.
 ///
@@ -137,51 +142,6 @@ impl<E: fmt::Debug> ShouldRetry for io::Result<E> {
     }
 }
 
-// constants stolen from C headers
-const AF_CAN: c_int = 29;
-const PF_CAN: c_int = 29;
-const CAN_RAW: c_int = 1;
-const SOL_CAN_BASE: c_int = 100;
-const SOL_CAN_RAW: c_int = SOL_CAN_BASE + CAN_RAW;
-const CAN_RAW_FILTER: c_int = 1;
-const CAN_RAW_ERR_FILTER: c_int = 2;
-const CAN_RAW_LOOPBACK: c_int = 3;
-const CAN_RAW_RECV_OWN_MSGS: c_int = 4;
-// unused:
-// const CAN_RAW_FD_FRAMES: c_int = 5;
-const CAN_RAW_JOIN_FILTERS: c_int = 6;
-
-
-// get timestamp in a struct timeval (us accuracy)
-// const SIOCGSTAMP: c_int = 0x8906;
-
-// get timestamp in a struct timespec (ns accuracy)
-const SIOCGSTAMPNS: c_int = 0x8907;
-
-/// if set, indicate 29 bit extended format
-pub const EFF_FLAG: u32 = 0x80000000;
-
-/// remote transmission request flag
-pub const RTR_FLAG: u32 = 0x40000000;
-
-/// error flag
-pub const ERR_FLAG: u32 = 0x20000000;
-
-/// valid bits in standard frame id
-pub const SFF_MASK: u32 = 0x000007ff;
-
-/// valid bits in extended frame id
-pub const EFF_MASK: u32 = 0x1fffffff;
-
-/// valid bits in error frame
-pub const ERR_MASK: u32 = 0x1fffffff;
-
-
-/// an error mask that will cause SocketCAN to report all errors
-pub const ERR_MASK_ALL: u32 = ERR_MASK;
-
-/// an error mask that will cause SocketCAN to silently drop all errors
-pub const ERR_MASK_NONE: u32 = 0;
 
 fn c_timeval_new(t: time::Duration) -> timeval {
     timeval {
@@ -308,14 +268,15 @@ impl CanSocket {
 
     /// Blocking read a single can frame.
     pub fn read_frame(&self) -> io::Result<CanFrame> {
-        let mut frame = CanFrame {
-            _id: 0,
-            _data_len: 0,
-            _pad: 0,
-            _res0: 0,
-            _res1: 0,
-            _data: [0; 8],
-        };
+        // let mut frame = CanFrame {
+        //     _id: 0,
+        //     _data_len: 0,
+        //     _pad: 0,
+        //     _res0: 0,
+        //     _res1: 0,
+        //     _data: [0; 8],
+        // };
+        let mut frame = CanFrame::default();
 
         let read_rv = unsafe {
             let frame_ptr = &mut frame as *mut CanFrame;
@@ -491,166 +452,6 @@ impl IntoRawFd for CanSocket {
 impl Drop for CanSocket {
     fn drop(&mut self) {
         self.close().ok(); // ignore result
-    }
-}
-
-/// CanFrame
-///
-/// Uses the same memory layout as the underlying kernel struct for performance
-/// reasons.
-#[derive(Debug, Copy, Clone)]
-#[repr(C)]
-pub struct CanFrame {
-    /// 32 bit CAN_ID + EFF/RTR/ERR flags
-    _id: u32,
-
-    /// data length. Bytes beyond are not valid
-    _data_len: u8,
-
-    /// padding
-    _pad: u8,
-
-    /// reserved
-    _res0: u8,
-
-    /// reserved
-    _res1: u8,
-
-    /// buffer for data
-    _data: [u8; 8],
-}
-
-impl CanFrame {
-    pub fn init(id: u32, data: &[u8], rtr: bool, err: bool) -> Result<CanFrame, ConstructionError> {
-        let mut _id = id;
-
-        if data.len() > 8 {
-            return Err(ConstructionError::TooMuchData);
-        }
-
-        if id > EFF_MASK {
-            return Err(ConstructionError::IDTooLarge);
-        }
-
-        // set EFF_FLAG on large message
-        if id > SFF_MASK {
-            _id |= EFF_FLAG;
-        }
-
-
-        if rtr {
-            _id |= RTR_FLAG;
-        }
-
-        if err {
-            _id |= ERR_FLAG;
-        }
-
-        let mut full_data = [0; 8];
-
-        // not cool =/
-        for (n, c) in data.iter().enumerate() {
-            full_data[n] = *c;
-        }
-
-        Ok(CanFrame {
-               _id,
-               _data_len: data.len() as u8,
-               _pad: 0,
-               _res0: 0,
-               _res1: 0,
-               _data: full_data,
-           })
-    }
-
-    /// Return the error message
-    fn err(&self) -> u32 {
-        self._id & ERR_MASK
-    }
-
-    /// Check if frame is an error message
-    fn is_error(&self) -> bool {
-        self._id & ERR_FLAG != 0
-    }
-
-    // Read error from message and transform it into a `CanError`.
-    //
-    // SocketCAN errors are indicated using the error bit and coded inside
-    // id and data payload. Call `error()` converts these into usable
-    // `CanError` instances.
-    //
-    // If the frame is malformed, this may fail with a
-    // `CanErrorDecodingFailure`.
-    #[inline]
-    pub fn error(&self) -> Result<CanError, CanErrorDecodingFailure> {
-        CanError::from_frame(self)
-    }
-
-}
-
-fn hal_id_to_raw(id: Id) -> u32 {
-    match id {
-        Id::Standard(id) => id.as_raw() as u32,
-        Id::Extended(id) => id.as_raw() as u32,
-    }
-}
-
-impl Frame for CanFrame {
-    /// Create a new frame
-    fn new(id: impl Into<Id>, data: &[u8]) -> Option<Self> {
-        let raw_id = hal_id_to_raw(id.into());
-        CanFrame::init(raw_id, data, false, false).ok()
-    }
-
-    fn new_remote(id: impl Into<Id>, dlc: usize) -> Option<Self> {
-        let raw_id = hal_id_to_raw(id.into());
-        let data: [u8; 8] = Default::default();
-
-        CanFrame::init(raw_id, &data[0..dlc], true, false).ok()
-    }
-
-    /// Return the actual CAN ID (without EFF/RTR/ERR flags)
-    fn id(&self) -> Id {
-        if self.is_extended() {
-            Id::Extended(
-                ExtendedId::new(self._id & EFF_MASK).unwrap()
-            )
-        } else {
-            Id::Standard(
-                StandardId::new((self._id & SFF_MASK) as u16).unwrap()
-            )
-        }
-    }
-
-    /// Check if frame uses 29 bit extended frame format
-    fn is_extended(&self) -> bool {
-        self._id & EFF_FLAG != 0
-    }
-
-    /// Check if frame is a remote transmission request
-    fn is_remote_frame(&self) -> bool {
-        self._id & RTR_FLAG != 0
-    }
-    
-    /// Data length
-    fn dlc(&self) -> usize {
-        self._data_len as usize
-    }
-
-    /// A slice into the actual data. Slice will always be <= 8 bytes in length
-    fn data(&self) -> &[u8] {
-        &self._data[..(self._data_len as usize)]
-    }
-}
-
-impl fmt::UpperHex for CanFrame {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{:X}#", hal_id_to_raw(self.id()))?;
-
-        let mut parts = self.data().iter().map(|v| format!("{:02X}", v));
-
-        let sep = if f.alternate() { " " } else { "" };
-        write!(f, "{}", parts.join(sep))
     }
 }
 
