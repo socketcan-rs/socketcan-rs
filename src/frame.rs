@@ -1,10 +1,3 @@
-//
-// frame.rs
-//
-// @author Natesh Narain <nnaraindev@gmail.com>
-// @date Jul 06 2022
-//
-
 use crate::err::{ConstructionError, CanError, CanErrorDecodingFailure};
 use embedded_hal::can::{Frame, Id, StandardId, ExtendedId};
 use crate::constants::*;
