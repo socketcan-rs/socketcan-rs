@@ -1,6 +1,7 @@
 use crate::err::{ConstructionError, CanError, CanErrorDecodingFailure};
 use embedded_hal::can::{Frame, Id, StandardId, ExtendedId};
 use crate::constants::*;
+use crate::util::hal_id_to_raw;
 
 use std::fmt;
 
@@ -99,13 +100,6 @@ impl CanFrame {
         CanError::from_frame(self)
     }
 
-}
-
-fn hal_id_to_raw(id: Id) -> u32 {
-    match id {
-        Id::Standard(id) => id.as_raw() as u32,
-        Id::Extended(id) => id.as_raw() as u32,
-    }
 }
 
 impl Frame for CanFrame {

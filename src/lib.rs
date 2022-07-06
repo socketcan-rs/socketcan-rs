@@ -70,7 +70,7 @@ pub use frame::CanFrame;
 pub mod constants;
 
 mod socket;
-pub use socket::CanSocket;
+pub use socket::{CanSocket, ShouldRetry};
 
 pub mod dump;
 
@@ -82,13 +82,8 @@ mod nl;
 #[cfg(feature = "netlink")]
 pub use nl::CanInterface;
 
-#[cfg(test)]
-mod tests;
 
-use embedded_hal::can::blocking::Can;
-
-
-impl Can for CanSocket {
+impl embedded_hal::can::blocking::Can for CanSocket {
     type Frame = CanFrame;
     type Error = CanError;
 

@@ -2,7 +2,7 @@ use libc::{c_int, c_void, setsockopt, socklen_t, timespec};
 use std::{io, ptr};
 use std::mem::size_of;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
+use embedded_hal::can::Id;
 
 /// `setsockopt` wrapper
 ///
@@ -78,4 +78,11 @@ pub fn duration_from_timeval(ts: timespec) -> Duration {
 #[inline]
 pub fn system_time_from_timespec(ts: timespec) -> SystemTime {
     UNIX_EPOCH + duration_from_timeval(ts)
+}
+
+pub fn hal_id_to_raw(id: Id) -> u32 {
+    match id {
+        Id::Standard(id) => id.as_raw() as u32,
+        Id::Extended(id) => id.as_raw() as u32,
+    }
 }
