@@ -182,6 +182,9 @@ impl<'a, R: io::Read> Iterator for CanDumpRecords<'a, io::BufReader<R>> {
 #[cfg(test)]
 mod test {
     use super::Reader;
+    use embedded_hal::can::Frame;
+    use crate::util::hal_id_to_raw;
+
 
     #[test]
     fn test_simple_example() {
@@ -195,8 +198,8 @@ mod test {
 
             assert_eq!(rec1.t_us, 1469439874299591);
             assert_eq!(rec1.device, "can1");
-            assert_eq!(rec1.frame.id(), 0x080);
-            assert_eq!(rec1.frame.is_rtr(), false);
+            assert_eq!(hal_id_to_raw(rec1.frame.id()), 0x080);
+            assert_eq!(rec1.frame.is_remote_frame(), false);
             assert_eq!(rec1.frame.is_error(), false);
             assert_eq!(rec1.frame.is_extended(), false);
             assert_eq!(rec1.frame.data(), &[]);
@@ -206,8 +209,8 @@ mod test {
             let rec2 = reader.next_record().unwrap().unwrap();
             assert_eq!(rec2.t_us, 1469439874299654);
             assert_eq!(rec2.device, "can1");
-            assert_eq!(rec2.frame.id(), 0x701);
-            assert_eq!(rec2.frame.is_rtr(), false);
+            assert_eq!(hal_id_to_raw(rec2.frame.id()), 0x701);
+            assert_eq!(rec2.frame.is_remote_frame(), false);
             assert_eq!(rec2.frame.is_error(), false);
             assert_eq!(rec2.frame.is_extended(), false);
             assert_eq!(rec2.frame.data(), &[0x7F]);
