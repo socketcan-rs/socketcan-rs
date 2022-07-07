@@ -82,6 +82,8 @@ mod nl;
 #[cfg(feature = "netlink")]
 pub use nl::CanInterface;
 
+use std::io::ErrorKind;
+
 
 impl embedded_hal::can::blocking::Can for CanSocket {
     type Frame = CanFrame;
@@ -114,3 +116,47 @@ impl embedded_hal::can::blocking::Can for CanSocket {
     }
 }
 
+impl embedded_hal::can::nb::Can for CanSocket {
+    type Frame = CanFrame;
+    type Error = CanError;
+
+    fn receive(&mut self) -> nb::Result<Self::Frame, Self::Error> {
+        match self.read_frame() {
+            Ok(frame) => {
+                if !frame.is_error() {
+                    Ok(frame)
+                } else {
+                    let can_error = frame.error().unwrap_or(CanError::Unknown(0));
+                    Err(nb::Error::Other(can_error))
+                }
+            },
+            Err(e) => {
+                let e = match e.kind() {
+                    ErrorKind::WouldBlock => nb::Error::WouldBlock,
+                    _ => {
+                        let code = e.raw_os_error().unwrap_or(0);
+                        nb::Error::Other(CanError::Unknown(code as u32))
+                    }
+                };
+                Err(e)
+            }
+        }
+    }
+
+    fn transmit(&mut self, frame: &Self::Frame) -> nb::Result<Option<Self::Frame>, Self::Error> {
+        match self.write_frame(&frame) {
+            Ok(_) => Ok(None),
+            Err(e) => {
+                match e.kind() {
+                    ErrorKind::WouldBlock => Err(nb::Error::WouldBlock),
+                    // TODO: How to indicate buffer is full?
+                    // ErrorKind::StorageFull => Ok(frame),
+                    _ => {
+                        let code = e.raw_os_error().unwrap_or(0);
+                        Err(nb::Error::Other(CanError::Unknown(code as u32)))
+                    }
+                }
+            }
+        }
+    }
+}
