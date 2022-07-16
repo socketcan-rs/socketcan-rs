@@ -187,14 +187,6 @@ impl CanSocket {
 
     /// Blocking read a single can frame.
     pub fn read_frame(&self) -> io::Result<CanFrame> {
-        // let mut frame = CanFrame {
-        //     _id: 0,
-        //     _data_len: 0,
-        //     _pad: 0,
-        //     _res0: 0,
-        //     _res1: 0,
-        //     _data: [0; 8],
-        // };
         let mut frame = CanFrame::default();
 
         let read_rv = unsafe {
