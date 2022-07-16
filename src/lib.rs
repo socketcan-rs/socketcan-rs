@@ -70,7 +70,7 @@ pub use frame::CanFrame;
 pub mod constants;
 
 mod socket;
-pub use socket::{CanSocket, ShouldRetry};
+pub use socket::{CanSocket, CanFilter, ShouldRetry};
 
 pub mod dump;
 
