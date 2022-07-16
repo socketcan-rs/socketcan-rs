@@ -41,13 +41,13 @@ use mio::{event, unix::SourceFd, Interest, Registry, Token};
 
 use thiserror::Error as ThisError;
 
-pub use socketcan::{CANFilter, CANFrame, CANSocketOpenError};
+pub use socketcan::{CanFilter, CanFrame, CanSocketOpenError};
 use tokio::io::unix::AsyncFd;
 
 #[derive(Debug, ThisError)]
 pub enum Error {
     #[error("Failed to open CAN Socket")]
-    CANSocketOpen(#[from] socketcan::CANSocketOpenError),
+    CANSocketOpen(#[from] socketcan::CanSocketOpenError),
     #[error("IO error")]
     IO(#[from] io::Error),
 }
@@ -58,7 +58,7 @@ pub enum Error {
 /// Created by the CANSocket.write_frame() method
 pub struct CANWriteFuture {
     socket: CANSocket,
-    frame: CANFrame,
+    frame: CanFrame,
 }
 
 impl Future for CANWriteFuture {
@@ -76,10 +76,10 @@ impl Future for CANWriteFuture {
 /// A socketcan::CANSocket wrapped for mio eventing
 /// to allow it be integrated in turn into tokio
 #[derive(Debug)]
-pub struct EventedCANSocket(socketcan::CANSocket);
+pub struct EventedCANSocket(socketcan::CanSocket);
 
 impl EventedCANSocket {
-    fn get_ref(&self) -> &socketcan::CANSocket {
+    fn get_ref(&self) -> &socketcan::CanSocket {
         &self.0
     }
 }
@@ -121,50 +121,50 @@ pub struct CANSocket(AsyncFd<EventedCANSocket>);
 impl CANSocket {
     /// Open a named CAN device such as "vcan0"
     pub fn open(ifname: &str) -> Result<CANSocket, Error> {
-        let sock = socketcan::CANSocket::open(ifname)?;
+        let sock = socketcan::CanSocket::open(ifname)?;
         sock.set_nonblocking(true)?;
         Ok(CANSocket(AsyncFd::new(EventedCANSocket(sock))?))
     }
 
     /// Open CAN device by kernel interface number
     pub fn open_if(if_index: c_uint) -> Result<CANSocket, Error> {
-        let sock = socketcan::CANSocket::open_if(if_index)?;
+        let sock = socketcan::CanSocket::open_if(if_index)?;
         sock.set_nonblocking(true)?;
         Ok(CANSocket(AsyncFd::new(EventedCANSocket(sock))?))
     }
 
     /// Sets the filter mask on the socket
-    pub fn set_filter(&self, filters: &[CANFilter]) -> io::Result<()> {
-        self.0.get_ref().0.set_filter(filters)
+    pub fn set_filter(&self, filters: &[CanFilter]) -> io::Result<()> {
+        self.0.get_ref().0.set_filters(filters)
     }
 
-    /// Disable reception of CAN frames by setting an empty filter
-    pub fn filter_drop_all(&self) -> io::Result<()> {
-        self.0.get_ref().0.filter_drop_all()
-    }
+    // /// Disable reception of CAN frames by setting an empty filter
+    // pub fn filter_drop_all(&self) -> io::Result<()> {
+    //     self.0.get_ref().0.filter_drop_all()
+    // }
 
-    /// Accept all frames, disabling any kind of filtering.
-    pub fn filter_accept_all(&self) -> io::Result<()> {
-        self.0.get_ref().0.filter_accept_all()
-    }
+    // /// Accept all frames, disabling any kind of filtering.
+    // pub fn filter_accept_all(&self) -> io::Result<()> {
+    //     self.0.get_ref().0.filter_accept_all()
+    // }
 
-    pub fn set_error_filter(&self, mask: u32) -> io::Result<()> {
-        self.0.get_ref().0.set_error_filter(mask)
-    }
+    // pub fn set_error_filter(&self, mask: u32) -> io::Result<()> {
+    //     self.0.get_ref().0.set_error_filter(mask)
+    // }
 
-    pub fn error_filter_drop_all(&self) -> io::Result<()> {
-        self.0.get_ref().0.error_filter_drop_all()
-    }
+    // pub fn error_filter_drop_all(&self) -> io::Result<()> {
+    //     self.0.get_ref().0.error_filter_drop_all()
+    // }
 
-    pub fn error_filter_accept_all(&self) -> io::Result<()> {
-        self.0.get_ref().0.error_filter_accept_all()
-    }
+    // pub fn error_filter_accept_all(&self) -> io::Result<()> {
+    //     self.0.get_ref().0.error_filter_accept_all()
+    // }
 
     /// Write a CANFrame to the socket asynchronously
     ///
     /// This uses the semantics of socketcan's `write_frame_insist`,
     /// IE: it will automatically retry when it fails on an EINTR
-    pub fn write_frame(&self, frame: CANFrame) -> Result<CANWriteFuture, Error> {
+    pub fn write_frame(&self, frame: CanFrame) -> Result<CANWriteFuture, Error> {
         Ok(CANWriteFuture {
             socket: self.try_clone()?,
             frame,
@@ -184,14 +184,14 @@ impl CANSocket {
             // as long as one of the duplicated file descriptors is open
             // the socket as a whole isn't going to be closed.
             let new_fd = libc::dup(fd);
-            let new = socketcan::CANSocket::from_raw_fd(new_fd);
+            let new = socketcan::CanSocket::from_raw_fd(new_fd);
             Ok(CANSocket(AsyncFd::new(EventedCANSocket(new))?))
         }
     }
 }
 
 impl Stream for CANSocket {
-    type Item = io::Result<CANFrame>;
+    type Item = io::Result<CanFrame>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         loop {
@@ -204,7 +204,7 @@ impl Stream for CANSocket {
     }
 }
 
-impl Sink<CANFrame> for CANSocket {
+impl Sink<CanFrame> for CANSocket {
     type Error = io::Error;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -222,7 +222,7 @@ impl Sink<CANFrame> for CANSocket {
         Poll::Ready(Ok(()))
     }
 
-    fn start_send(self: Pin<&mut Self>, item: CANFrame) -> Result<(), Self::Error> {
+    fn start_send(self: Pin<&mut Self>, item: CanFrame) -> Result<(), Self::Error> {
         self.0.get_ref().0.write_frame_insist(&item)?;
         Ok(())
     }
