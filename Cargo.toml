@@ -9,7 +9,7 @@ repository = "https://github.com/oefd/tokio-socketcan"
 
 [dependencies]
 # socketcan = "1.7"
-socketcan = { path = "../socketcan-rs", version = "2.0", default-features = false }
+socketcan-hal = { path = "../socketcan-rs", version = "2.0", default-features = false }
 embedded-hal = "1.0.0-alpha.8"
 futures = "0.3"
 mio = { version = "0.8", features = ["os-ext"] }
