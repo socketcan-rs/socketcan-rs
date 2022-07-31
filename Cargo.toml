@@ -8,8 +8,7 @@ license = "MIT"
 repository = "https://github.com/oefd/tokio-socketcan"
 
 [dependencies]
-# socketcan = "1.7"
-socketcan-hal = { path = "../socketcan-rs", version = "3.0.0-alpha.1", default-features = false }
+socketcan-hal = "3.0.0-alpha.2"
 embedded-hal = "1.0.0-alpha.8"
 futures = "0.3"
 mio = { version = "0.8", features = ["os-ext"] }
