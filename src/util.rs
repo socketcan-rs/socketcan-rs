@@ -47,7 +47,7 @@ pub fn set_socket_option_mult<T>(fd: c_int,
                                  values: &[T])
                                  -> io::Result<()> {
 
-    let rv = if values.len() < 1 {
+    let rv = if values.is_empty() {
         // can't pass in a pointer to the first element if a 0-length slice,
         // pass a nullpointer instead
         unsafe { setsockopt(fd, level, name, ptr::null(), 0) }

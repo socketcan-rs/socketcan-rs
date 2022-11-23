@@ -1,7 +1,7 @@
 //! SocketCAN support.
 //!
 //! The Linux kernel supports using CAN-devices through a network-like API
-//! (see https://www.kernel.org/doc/Documentation/networking/can.txt). This
+//! (see <https://www.kernel.org/doc/Documentation/networking/can.txt>). This
 //! crate allows easy access to this functionality without having to wrestle
 //! libc calls.
 //!
@@ -40,37 +40,55 @@
 //! Raw access to the underlying file descriptor and construction through
 //! is available through the `AsRawFd`, `IntoRawFd` and `FromRawFd`
 //! implementations.
-
-
+//!
+//! # Crate Features
+//!
+//! ### Default
+//!
+//! * **netlink** -
+//!   Whether to include programmable CAN interface configuration capabilities
+//!   based on netlink kernel communications. This brings in the
+//!   [neli](https://docs.rs/neli/latest/neli/) library and its dependencies.
+//!
+//! ### Non-default
+//!
+//! * **utils** -
+//!   Whether to build command-line utilities. This brings in additional
+//!   dependencies like [anyhow](https://docs.rs/anyhow/latest/anyhow/) and
+//!   [clap](https://docs.rs/clap/latest/clap/)
+//!
 
 // clippy: do not warn about things like "SocketCAN" inside the docs
-#![cfg_attr(feature = "cargo-clippy", allow(doc_markdown))]
-
-extern crate byte_conv;
-extern crate hex;
-extern crate itertools;
-extern crate libc;
-extern crate netlink_rs;
-extern crate nix;
-extern crate try_from;
+#![allow(clippy::doc_markdown)]
 
 mod err;
-pub use err::{CanError, CanErrorDecodingFailure};
+pub use err::{CanError, CanErrorDecodingFailure, CanSocketOpenError, ConstructionError};
+
 pub mod dump;
-mod nl;
+
 mod util;
+
+#[cfg(feature = "netlink")]
+mod nl;
+
+#[cfg(feature = "netlink")]
+pub use nl::CanInterface;
 
 #[cfg(test)]
 mod tests;
 
-use libc::{c_int, c_short, c_void, c_uint, c_ulong, socket, SOCK_RAW, close, bind, sockaddr, read,
+use libc::{socket, SOCK_RAW, close, bind, sockaddr, read,
            write, SOL_SOCKET, SO_RCVTIMEO, timespec, timeval, EINPROGRESS, SO_SNDTIMEO, time_t,
            suseconds_t, fcntl, F_GETFL, F_SETFL, O_NONBLOCK};
 use itertools::Itertools;
 use nix::net::if_::if_nametoindex;
-pub use nl::CanInterface;
-use std::{error, fmt, io, time};
-use std::mem::{size_of, uninitialized};
+use std::{
+    os::raw::{c_int, c_short, c_void, c_uint, c_ulong},
+    fmt,
+    io,
+    time,
+    mem::size_of,
+};
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use util::{set_socket_option, set_socket_option_mult};
 
@@ -166,7 +184,7 @@ pub const ERR_MASK_NONE: u32 = 0;
 fn c_timeval_new(t: time::Duration) -> timeval {
     timeval {
         tv_sec: t.as_secs() as time_t,
-        tv_usec: (t.subsec_nanos() / 1000) as suseconds_t,
+        tv_usec: t.subsec_micros() as suseconds_t,
     }
 }
 
@@ -177,83 +195,6 @@ struct CanAddr {
     if_index: c_int, // address familiy,
     rx_id: u32,
     tx_id: u32,
-}
-
-#[derive(Debug)]
-/// Errors opening socket
-pub enum CanSocketOpenError {
-    /// Device could not be found
-    LookupError(nix::Error),
-
-    /// System error while trying to look up device name
-    IOError(io::Error),
-}
-
-impl fmt::Display for CanSocketOpenError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            CanSocketOpenError::LookupError(ref e) => write!(f, "CAN Device not found: {}", e),
-            CanSocketOpenError::IOError(ref e) => write!(f, "IO: {}", e),
-        }
-    }
-}
-
-impl error::Error for CanSocketOpenError {
-    fn description(&self) -> &str {
-        match *self {
-            CanSocketOpenError::LookupError(_) => "can device not found",
-            CanSocketOpenError::IOError(ref e) => e.description(),
-        }
-    }
-
-    fn cause(&self) -> Option<&error::Error> {
-        match *self {
-            CanSocketOpenError::LookupError(ref e) => Some(e),
-            CanSocketOpenError::IOError(ref e) => Some(e),
-        }
-    }
-}
-
-
-#[derive(Debug, Copy, Clone)]
-/// Error that occurs when creating CAN packets
-pub enum ConstructionError {
-    /// CAN ID was outside the range of valid IDs
-    IDTooLarge,
-    /// More than 8 Bytes of payload data were passed in
-    TooMuchData,
-}
-
-impl fmt::Display for ConstructionError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            ConstructionError::IDTooLarge => write!(f, "CAN ID too large"),
-            ConstructionError::TooMuchData => {
-                write!(f, "Payload is larger than CAN maximum of 8 bytes")
-            }
-        }
-    }
-}
-
-impl error::Error for ConstructionError {
-    fn description(&self) -> &str {
-        match *self {
-            ConstructionError::IDTooLarge => "can id too large",
-            ConstructionError::TooMuchData => "too much data",
-        }
-    }
-}
-
-impl From<nix::Error> for CanSocketOpenError {
-    fn from(e: nix::Error) -> CanSocketOpenError {
-        CanSocketOpenError::LookupError(e)
-    }
-}
-
-impl From<io::Error> for CanSocketOpenError {
-    fn from(e: io::Error) -> CanSocketOpenError {
-        CanSocketOpenError::IOError(e)
-    }
 }
 
 /// A socket for a CAN device.
@@ -394,10 +335,8 @@ impl CanSocket {
     pub fn read_frame_with_timestamp(&mut self) -> io::Result<(CanFrame, time::SystemTime)> {
         let frame = self.read_frame()?;
 
-        let mut ts: timespec;
+        let mut ts = timespec { tv_sec: 0, tv_nsec: 0 };
         let rval = unsafe {
-            // we initialize tv calling ioctl, passing this responsibility on
-            ts = uninitialized();
             libc::ioctl(self.fd, SIOCGSTAMPNS as c_ulong, &mut ts as *mut timespec)
         };
 
@@ -506,7 +445,7 @@ impl AsRawFd for CanSocket {
 
 impl FromRawFd for CanSocket {
     unsafe fn from_raw_fd(fd: RawFd) -> CanSocket {
-        CanSocket { fd: fd }
+        CanSocket { fd, }
     }
 }
 
@@ -582,7 +521,7 @@ impl CanFrame {
         }
 
         Ok(CanFrame {
-               _id: _id,
+               _id,
                _data_len: data.len() as u8,
                _pad: 0,
                _res0: 0,
