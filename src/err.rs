@@ -2,20 +2,20 @@
 //                  /include/uapi/linux/can/error.h
 
 use std::convert::TryFrom;
-use super::CANFrame;
+use super::CanFrame;
 
 
 #[inline(always)]
 /// Helper function to retrieve a specific byte of frame data or returning an
 /// `Err(..)` otherwise.
-fn get_data(frame: &CANFrame, idx: u8) -> Result<u8, CANErrorDecodingFailure> {
-    Ok(*frame.data().get(idx as usize).ok_or(CANErrorDecodingFailure::NotEnoughData(idx))?)
+fn get_data(frame: &CanFrame, idx: u8) -> Result<u8, CanErrorDecodingFailure> {
+    Ok(*frame.data().get(idx as usize).ok_or(CanErrorDecodingFailure::NotEnoughData(idx))?)
 }
 
 
 /// Error decoding a CANError from a CANFrame.
 #[derive(Copy, Clone, Debug)]
-pub enum CANErrorDecodingFailure {
+pub enum CanErrorDecodingFailure {
     /// The supplied CANFrame did not have the error bit set.
     NotAnError,
 
@@ -43,7 +43,7 @@ pub enum CANErrorDecodingFailure {
 
 
 #[derive(Copy, Clone, Debug)]
-pub enum CANError {
+pub enum CanError {
     /// TX timeout (by netdevice driver)
     TransmitTimeout,
 
@@ -84,9 +84,9 @@ pub enum ControllerProblem {
 }
 
 impl TryFrom<u8> for ControllerProblem {
-    type Error = CANErrorDecodingFailure;
+    type Error = CanErrorDecodingFailure;
 
-    fn try_from(val: u8) -> Result<ControllerProblem, CANErrorDecodingFailure> {
+    fn try_from(val: u8) -> Result<ControllerProblem, CanErrorDecodingFailure> {
         Ok(match val {
             0x00 => ControllerProblem::Unspecified,
             0x01 => ControllerProblem::ReceiveBufferOverflow,
@@ -96,7 +96,7 @@ impl TryFrom<u8> for ControllerProblem {
             0x10 => ControllerProblem::ReceiveErrorPassive,
             0x20 => ControllerProblem::TransmitErrorPassive,
             0x40 => ControllerProblem::Active,
-            _ => return Err(CANErrorDecodingFailure::InvalidControllerProblem),
+            _ => return Err(CanErrorDecodingFailure::InvalidControllerProblem),
         })
     }
 }
@@ -115,9 +115,9 @@ pub enum ViolationType {
 }
 
 impl TryFrom<u8> for ViolationType {
-    type Error = CANErrorDecodingFailure;
+    type Error = CanErrorDecodingFailure;
 
-    fn try_from(val: u8) -> Result<ViolationType, CANErrorDecodingFailure> {
+    fn try_from(val: u8) -> Result<ViolationType, CanErrorDecodingFailure> {
         Ok(match val {
             0x00 => ViolationType::Unspecified,
             0x01 => ViolationType::SingleBitError,
@@ -128,7 +128,7 @@ impl TryFrom<u8> for ViolationType {
             0x20 => ViolationType::BusOverload,
             0x40 => ViolationType::Active,
             0x80 => ViolationType::TransmissionError,
-            _ => return Err(CANErrorDecodingFailure::InvlaidViolationType),
+            _ => return Err(CanErrorDecodingFailure::InvlaidViolationType),
         })
     }
 }
@@ -181,9 +181,9 @@ pub enum Location {
 }
 
 impl TryFrom<u8> for Location {
-    type Error = CANErrorDecodingFailure;
+    type Error = CanErrorDecodingFailure;
 
-    fn try_from(val: u8) -> Result<Location, CANErrorDecodingFailure> {
+    fn try_from(val: u8) -> Result<Location, CanErrorDecodingFailure> {
         Ok(match val {
             0x00 => Location::Unspecified,
             0x03 => Location::StartOfFrame,
@@ -205,7 +205,7 @@ impl TryFrom<u8> for Location {
             0x1B => Location::AckDelimiter,
             0x1A => Location::EndOfFrame,
             0x12 => Location::Intermission,
-            _ => return Err(CANErrorDecodingFailure::InvalidLocation),
+            _ => return Err(CanErrorDecodingFailure::InvalidLocation),
         })
     }
 }
@@ -224,9 +224,9 @@ pub enum TransceiverError {
 }
 
 impl TryFrom<u8> for TransceiverError {
-    type Error = CANErrorDecodingFailure;
+    type Error = CanErrorDecodingFailure;
 
-    fn try_from(val: u8) -> Result<TransceiverError, CANErrorDecodingFailure> {
+    fn try_from(val: u8) -> Result<TransceiverError, CanErrorDecodingFailure> {
         Ok(match val {
             0x00 => TransceiverError::Unspecified,
             0x04 => TransceiverError::CanHighNoWire,
@@ -238,38 +238,38 @@ impl TryFrom<u8> for TransceiverError {
             0x60 => TransceiverError::CanLowShortToVcc,
             0x70 => TransceiverError::CanLowShortToGnd,
             0x80 => TransceiverError::CanLowShortToCanHigh,
-            _ => return Err(CANErrorDecodingFailure::InvalidTransceiverError),
+            _ => return Err(CanErrorDecodingFailure::InvalidTransceiverError),
         })
     }
 }
 
-impl CANError {
-    pub fn from_frame(frame: &CANFrame) -> Result<CANError, CANErrorDecodingFailure> {
+impl CanError {
+    pub fn from_frame(frame: &CanFrame) -> Result<CanError, CanErrorDecodingFailure> {
         if !frame.is_error() {
-            return Err(CANErrorDecodingFailure::NotAnError);
+            return Err(CanErrorDecodingFailure::NotAnError);
         }
 
         match frame.err() {
-            0x00000001 => Ok(CANError::TransmitTimeout),
-            0x00000002 => Ok(CANError::LostArbitration(get_data(frame, 0)?)),
+            0x00000001 => Ok(CanError::TransmitTimeout),
+            0x00000002 => Ok(CanError::LostArbitration(get_data(frame, 0)?)),
             0x00000004 => {
-                Ok(CANError::ControllerProblem(get_data(frame, 1)
+                Ok(CanError::ControllerProblem(get_data(frame, 1)
                                               .and_then(ControllerProblem::try_from)?))
             }
 
             0x00000008 => {
-                Ok(CANError::ProtocolViolation {
+                Ok(CanError::ProtocolViolation {
                     vtype: get_data(frame, 2).and_then(ViolationType::try_from)?,
                     location: get_data(frame, 3).and_then(Location::try_from)?,
                 })
             }
 
-            0x00000010 => Ok(CANError::TransceiverError),
-            0x00000020 => Ok(CANError::NoAck),
-            0x00000040 => Ok(CANError::BusOff),
-            0x00000080 => Ok(CANError::BusError),
-            0x00000100 => Ok(CANError::Restarted),
-            e => Err(CANErrorDecodingFailure::UnknownErrorType(e)),
+            0x00000010 => Ok(CanError::TransceiverError),
+            0x00000020 => Ok(CanError::NoAck),
+            0x00000040 => Ok(CanError::BusOff),
+            0x00000080 => Ok(CanError::BusError),
+            0x00000100 => Ok(CanError::Restarted),
+            e => Err(CanErrorDecodingFailure::UnknownErrorType(e)),
         }
     }
 }
@@ -278,7 +278,7 @@ pub trait ControllerSpecificErrorInformation {
     fn get_ctrl_err(&self) -> Option<&[u8]>;
 }
 
-impl ControllerSpecificErrorInformation for CANFrame {
+impl ControllerSpecificErrorInformation for CanFrame {
     #[inline]
     fn get_ctrl_err(&self) -> Option<&[u8]> {
         let data = self.data();

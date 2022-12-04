@@ -42,7 +42,7 @@
 //! implementations.
 
 mod err;
-pub use crate::err::{CANError, CANErrorDecodingFailure};
+pub use crate::err::{CanError, CanErrorDecodingFailure};
 pub mod dump;
 
 #[cfg(test)]
@@ -149,7 +149,7 @@ fn c_timeval_new(t: time::Duration) -> timeval {
 
 #[derive(Debug)]
 #[repr(C)]
-struct CANAddr {
+struct CanAddr {
     _af_can: c_short,
     if_index: c_int, // address familiy,
     rx_id: u32,
@@ -158,7 +158,7 @@ struct CANAddr {
 
 #[derive(Debug)]
 /// Errors opening socket
-pub enum CANSocketOpenError {
+pub enum CanSocketOpenError {
     /// Device could not be found
     LookupError(nix::Error),
 
@@ -166,28 +166,28 @@ pub enum CANSocketOpenError {
     IOError(io::Error),
 }
 
-impl fmt::Display for CANSocketOpenError {
+impl fmt::Display for CanSocketOpenError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            CANSocketOpenError::LookupError(ref e) => write!(f, "CAN Device not found: {}", e),
-            CANSocketOpenError::IOError(ref e) => write!(f, "IO: {}", e),
+            CanSocketOpenError::LookupError(ref e) => write!(f, "CAN Device not found: {}", e),
+            CanSocketOpenError::IOError(ref e) => write!(f, "IO: {}", e),
         }
     }
 }
 
 #[allow(deprecated)]
-impl error::Error for CANSocketOpenError {
+impl error::Error for CanSocketOpenError {
     fn description(&self) -> &str {
         match *self {
-            CANSocketOpenError::LookupError(_) => "can device not found",
-            CANSocketOpenError::IOError(ref e) => e.description(),
+            CanSocketOpenError::LookupError(_) => "can device not found",
+            CanSocketOpenError::IOError(ref e) => e.description(),
         }
     }
 
     fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
-            CANSocketOpenError::LookupError(ref e) => Some(e),
-            CANSocketOpenError::IOError(ref e) => Some(e),
+            CanSocketOpenError::LookupError(ref e) => Some(e),
+            CanSocketOpenError::IOError(ref e) => Some(e),
         }
     }
 }
@@ -222,15 +222,15 @@ impl error::Error for ConstructionError {
     }
 }
 
-impl From<nix::Error> for CANSocketOpenError {
-    fn from(e: nix::Error) -> CANSocketOpenError {
-        CANSocketOpenError::LookupError(e)
+impl From<nix::Error> for CanSocketOpenError {
+    fn from(e: nix::Error) -> CanSocketOpenError {
+        CanSocketOpenError::LookupError(e)
     }
 }
 
-impl From<io::Error> for CANSocketOpenError {
-    fn from(e: io::Error) -> CANSocketOpenError {
-        CANSocketOpenError::IOError(e)
+impl From<io::Error> for CanSocketOpenError {
+    fn from(e: io::Error) -> CanSocketOpenError {
+        CanSocketOpenError::IOError(e)
     }
 }
 
@@ -239,25 +239,25 @@ impl From<io::Error> for CANSocketOpenError {
 /// Will be closed upon deallocation. To close manually, use std::drop::Drop.
 /// Internally this is just a wrapped file-descriptor.
 #[derive(Debug)]
-pub struct CANSocket {
+pub struct CanSocket {
     fd: c_int,
 }
 
-impl CANSocket {
+impl CanSocket {
     /// Open a named CAN device.
     ///
     /// Usually the more common case, opens a socket can device by name, such
     /// as "vcan0" or "socan0".
-    pub fn open(ifname: &str) -> Result<CANSocket, CANSocketOpenError> {
+    pub fn open(ifname: &str) -> Result<CanSocket, CanSocketOpenError> {
         let if_index = if_nametoindex(ifname)?;
-        CANSocket::open_if(if_index)
+        CanSocket::open_if(if_index)
     }
 
     /// Open CAN device by interface number.
     ///
     /// Opens a CAN device by kernel interface number.
-    pub fn open_if(if_index: c_uint) -> Result<CANSocket, CANSocketOpenError> {
-        let addr = CANAddr {
+    pub fn open_if(if_index: c_uint) -> Result<CanSocket, CanSocketOpenError> {
+        let addr = CanAddr {
             _af_can: AF_CAN as c_short,
             if_index: if_index as c_int,
             rx_id: 0, // ?
@@ -271,16 +271,16 @@ impl CANSocket {
         }
 
         if sock_fd == -1 {
-            return Err(CANSocketOpenError::from(io::Error::last_os_error()));
+            return Err(CanSocketOpenError::from(io::Error::last_os_error()));
         }
 
         // bind it
         let bind_rv;
         unsafe {
-            let sockaddr_ptr = &addr as *const CANAddr;
+            let sockaddr_ptr = &addr as *const CanAddr;
             bind_rv = bind(sock_fd,
                            sockaddr_ptr as *const sockaddr,
-                           size_of::<CANAddr>() as u32);
+                           size_of::<CanAddr>() as u32);
         }
 
         if bind_rv == -1 {
@@ -288,10 +288,10 @@ impl CANSocket {
             unsafe {
                 close(sock_fd);
             }
-            return Err(CANSocketOpenError::from(e));
+            return Err(CanSocketOpenError::from(e));
         }
 
-        Ok(CANSocket { fd: sock_fd })
+        Ok(CanSocket { fd: sock_fd })
     }
 
     fn close(&mut self) -> io::Result<()> {
@@ -383,8 +383,8 @@ impl CANSocket {
     }
 
     /// Blocking read a single can frame.
-    pub fn read_frame(&self) -> io::Result<CANFrame> {
-        let mut frame = CANFrame {
+    pub fn read_frame(&self) -> io::Result<CanFrame> {
+        let mut frame = CanFrame {
             tag: CANFrameType::Normal,
 
             /// NOTE: Can't use `std::mem::MaybeUninit::uninit().assume_init()`, which
@@ -418,7 +418,7 @@ impl CANSocket {
     /// Note that this function can fail with an `EAGAIN` error or similar.
     /// Use `write_frame_insist` if you need to be sure that the message got
     /// sent or failed.
-    pub fn write_frame(&self, frame: &CANFrame) -> io::Result<()> {
+    pub fn write_frame(&self, frame: &CanFrame) -> io::Result<()> {
         // not a mutable reference needed (see std::net::UdpSocket) for
         // a comparison
         // debug!("Sending: {:?}", frame);
@@ -442,7 +442,7 @@ impl CANSocket {
 
     /// Blocking write a single can frame, retrying until it gets sent
     /// successfully.
-    pub fn write_frame_insist(&self, frame: &CANFrame) -> io::Result<()> {
+    pub fn write_frame_insist(&self, frame: &CanFrame) -> io::Result<()> {
         loop {
             match self.write_frame(frame) {
                 Ok(v) => return Ok(v),
@@ -456,7 +456,7 @@ impl CANSocket {
     }
 
     /// Sets the filter mask on the socket.
-    pub fn set_filter(&self, filters: &[CANFilter]) -> io::Result<()> {
+    pub fn set_filter(&self, filters: &[CanFilter]) -> io::Result<()> {
 
         // TODO: Handle different *_FILTER sockopts.
 
@@ -465,12 +465,12 @@ impl CANSocket {
             unsafe { setsockopt(self.fd, SOL_CAN_RAW, CAN_RAW_FILTER, 0 as *const c_void, 0) }
         } else {
             unsafe {
-                let filters_ptr = &filters[0] as *const CANFilter;
+                let filters_ptr = &filters[0] as *const CanFilter;
                 setsockopt(self.fd,
                            SOL_CAN_RAW,
                            CAN_RAW_FILTER,
                            filters_ptr as *const c_void,
-                           (size_of::<CANFilter>() * filters.len()) as u32)
+                           (size_of::<CanFilter>() * filters.len()) as u32)
             }
         };
 
@@ -495,7 +495,7 @@ impl CANSocket {
     /// acceps all CAN frames.
     pub fn filter_accept_all(&self) -> io::Result<()> {
         // safe unwrap: 0, 0 is a valid mask/id pair
-        self.set_filter(&[CANFilter::new(0, 0).unwrap()])
+        self.set_filter(&[CanFilter::new(0, 0).unwrap()])
     }
 
     #[inline(always)]
@@ -527,25 +527,25 @@ impl CANSocket {
     }
 }
 
-impl AsRawFd for CANSocket {
+impl AsRawFd for CanSocket {
     fn as_raw_fd(&self) -> RawFd {
         self.fd
     }
 }
 
-impl FromRawFd for CANSocket {
-    unsafe fn from_raw_fd(fd: RawFd) -> CANSocket {
-        CANSocket { fd: fd }
+impl FromRawFd for CanSocket {
+    unsafe fn from_raw_fd(fd: RawFd) -> CanSocket {
+        CanSocket { fd: fd }
     }
 }
 
-impl IntoRawFd for CANSocket {
+impl IntoRawFd for CanSocket {
     fn into_raw_fd(self) -> RawFd {
         self.fd
     }
 }
 
-impl Drop for CANSocket {
+impl Drop for CanSocket {
     fn drop(&mut self) {
         self.close().ok(); // ignore result
     }
@@ -584,12 +584,12 @@ enum CANFrameType {
     Fd
 }
 
-pub struct CANFrame {
+pub struct CanFrame {
     tag: CANFrameType,
     s: CANFrameStruct,
 }
 
-impl fmt::Debug for CANFrame {
+impl fmt::Debug for CanFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.tag {
             CANFrameType::Normal => {
@@ -603,14 +603,14 @@ impl fmt::Debug for CANFrame {
     }
 }
 
-impl CANFrame {
+impl CanFrame {
     /// constructor for a classical CAN frame
-    pub fn new(id: u32, data: &[u8], rtr: bool, err: bool) -> Result<CANFrame, ConstructionError> {
-        CANFrame::new_common(CANFrameType::Normal, id, data, rtr, err, 0)
+    pub fn new(id: u32, data: &[u8], rtr: bool, err: bool) -> Result<CanFrame, ConstructionError> {
+        CanFrame::new_common(CANFrameType::Normal, id, data, rtr, err, 0)
     }
 
     /// constructor for a new CAN FD frame
-    pub fn new_fd(id: u32, data: &[u8], rtr: bool, err: bool, brs: bool, esi: bool) -> Result<CANFrame, ConstructionError> {
+    pub fn new_fd(id: u32, data: &[u8], rtr: bool, err: bool, brs: bool, esi: bool) -> Result<CanFrame, ConstructionError> {
         let mut flags: u8 = 0;
         if brs {
             flags = flags | CANFD_BRS;
@@ -618,10 +618,10 @@ impl CANFrame {
         if esi {
             flags = flags | CANFD_ESI;
         }
-        CANFrame::new_common(CANFrameType::Fd, id, data, rtr, err, flags)
+        CanFrame::new_common(CANFrameType::Fd, id, data, rtr, err, flags)
     }
 
-    fn new_common(frame_type: CANFrameType, id: u32, data: &[u8], rtr: bool, err: bool, flags: u8) -> Result<CANFrame, ConstructionError> {
+    fn new_common(frame_type: CANFrameType, id: u32, data: &[u8], rtr: bool, err: bool, flags: u8) -> Result<CanFrame, ConstructionError> {
         let mut _id = id;
 
         let max_valid_data_len = match frame_type {
@@ -658,7 +658,7 @@ impl CANFrame {
             full_data[n] = *c;
         }
 
-        Ok(CANFrame {
+        Ok(CanFrame {
             tag: frame_type,
             s: CANFrameStruct {
                 _id: _id,
@@ -723,12 +723,12 @@ impl CANFrame {
     }
 
     #[inline(always)]
-    pub fn error(&self) -> Result<CANError, CANErrorDecodingFailure> {
-        CANError::from_frame(self)
+    pub fn error(&self) -> Result<CanError, CanErrorDecodingFailure> {
+        CanError::from_frame(self)
     }
 }
 
-impl fmt::UpperHex for CANFrame {
+impl fmt::UpperHex for CanFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(f, "{:X}{}", self.id(),
                match self.tag {
@@ -753,14 +753,14 @@ impl fmt::UpperHex for CANFrame {
 /// reasons.
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
-pub struct CANFilter {
+pub struct CanFilter {
     _id: u32,
     _mask: u32,
 }
 
-impl CANFilter {
-    pub fn new(id: u32, mask: u32) -> Result<CANFilter, ConstructionError> {
-        Ok(CANFilter {
+impl CanFilter {
+    pub fn new(id: u32, mask: u32) -> Result<CanFilter, ConstructionError> {
+        Ok(CanFilter {
                _id: id,
                _mask: mask,
            })
