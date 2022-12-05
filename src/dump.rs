@@ -55,7 +55,7 @@ pub struct CanDumpRecords<'a, R: 'a> {
 pub struct CanDumpRecord<'a> {
     pub t_us: u64,
     pub device: &'a str,
-    pub frame: super::CanFrame,
+    pub frame: super::CanAnyFrame,
 }
 
 #[derive(Debug)]
@@ -155,19 +155,20 @@ impl<R: io::BufRead> Reader<R> {
         } else {
             Vec::from_hex(&can_data).map_err(|_| ParseError::InvalidCanFrame)?
         };
-        let frame= if is_fd_frame {
-            super::CanFrame::new_fd(parse_raw(can_id, 16).ok_or(ParseError::InvalidCanFrame)? as u32,
+        let frame: super::CanAnyFrame = if is_fd_frame {
+            super::CanFdFrame::new(parse_raw(can_id, 16).ok_or(ParseError::InvalidCanFrame)? as u32,
                                     &data,
                                     rtr,
                                     // FIXME: how are error frames saved?
                                     false,
                                     fd_flags & super::CANFD_BRS == super::CANFD_BRS,
                                     fd_flags & super::CANFD_ESI == super::CANFD_ESI)
+                                    .map(|frame| super::CanAnyFrame::Fd(frame))
         } else {
-            super::CanFrame::new(parse_raw(can_id, 16).ok_or(ParseError::InvalidCanFrame)? as u32,
+            super::CanNormalFrame::new(parse_raw(can_id, 16).ok_or(ParseError::InvalidCanFrame)? as u32,
                                  &data,
                                  rtr,
-                                 false)
+                                 false).map(|frame| super::CanAnyFrame::Normal(frame))
         }?;
 
         Ok(Some(CanDumpRecord {
@@ -179,7 +180,7 @@ impl<R: io::BufRead> Reader<R> {
 }
 
 impl<'a, R: io::Read> Iterator for CanDumpRecords<'a, io::BufReader<R>> {
-    type Item = Result<(u64, super::CanFrame), ParseError>;
+    type Item = Result<(u64, super::CanAnyFrame), ParseError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         // lift Option:
@@ -194,6 +195,7 @@ impl<'a, R: io::Read> Iterator for CanDumpRecords<'a, io::BufReader<R>> {
 #[cfg(test)]
 mod test {
     use super::Reader;
+    use super::super::{CanAnyFrame,CanFrame};
 
     #[test]
     fn test_simple_example() {
@@ -207,24 +209,32 @@ mod test {
 
             assert_eq!(rec1.t_us, 1469439874299591);
             assert_eq!(rec1.device, "can1");
-            assert_eq!(rec1.frame.id(), 0x080);
-            assert_eq!(rec1.frame.is_rtr(), false);
-            assert_eq!(rec1.frame.is_error(), false);
-            assert_eq!(rec1.frame.is_extended(), false);
-            assert_eq!(rec1.frame.is_fd(), false);
-            assert_eq!(rec1.frame.data(), &[]);
+            if let CanAnyFrame::Normal(frame) = rec1.frame {
+                assert_eq!(frame.id(), 0x080);
+                assert_eq!(frame.is_rtr(), false);
+                assert_eq!(frame.is_error(), false);
+                assert_eq!(frame.is_extended(), false);
+                assert_eq!(frame.data(), &[]);
+            }
+            else {
+                panic!("Expected Normal frame, got FD");
+            }
         }
 
         {
             let rec2 = reader.next_record().unwrap().unwrap();
             assert_eq!(rec2.t_us, 1469439874299654);
             assert_eq!(rec2.device, "can1");
-            assert_eq!(rec2.frame.id(), 0x701);
-            assert_eq!(rec2.frame.is_rtr(), false);
-            assert_eq!(rec2.frame.is_error(), false);
-            assert_eq!(rec2.frame.is_extended(), false);
-            assert_eq!(rec2.frame.is_fd(), false);
-            assert_eq!(rec2.frame.data(), &[0x7F]);
+            if let CanAnyFrame::Normal(frame) = rec2.frame {
+                assert_eq!(frame.id(), 0x701);
+                assert_eq!(frame.is_rtr(), false);
+                assert_eq!(frame.is_error(), false);
+                assert_eq!(frame.is_extended(), false);
+                assert_eq!(frame.data(), &[0x7F]);
+            }
+            else {
+                panic!("Expected Normal frame, got FD");
+            }
         }
 
         assert!(reader.next_record().unwrap().is_none());
@@ -242,27 +252,36 @@ mod test {
 
             assert_eq!(rec1.t_us, 1469439874299591);
             assert_eq!(rec1.device, "can1");
-            assert_eq!(rec1.frame.id(), 0x080);
-            assert_eq!(rec1.frame.is_rtr(), false);
-            assert_eq!(rec1.frame.is_error(), false);
-            assert_eq!(rec1.frame.is_extended(), false);
-            assert_eq!(rec1.frame.is_fd(), true);
-            assert_eq!(rec1.frame.is_fd_brs(), false);
-            assert_eq!(rec1.frame.is_fd_esi(), false);
-            assert_eq!(rec1.frame.data(), &[]);
+            if let CanAnyFrame::Fd(frame) = rec1.frame {
+                assert_eq!(frame.id(), 0x080);
+                assert_eq!(frame.is_rtr(), false);
+                assert_eq!(frame.is_error(), false);
+                assert_eq!(frame.is_extended(), false);
+                assert_eq!(frame.is_brs(), false);
+                assert_eq!(frame.is_esi(), false);
+                assert_eq!(frame.data(), &[]);
+            }
+            else {
+                panic!("Expected FD frame, got Normal");
+            }
         }
 
         {
             let rec2 = reader.next_record().unwrap().unwrap();
             assert_eq!(rec2.t_us, 1469439874299654);
             assert_eq!(rec2.device, "can1");
-            assert_eq!(rec2.frame.id(), 0x701);
-            assert_eq!(rec2.frame.is_rtr(), false);
-            assert_eq!(rec2.frame.is_error(), false);
-            assert_eq!(rec2.frame.is_extended(), false);
-            assert_eq!(rec2.frame.is_fd_brs(), true);
-            assert_eq!(rec2.frame.is_fd_esi(), false);
-            assert_eq!(rec2.frame.data(), &[0x7F]);
+            if let CanAnyFrame::Fd(frame) = rec2.frame {
+                assert_eq!(frame.id(), 0x701);
+                assert_eq!(frame.is_rtr(), false);
+                assert_eq!(frame.is_error(), false);
+                assert_eq!(frame.is_extended(), false);
+                assert_eq!(frame.is_brs(), true);
+                assert_eq!(frame.is_esi(), false);
+                assert_eq!(frame.data(), &[0x7F]);
+            }
+            else {
+                panic!("Expected FD frame, got Normal");
+            }
         }
 
         assert!(reader.next_record().unwrap().is_none());

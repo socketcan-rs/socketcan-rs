@@ -8,7 +8,7 @@ use super::CanFrame;
 #[inline(always)]
 /// Helper function to retrieve a specific byte of frame data or returning an
 /// `Err(..)` otherwise.
-fn get_data(frame: &CanFrame, idx: u8) -> Result<u8, CanErrorDecodingFailure> {
+fn get_data(frame: &impl CanFrame, idx: u8) -> Result<u8, CanErrorDecodingFailure> {
     Ok(*frame.data().get(idx as usize).ok_or(CanErrorDecodingFailure::NotEnoughData(idx))?)
 }
 
@@ -244,7 +244,7 @@ impl TryFrom<u8> for TransceiverError {
 }
 
 impl CanError {
-    pub fn from_frame(frame: &CanFrame) -> Result<CanError, CanErrorDecodingFailure> {
+    pub fn from_frame(frame: &impl CanFrame) -> Result<CanError, CanErrorDecodingFailure> {
         if !frame.is_error() {
             return Err(CanErrorDecodingFailure::NotAnError);
         }
@@ -278,7 +278,7 @@ pub trait ControllerSpecificErrorInformation {
     fn get_ctrl_err(&self) -> Option<&[u8]>;
 }
 
-impl ControllerSpecificErrorInformation for CanFrame {
+impl<T: CanFrame> ControllerSpecificErrorInformation for T {
     #[inline]
     fn get_ctrl_err(&self) -> Option<&[u8]> {
         let data = self.data();
