@@ -2,6 +2,7 @@
 //                  /include/uapi/linux/can/error.h
 
 use super::CanFrame;
+use embedded_hal::can::Frame;
 use std::{
     convert::TryFrom,
     error,
@@ -125,6 +126,20 @@ impl fmt::Display for CanError {
     }
 }
 
+impl embedded_hal::can::Error for CanError {
+    fn kind(&self) -> embedded_hal::can::ErrorKind {
+        match *self {
+            CanError::ControllerProblem(cp) => {
+                match cp {
+                    ControllerProblem::ReceiveBufferOverflow | ControllerProblem::TransmitBufferOverflow => embedded_hal::can::ErrorKind::Overrun,
+                    ControllerProblem::Unspecified | _ => embedded_hal::can::ErrorKind::Other,
+                }
+            },
+            CanError::NoAck => embedded_hal::can::ErrorKind::Acknowledge,
+            _ => embedded_hal::can::ErrorKind::Other,
+        }
+    }
+}
 
 #[derive(Copy, Clone, Debug)]
 pub enum ControllerProblem {
