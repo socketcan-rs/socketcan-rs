@@ -8,7 +8,7 @@
 use anyhow::Context;
 use clap::Parser;
 
-use embedded_hal::can::{blocking::Can, Frame as EmbeddedFrame, Id, StandardId};
+use embedded_can::{blocking::Can, Frame as EmbeddedFrame, Id, StandardId};
 use socketcan::{CanFrame, CanSocket, Socket, Frame};
 
 use std::sync::atomic::{AtomicBool, Ordering};

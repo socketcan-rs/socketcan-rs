@@ -8,7 +8,7 @@
 use anyhow::Context;
 use clap::Parser;
 
-use embedded_hal::can::{nb::Can, Frame as EmbeddedFrame, Id, StandardId};
+use embedded_can::{nb::Can, Frame as EmbeddedFrame, Id, StandardId};
 use nb::block;
 use socketcan::{CanFrame, CanSocket, Socket, Frame};
 

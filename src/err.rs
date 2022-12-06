@@ -118,18 +118,18 @@ impl fmt::Display for CanError {
     }
 }
 
-impl embedded_hal::can::Error for CanError {
-    fn kind(&self) -> embedded_hal::can::ErrorKind {
+impl embedded_can::Error for CanError {
+    fn kind(&self) -> embedded_can::ErrorKind {
         match *self {
             CanError::ControllerProblem(cp) => match cp {
                 ControllerProblem::ReceiveBufferOverflow
                 | ControllerProblem::TransmitBufferOverflow => {
-                    embedded_hal::can::ErrorKind::Overrun
+                    embedded_can::ErrorKind::Overrun
                 }
-                ControllerProblem::Unspecified | _ => embedded_hal::can::ErrorKind::Other,
+                ControllerProblem::Unspecified | _ => embedded_can::ErrorKind::Other,
             },
-            CanError::NoAck => embedded_hal::can::ErrorKind::Acknowledge,
-            _ => embedded_hal::can::ErrorKind::Other,
+            CanError::NoAck => embedded_can::ErrorKind::Acknowledge,
+            _ => embedded_can::ErrorKind::Other,
         }
     }
 }

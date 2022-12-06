@@ -82,7 +82,7 @@ pub use nl::CanInterface;
 
 use std::io::ErrorKind;
 
-impl embedded_hal::can::blocking::Can for CanSocket {
+impl embedded_can::blocking::Can for CanSocket {
     type Frame = CanFrame;
     type Error = CanError;
 
@@ -113,7 +113,7 @@ impl embedded_hal::can::blocking::Can for CanSocket {
     }
 }
 
-impl embedded_hal::can::nb::Can for CanSocket {
+impl embedded_can::nb::Can for CanSocket {
     type Frame = CanFrame;
     type Error = CanError;
 

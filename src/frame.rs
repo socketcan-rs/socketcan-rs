@@ -12,7 +12,7 @@
 
 use crate::err::{CanError, CanErrorDecodingFailure, ConstructionError};
 use crate::util::hal_id_to_raw;
-use embedded_hal::can::{ExtendedId, Frame as EmbeddedFrame, Id, StandardId};
+use embedded_can::{ExtendedId, Frame as EmbeddedFrame, Id, StandardId};
 use libc::{can_frame, canfd_frame, canid_t};
 
 use std::{convert::TryFrom, fmt, mem};

@@ -209,7 +209,7 @@ impl<'a, R: io::Read> Iterator for CanDumpRecords<'a, io::BufReader<R>> {
 mod test {
     use super::*;
     use crate::{CanAnyFrame, Frame};
-    use embedded_hal::can::Frame as EmbeddedFrame;
+    use embedded_can::Frame as EmbeddedFrame;
 
     #[test]
     fn test_simple_example() {

@@ -1,4 +1,4 @@
-use embedded_hal::can::Id;
+use embedded_can::Id;
 use libc::{
     c_int,
     c_void,
