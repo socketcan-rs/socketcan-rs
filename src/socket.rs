@@ -5,7 +5,7 @@ use crate::{
     CanAnyFrame, CanFdFrame, CanNormalFrame,
 };
 use libc::{
-    bind, close, fcntl, read, setsockopt, sockaddr, socket, suseconds_t, time_t, timeval, write,
+    canid_t, bind, close, fcntl, read, setsockopt, sockaddr, socket, suseconds_t, time_t, timeval, write,
     EINPROGRESS, F_GETFL, F_SETFL, O_NONBLOCK, SOCK_RAW, SOL_SOCKET, SO_RCVTIMEO, SO_SNDTIMEO,
 };
 use nix::net::if_::if_nametoindex;
@@ -562,39 +562,19 @@ pub trait CanSocket: AsRawFd {
         Ok(())
     }
 
-    /// Sets the filter mask on the socket.
-    fn set_filter(&self, filters: &[CanFilter]) -> io::Result<()> {
-        // TODO: Handle different *_FILTER sockopts.
-
-        let rv = if filters.len() < 1 {
-            // clears all filters
-            unsafe {
-                setsockopt(
-                    self.as_raw_fd(),
-                    SOL_CAN_RAW,
-                    CAN_RAW_FILTER,
-                    0 as *const c_void,
-                    0,
-                )
-            }
-        } else {
-            unsafe {
-                let filters_ptr = &filters[0] as *const CanFilter;
-                setsockopt(
-                    self.as_raw_fd(),
-                    SOL_CAN_RAW,
-                    CAN_RAW_FILTER,
-                    filters_ptr as *const c_void,
-                    (size_of::<CanFilter>() * filters.len()) as u32,
-                )
-            }
-        };
-
-        if rv != 0 {
-            return Err(io::Error::last_os_error());
-        }
-
-        Ok(())
+    /// Sets filters on the socket.
+    ///
+    /// CAN packages received by SocketCAN are matched against these filters,
+    /// only matching packets are returned by the interface.
+    ///
+    /// See `CanFilter` for details on how filtering works. By default, all
+    /// single filter matching all incoming frames is installed.
+    fn set_filters<F>(&self, filters: &[F]) -> io::Result<()>
+    where
+        F: Into<CanFilter> + Copy,
+    {
+        let filters: Vec<CanFilter> = filters.iter().map(|f| (*f).into()).collect();
+        set_socket_option_mult(self.as_raw_fd(), SOL_CAN_RAW, CAN_RAW_FILTER, &filters)
     }
 
     /// Disable reception of CAN frames.
@@ -602,7 +582,8 @@ pub trait CanSocket: AsRawFd {
     /// Sets a completely empty filter; disabling all CAN frame reception.
     #[inline(always)]
     fn filter_drop_all(&self) -> io::Result<()> {
-        self.set_filter(&[])
+        let filters: &[CanFilter] = &[];
+        set_socket_option_mult(self.as_raw_fd(), SOL_CAN_RAW, CAN_RAW_FILTER, filters)
     }
 
     /// Accept all frames, disabling any kind of filtering.
@@ -611,7 +592,7 @@ pub trait CanSocket: AsRawFd {
     /// acceps all CAN frames.
     fn filter_accept_all(&self) -> io::Result<()> {
         // safe unwrap: 0, 0 is a valid mask/id pair
-        self.set_filter(&[CanFilter::new(0, 0)])
+        self.set_filters(&[(0, 0)])
     }
 
     #[inline(always)]
@@ -641,17 +622,6 @@ pub trait CanSocket: AsRawFd {
     #[inline(always)]
     fn error_filter_accept_all(&self) -> io::Result<()> {
         self.set_error_filter(ERR_MASK)
-    }
-
-    /// Sets filters on the socket.
-    ///
-    /// CAN packages received by SocketCAN are matched against these filters,
-    /// only matching packets are returned by the interface.
-    ///
-    /// See `CanFilter` for details on how filtering works. By default, all
-    /// single filter matching all incoming frames is installed.
-    fn set_filters(&self, filters: &[CanFilter]) -> io::Result<()> {
-        set_socket_option_mult(self.as_raw_fd(), SOL_CAN_RAW, CAN_RAW_FILTER, filters)
     }
 
     /// Sets the error mask on the socket.
@@ -827,19 +797,31 @@ impl Drop for CanFdSocket {
 
 // ===== CanFilter =====
 
-/// Contains an internal id and mask. Packets are considered to be matched by
-/// a filter if `received_id & mask == filter_id & mask` holds true.
-#[derive(Debug, Copy, Clone)]
-#[repr(C)]
-pub struct CanFilter {
-    _id: u32,
-    _mask: u32,
-}
+/// The CAN filter defines which ID's can be accepted on a socket.
+///
+/// Each filter contains an internal id and mask. Packets are considered to be matched
+/// by a filter if `received_id & mask == filter_id & mask` holds true.
+///
+/// A socket can be given multiple filters, and each one can be interted
+/// ([ref](https://docs.kernel.org/networking/can.html#raw-protocol-sockets-with-can-filters-sock-raw))
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct CanFilter(libc::can_filter);
 
 impl CanFilter {
     /// Construct a new CAN filter.
-    pub fn new(id: u32, mask: u32) -> Self { //Result<Self, ConstructionError> {
-        CanFilter { _id: id, _mask: mask }
+    pub fn new(id: canid_t, mask: canid_t) -> Self {
+        Self(libc::can_filter { can_id: id, can_mask: mask })
+    }
+
+    /// Construct a new inverted CAN filter.
+    pub fn new_inverted(id: canid_t, mask: canid_t) -> Self {
+        Self::new(id | libc::CAN_INV_FILTER, mask)
+    }
+}
+
+impl From<libc::can_filter> for CanFilter {
+    fn from(filt: libc::can_filter) -> Self {
+        Self(filt)
     }
 }
 
@@ -848,3 +830,10 @@ impl From<(u32,u32)> for CanFilter {
         CanFilter::new(filt.0, filt.1)
     }
 }
+
+impl AsRef<libc::can_filter> for CanFilter {
+    fn as_ref(&self) -> &libc::can_filter {
+            &self.0
+    }
+}
+

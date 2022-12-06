@@ -12,9 +12,8 @@ fn test_nonexistant_device() {
 #[test]
 fn vcan0_timeout() {
     let cs = CanSocket::open("vcan0").unwrap();
-    // Filter out any traffic
-    cs.set_filters(&[(0x122, 0x7FF).into()])
-        .unwrap();
+    // Filter out _any_ traffic
+    cs.filter_drop_all().unwrap();
     cs.set_read_timeout(time::Duration::from_millis(100))
         .unwrap();
 
@@ -49,9 +48,8 @@ fn vcan0_enable_own_loopback() {
 #[test]
 fn vcan0_test_nonblocking() {
     let cs = CanSocket::open("vcan0").unwrap();
-    // Filter out any traffic
-    cs.set_filters(&[(0x122, 0x7FF).into()])
-        .unwrap();
+    // Filter out _any_ traffic
+    cs.filter_drop_all().unwrap();
     cs.set_nonblocking(true).unwrap();
 
     // no timeout set, but should return immediately
