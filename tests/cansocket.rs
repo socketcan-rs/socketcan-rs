@@ -1,6 +1,6 @@
 use socketcan::{
     CanFrame, CanSocket, Socket, ShouldRetry,
-    frame::{ERR_MASK_ALL, ERR_MASK_NONE},
+    frame::{IdFlags, ERR_MASK_ALL, ERR_MASK_NONE},
 };
 use std::time;
 
@@ -33,7 +33,7 @@ fn vcan0_enable_own_loopback() {
     cs.set_loopback(true).unwrap();
     cs.set_recv_own_msgs(true).unwrap();
 
-    let frame = CanFrame::init(0x123, &[], false, true, false).unwrap();
+    let frame = CanFrame::init(0x123, &[], IdFlags::RTR).unwrap();
 
     cs.write_frame(&frame).unwrap();
     cs.read_frame().unwrap();

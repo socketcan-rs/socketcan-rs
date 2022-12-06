@@ -13,7 +13,7 @@
 //! [csv](https://crates.io/crates/csv) crate.
 
 use crate::{
-    frame::{CANFD_BRS, CANFD_ESI},
+    frame::{IdFlags, FdFlags},
     CanFdFrame, CanFrame,
 };
 use hex::FromHex;
@@ -140,9 +140,9 @@ impl<R: io::BufRead> Reader<R> {
         let (can_id, mut can_data) = can_raw.split_at(sep_idx);
 
         // determine frame type (FD or classical) and skip separator(s)
-        let mut fd_flags: u8 = 0;
+        let mut fd_flags = FdFlags::empty();
         let is_fd_frame = if let Some(&b'#') = can_data.get(1) {
-            fd_flags = can_data[2];
+            fd_flags = FdFlags::from_bits_truncate(can_data[2]);
             can_data = &can_data[3..];
             true
         } else {
@@ -155,9 +155,12 @@ impl<R: io::BufRead> Reader<R> {
             can_data = &can_data[..can_data.len() - 1];
         };
 
-        let rtr = b"R" == can_data;
+        let mut flags = IdFlags::empty();
+        flags.set(IdFlags::RTR, b"R" == can_data);
+        // TODO: is extended?
+        // TODO: How are error frames saved?
 
-        let data = if rtr {
+        let data = if flags.contains(IdFlags::RTR) {
             Vec::new()
         } else {
             Vec::from_hex(&can_data).map_err(|_| ParseError::InvalidCanFrame)?
@@ -166,20 +169,15 @@ impl<R: io::BufRead> Reader<R> {
             CanFdFrame::init(
                 parse_raw(can_id, 16).ok_or(ParseError::InvalidCanFrame)? as u32,
                 &data,
-                false, // TODO: is extended?
-                // FIXME: how are error frames saved?
-                false,
-                fd_flags & CANFD_BRS == CANFD_BRS,
-                fd_flags & CANFD_ESI == CANFD_ESI,
+                flags,
+                fd_flags
             )
             .map(|frame| super::CanAnyFrame::Fd(frame))
         } else {
             CanFrame::init(
                 parse_raw(can_id, 16).ok_or(ParseError::InvalidCanFrame)? as u32,
                 &data,
-                false, // TODO: is extended?
-                rtr,
-                false,
+                flags,
             )
             .map(|frame| super::CanAnyFrame::Normal(frame))
         }?;

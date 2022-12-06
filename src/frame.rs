@@ -9,7 +9,7 @@
 // This file may not be copied, modified, or distributed except according
 // to those terms.
 
-
+use bitflags::bitflags;
 use crate::err::{CanError, CanErrorDecodingFailure, ConstructionError};
 use crate::util::hal_id_to_raw;
 use embedded_can::{ExtendedId, Frame as EmbeddedFrame, Id, StandardId};
@@ -28,6 +28,8 @@ pub use libc::{
     CAN_ERR_MASK,
     CAN_MAX_DLEN,
     CANFD_MAX_DLEN,
+    CANFD_BRS,
+    CANFD_ESI,
 };
 
 /// an error mask that will cause SocketCAN to report all errors
@@ -36,37 +38,39 @@ pub const ERR_MASK_ALL: u32 = CAN_ERR_MASK;
 /// an error mask that will cause SocketCAN to silently drop all errors
 pub const ERR_MASK_NONE: u32 = 0;
 
-// CAN FD flags
+bitflags! {
+    /// Bit flags in the composite SocketCAN ID word.
+    pub struct IdFlags: canid_t {
+        /// Indicates frame uses a 29-bit extended ID
+        const EFF = CAN_EFF_FLAG;
+        /// Indicates a remote request frame.
+        const RTR = CAN_RTR_FLAG;
+        /// Indicates an error frame.
+        const ERR = CAN_ERR_FLAG;
+    }
 
-/// bit rate switch (second bitrate for payload data)
-pub const CANFD_BRS: u8 = libc::CANFD_BRS as u8;
-
-/// Error state indicator of the transmitting node
-pub const CANFD_ESI: u8 = libc::CANFD_ESI as u8;
+    /// Bit flags for the Flexible Data (FD) frames.
+    pub struct FdFlags: u8 {
+        /// Bit rate switch (second bit rate for payload data)
+        const BRS = CANFD_BRS as u8;
+        /// Error state indicator of the transmitting node
+        const ESI = CANFD_ESI as u8;
+    }
+}
 
 /// Creates a composite 32-bit CAN ID word for SocketCAN.
 ///
 /// The ID 'word' is composed of the CAN ID along with the EFF/RTR/ERR bit flags.
-fn init_id_word(id: canid_t, ext_id: bool, rtr: bool, err: bool) -> Result<canid_t, ConstructionError> {
-    let mut _id = id;
-
+fn init_id_word(id: canid_t, mut flags: IdFlags) -> Result<canid_t, ConstructionError> {
     if id > CAN_EFF_MASK {
         return Err(ConstructionError::IDTooLarge);
     }
 
-    if ext_id || id > CAN_SFF_MASK {
-        _id |= CAN_EFF_FLAG;
+    if id > CAN_SFF_MASK {
+        flags |= IdFlags::EFF;
     }
 
-    if rtr {
-        _id |= CAN_RTR_FLAG;
-    }
-
-    if err {
-        _id |= CAN_ERR_FLAG;
-    }
-
-    Ok(_id)
+    Ok(id | flags.bits())
 }
 
 fn is_extended(id: &Id) -> bool {
@@ -87,13 +91,23 @@ fn slice_to_array<const S: usize>(data: &[u8]) -> [u8; S] {
 // ===== Frame trait =====
 
 pub trait Frame: EmbeddedFrame {
-    /// Get the full SocketCAN ID word (with EFF/RTR/ERR flags)
-    fn id_word(&self) -> u32;
+    /// Get the composite SocketCAN ID word, with EFF/RTR/ERR flags
+    fn id_word(&self) -> canid_t;
 
     /// Return the actual raw CAN ID (without EFF/RTR/ERR flags)
-    fn raw_id(&self) -> u32 {
-        // TODO: Standard use SFF mask, or is this OK?
-        self.id_word() & CAN_EFF_MASK
+    fn raw_id(&self) -> canid_t {
+        // TODO: This probably isn't necessary. Just use EFF_MASK?
+        let mask = if self.is_extended() {
+            CAN_EFF_MASK
+        } else {
+            CAN_SFF_MASK
+        };
+        self.id_word() & mask
+    }
+
+    /// Returns the EFF/RTR/ERR flags from the ID word
+    fn id_flags(&self) -> IdFlags {
+        IdFlags::from_bits_truncate(self.id_word())
     }
 
     /// Return the CAN ID as the embedded HAL Id type.
@@ -117,7 +131,7 @@ pub trait Frame: EmbeddedFrame {
 
     /// Check if frame is an error message
     fn is_error(&self) -> bool {
-        self.id_word() & CAN_ERR_FLAG != 0
+        self.id_flags().contains(IdFlags::ERR)
     }
 
     fn error(&self) -> Result<CanError, CanErrorDecodingFailure>
@@ -187,9 +201,7 @@ impl CanFrame {
     pub fn init(
         id: u32,
         data: &[u8],
-        ext_id: bool,
-        rtr: bool,
-        err: bool,
+        flags: IdFlags,
     ) -> Result<Self, ConstructionError> {
         let n = data.len();
 
@@ -198,7 +210,7 @@ impl CanFrame {
         }
 
         let mut frame: can_frame = unsafe { mem::zeroed() };
-        frame.can_id = init_id_word(id, ext_id, rtr, err)?;
+        frame.can_id = init_id_word(id, flags)?;
         frame.can_dlc = n as u8;
         (&mut frame.data[..n]).copy_from_slice(data);
 
@@ -219,31 +231,35 @@ impl CanFrame {
 }
 
 impl EmbeddedFrame for CanFrame {
-    /// Create a new frame
+    /// Create a new CAN 2.0 data frame
     fn new(id: impl Into<Id>, data: &[u8]) -> Option<Self> {
         let id = id.into();
-        let is_ext = is_extended(&id);
+        let mut flags = IdFlags::empty();
+        flags.set(IdFlags::EFF, is_extended(&id));
+
         let raw_id = hal_id_to_raw(id);
-        Self::init(raw_id, data, is_ext, false, false).ok()
+        Self::init(raw_id, data, flags).ok()
     }
 
     /// Create a new remote transmission request frame.
     fn new_remote(id: impl Into<Id>, dlc: usize) -> Option<Self> {
         let id = id.into();
-        let is_ext = is_extended(&id);
+        let mut flags = IdFlags::RTR;
+        flags.set(IdFlags::EFF, is_extended(&id));
+
         let raw_id = hal_id_to_raw(id);
         let data = [0u8; 8];
-        Self::init(raw_id, &data[0..dlc], is_ext, true, false).ok()
+        Self::init(raw_id, &data[0..dlc], flags).ok()
     }
 
-    /// Check if frame uses 29 bit extended frame format
+    /// Check if frame uses 29-bit extended ID format.
     fn is_extended(&self) -> bool {
-        self.0.can_id & CAN_EFF_FLAG != 0
+        self.id_flags().contains(IdFlags::EFF)
     }
 
     /// Check if frame is a remote transmission request.
     fn is_remote_frame(&self) -> bool {
-        self.0.can_id & CAN_RTR_FLAG != 0
+        self.id_flags().contains(IdFlags::RTR)
     }
 
     /// Return the frame identifier.
@@ -264,12 +280,14 @@ impl EmbeddedFrame for CanFrame {
 }
 
 impl Frame for CanFrame {
+    /// Get the composite SocketCAN ID word, with EFF/RTR/ERR flags
     fn id_word(&self) -> u32 {
         self.0.can_id
     }
 }
 
 impl Default for CanFrame {
+    /// The default FD frame has all fields and data set to zero, and all flags off.
     fn default() -> Self {
         let frame: can_frame = unsafe { mem::zeroed() };
         Self(frame)
@@ -304,9 +322,7 @@ impl TryFrom<CanFdFrame> for CanFrame {
         CanFrame::init(
             frame.raw_id(),
             &frame.data()[..(frame.0.len as usize)],
-            frame.is_extended(),
-            false,
-            frame.is_error(),
+            frame.id_flags()
         )
     }
 }
@@ -330,10 +346,8 @@ impl CanFdFrame {
     pub fn init(
         id: u32,
         data: &[u8],
-        ext_id: bool,
-        err: bool,
-        brs: bool,
-        esi: bool,
+        mut flags: IdFlags,
+        fd_flags: FdFlags
     ) -> Result<Self, ConstructionError> {
         let n = data.len();
 
@@ -341,44 +355,51 @@ impl CanFdFrame {
             return Err(ConstructionError::TooMuchData);
         }
 
+        flags.remove(IdFlags::RTR);
+
         let mut frame = Self::default();
-
-        frame.0.can_id = init_id_word(id, ext_id, false, err)?;
+        frame.0.can_id = init_id_word(id, flags)?;
         frame.0.len = n as u8;
-
-        if brs {
-            frame.0.flags |= CANFD_BRS;
-        }
-        if esi {
-            frame.0.flags = CANFD_ESI;
-        }
-
+        frame.0.flags = fd_flags.bits();
         (&mut frame.0.data[..n]).copy_from_slice(data);
 
         Ok(frame)
     }
 
-    pub fn is_brs(&self) -> bool {
-        self.0.flags & CANFD_BRS == CANFD_BRS
+    /// Gets the flags for the FD frame.
+    ///
+    /// These are the bits from the separate FD frame flags, not the flags
+    /// in the composite ID word.
+    pub fn flags(&self) -> FdFlags {
+        FdFlags::from_bits_truncate(self.0.flags)
     }
 
+    /// Whether the frame uses a bit rate switch (second bit rate for
+    /// payload data).
+    pub fn is_brs(&self) -> bool {
+        self.flags().contains(FdFlags::BRS)
+    }
+
+    /// Sets whether the frame uses a bit rate switch.
     pub fn set_brs(&mut self, on: bool) {
         if on {
-            self.0.flags |= CANFD_BRS;
+            self.0.flags |= CANFD_BRS as u8;
         } else {
-            self.0.flags &= !CANFD_BRS;
+            self.0.flags &= !(CANFD_BRS as u8);
         }
     }
 
+    /// Gets the error state indicator of the transmitting node
     pub fn is_esi(&self) -> bool {
-        self.0.flags & CANFD_ESI == CANFD_ESI
+        self.flags().contains(FdFlags::ESI)
     }
 
+    /// Sets the error state indicator of the transmitting node
     pub fn set_esi(&mut self, on: bool) {
         if on {
-            self.0.flags |= CANFD_ESI;
+            self.0.flags |= CANFD_ESI as u8;
         } else {
-            self.0.flags &= !CANFD_ESI;
+            self.0.flags &= !CANFD_ESI as u8;
         }
     }
 
@@ -399,9 +420,11 @@ impl EmbeddedFrame for CanFdFrame {
     /// Create a new frame
     fn new(id: impl Into<Id>, data: &[u8]) -> Option<Self> {
         let id = id.into();
-        let is_ext = is_extended(&id);
+        let mut flags = IdFlags::empty();
+        flags.set(IdFlags::EFF, is_extended(&id));
+
         let raw_id = hal_id_to_raw(id);
-        Self::init(raw_id, data, is_ext, false, false, false).ok()
+        Self::init(raw_id, data, flags, FdFlags::empty()).ok()
     }
 
     /// CAN FD frames don't support remote
@@ -409,9 +432,9 @@ impl EmbeddedFrame for CanFdFrame {
         None
     }
 
-    /// Check if frame uses 29 bit extended frame format
+    /// Check if frame uses 29-bit extended ID format.
     fn is_extended(&self) -> bool {
-        self.0.can_id & CAN_EFF_FLAG != 0
+        self.id_flags().contains(IdFlags::EFF)
     }
 
     /// The FD frames don't support remote request
@@ -438,12 +461,14 @@ impl EmbeddedFrame for CanFdFrame {
 }
 
 impl Frame for CanFdFrame {
+    /// Get the composite SocketCAN ID word, with EFF/RTR/ERR flags
     fn id_word(&self) -> u32 {
         self.0.can_id
     }
 }
 
 impl Default for CanFdFrame {
+    /// The default FD frame has all fields and data set to zero, and all flags off.
     fn default() -> Self {
         let frame: canfd_frame = unsafe { mem::zeroed() };
         Self(frame)
@@ -485,4 +510,66 @@ impl AsRef<libc::canfd_frame> for CanFdFrame {
     }
 }
 
+/////////////////////////////////////////////////////////////////////////////
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const STD_ID: Id = Id::Standard(StandardId::MAX);
+    const EXT_ID: Id = Id::Extended(ExtendedId::MAX);
+
+    const DATA: &[u8] = &[0, 1, 2, 3];
+    const DATA_LEN: usize = DATA.len();
+
+    #[test]
+    fn test_data_frame() {
+        let frame = CanFrame::new(STD_ID, DATA).unwrap();
+        assert_eq!(STD_ID, frame.id());
+        //assert_eq!(STD_ID.as_raw(), frame.raw_id());
+        assert!(frame.is_standard());
+        assert!(!frame.is_extended());
+        assert!(frame.is_data_frame());
+        assert!(!frame.is_remote_frame());
+
+        let frame = CanFrame::new(EXT_ID, DATA).unwrap();
+        assert_eq!(EXT_ID, frame.id());
+        //assert_eq!(EXT_ID.as_raw(), frame.raw_id());
+        assert!(!frame.is_standard());
+        assert!(frame.is_extended());
+        assert!(frame.is_data_frame());
+        assert!(!frame.is_remote_frame());
+    }
+
+    #[test]
+    fn test_remote_frame() {
+        let frame = CanFrame::new_remote(STD_ID, DATA_LEN).unwrap();
+        assert_eq!(STD_ID, frame.id());
+        //assert_eq!(STD_ID.as_raw(), frame.raw_id());
+        assert!(frame.is_standard());
+        assert!(!frame.is_extended());
+        assert!(!frame.is_data_frame());
+        assert!(frame.is_remote_frame());
+    }
+
+    #[test]
+    fn test_fd_frame() {
+        let frame = CanFdFrame::new(STD_ID, DATA).unwrap();
+        assert_eq!(STD_ID, frame.id());
+        //assert_eq!(STD_ID.as_raw(), frame.raw_id());
+        assert!(frame.is_standard());
+        assert!(!frame.is_extended());
+        assert!(frame.is_data_frame());
+        assert!(!frame.is_remote_frame());
+
+        let frame = CanFdFrame::new(EXT_ID, DATA).unwrap();
+        assert_eq!(EXT_ID, frame.id());
+        //assert_eq!(EXT_ID.as_raw(), frame.raw_id());
+        assert!(!frame.is_standard());
+        assert!(frame.is_extended());
+        assert!(frame.is_data_frame());
+        assert!(!frame.is_remote_frame());
+    }
+
+}
 
