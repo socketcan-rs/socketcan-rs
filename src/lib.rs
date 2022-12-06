@@ -65,14 +65,13 @@ mod err;
 pub use err::{CanError, CanErrorDecodingFailure, CanSocketOpenError, ConstructionError};
 
 mod frame;
-pub use frame::CanFrame;
-
-pub mod constants;
-
-mod socket;
-pub use socket::{CanSocket, CanFilter, ShouldRetry};
+pub use frame::{Frame, CanNormalFrame, CanFdFrame, CanAnyFrame};
 
 pub mod dump;
+
+mod socket;
+pub use socket::{CanSocket, CanNormalSocket, CanFdSocket, CanFilter, ShouldRetry};
+
 
 mod util;
 
@@ -84,9 +83,8 @@ pub use nl::CanInterface;
 
 use std::io::ErrorKind;
 
-
-impl embedded_hal::can::blocking::Can for CanSocket {
-    type Frame = CanFrame;
+impl embedded_hal::can::blocking::Can for CanNormalSocket {
+    type Frame = CanNormalFrame;
     type Error = CanError;
 
     fn receive(&mut self) -> Result<Self::Frame, Self::Error> {
@@ -116,8 +114,8 @@ impl embedded_hal::can::blocking::Can for CanSocket {
     }
 }
 
-impl embedded_hal::can::nb::Can for CanSocket {
-    type Frame = CanFrame;
+impl embedded_hal::can::nb::Can for CanNormalSocket {
+    type Frame = CanNormalFrame;
     type Error = CanError;
 
     fn receive(&mut self) -> nb::Result<Self::Frame, Self::Error> {
@@ -160,3 +158,4 @@ impl embedded_hal::can::nb::Can for CanSocket {
         }
     }
 }
+

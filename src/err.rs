@@ -1,8 +1,7 @@
 // information from https://raw.githubusercontent.com/torvalds/linux/master/
 //                  /include/uapi/linux/can/error.h
 
-use super::CanFrame;
-use embedded_hal::can::Frame;
+use crate::Frame;
 use std::{
     convert::TryFrom,
     error,
@@ -10,21 +9,18 @@ use std::{
     io,
 };
 
-
 #[inline]
 /// Helper function to retrieve a specific byte of frame data or returning an
 /// `Err(..)` otherwise.
-fn get_data(frame: &CanFrame, idx: u8) -> Result<u8, CanErrorDecodingFailure> {
-    Ok(*(frame.data()
-        .get(idx as usize)
-        .ok_or(CanErrorDecodingFailure::NotEnoughData(idx)))?)
+fn get_data(frame: &impl Frame, idx: u8) -> Result<u8, CanErrorDecodingFailure> {
+    Ok(*frame.data().get(idx as usize).ok_or(CanErrorDecodingFailure::NotEnoughData(idx))?)
 }
 
 
 /// Error decoding a CanError from a CanFrame.
 #[derive(Copy, Clone, Debug)]
 pub enum CanErrorDecodingFailure {
-    /// The supplied CanFrame did not have the error bit set.
+    /// The supplied CANFrame did not have the error bit set.
     NotAnError,
 
     /// The error type is not known and cannot be decoded.
@@ -429,7 +425,7 @@ impl TryFrom<u8> for TransceiverError {
 }
 
 impl CanError {
-    pub fn from_frame(frame: &CanFrame) -> Result<Self, CanErrorDecodingFailure> {
+    pub fn from_frame(frame: &impl Frame) -> Result<Self, CanErrorDecodingFailure> {
         if !frame.is_error() {
             return Err(CanErrorDecodingFailure::NotAnError);
         }
@@ -462,7 +458,7 @@ pub trait ControllerSpecificErrorInformation {
     fn get_ctrl_err(&self) -> Option<&[u8]>;
 }
 
-impl ControllerSpecificErrorInformation for CanFrame {
+impl<T: Frame> ControllerSpecificErrorInformation for T {
     #[inline]
     fn get_ctrl_err(&self) -> Option<&[u8]> {
         let data = self.data();
@@ -529,5 +525,4 @@ impl From<io::Error> for CanSocketOpenError {
         CanSocketOpenError::IOError(e)
     }
 }
-
 
