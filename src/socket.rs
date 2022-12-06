@@ -1,5 +1,5 @@
 use crate::{
-    err::{CanSocketOpenError, ConstructionError},
+    err::CanSocketOpenError,
     frame::ERR_MASK,
     util::{set_socket_option, set_socket_option_mult},
     CanAnyFrame, CanFdFrame, CanNormalFrame,
@@ -611,7 +611,7 @@ pub trait CanSocket: AsRawFd {
     /// acceps all CAN frames.
     fn filter_accept_all(&self) -> io::Result<()> {
         // safe unwrap: 0, 0 is a valid mask/id pair
-        self.set_filter(&[CanFilter::new(0, 0).unwrap()])
+        self.set_filter(&[CanFilter::new(0, 0)])
     }
 
     #[inline(always)]
@@ -838,10 +838,13 @@ pub struct CanFilter {
 
 impl CanFilter {
     /// Construct a new CAN filter.
-    pub fn new(id: u32, mask: u32) -> Result<CanFilter, ConstructionError> {
-        Ok(CanFilter {
-            _id: id,
-            _mask: mask,
-        })
+    pub fn new(id: u32, mask: u32) -> Self { //Result<Self, ConstructionError> {
+        CanFilter { _id: id, _mask: mask }
+    }
+}
+
+impl From<(u32,u32)> for CanFilter {
+    fn from(filt: (u32, u32)) -> Self {
+        CanFilter::new(filt.0, filt.1)
     }
 }

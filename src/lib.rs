@@ -61,15 +61,15 @@
 // clippy: do not warn about things like "SocketCAN" inside the docs
 #![allow(clippy::doc_markdown)]
 
-mod err;
+pub mod err;
 pub use err::{CanError, CanErrorDecodingFailure, CanSocketOpenError, ConstructionError};
 
-mod frame;
+pub mod frame;
 pub use frame::{CanAnyFrame, CanFdFrame, CanNormalFrame, Frame};
 
 pub mod dump;
 
-mod socket;
+pub mod socket;
 pub use socket::{CanFdSocket, CanFilter, CanNormalSocket, CanSocket, ShouldRetry};
 
 mod util;

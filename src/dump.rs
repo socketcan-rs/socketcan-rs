@@ -208,7 +208,7 @@ impl<'a, R: io::Read> Iterator for CanDumpRecords<'a, io::BufReader<R>> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{util::hal_id_to_raw, CanAnyFrame, CanNormalFrame as CanFrame, Frame};
+    use crate::{CanAnyFrame, Frame};
     use embedded_hal::can::Frame as EmbeddedFrame;
 
     #[test]
@@ -225,8 +225,8 @@ mod test {
             assert_eq!(rec1.device, "can1");
 
             if let CanAnyFrame::Normal(frame) = rec1.frame {
-                assert_eq!(hal_id_to_raw(rec1.frame.id()), 0x080);
-                assert_eq!(frame.is_rtr(), false);
+                assert_eq!(frame.raw_id(), 0x080);
+                assert_eq!(frame.is_remote_frame(), false);
                 assert_eq!(frame.is_error(), false);
                 assert_eq!(frame.is_extended(), false);
                 assert_eq!(frame.data(), &[]);
@@ -241,8 +241,8 @@ mod test {
             assert_eq!(rec2.device, "can1");
 
             if let CanAnyFrame::Normal(frame) = rec2.frame {
-                assert_eq!(hal_id_to_raw(rec2.frame.id()), 0x701);
-                assert_eq!(frame.is_rtr(), false);
+                assert_eq!(frame.raw_id(), 0x701);
+                assert_eq!(frame.is_remote_frame(), false);
                 assert_eq!(frame.is_error(), false);
                 assert_eq!(frame.is_extended(), false);
                 assert_eq!(frame.data(), &[0x7F]);
@@ -267,7 +267,7 @@ mod test {
             assert_eq!(rec1.t_us, 1469439874299591);
             assert_eq!(rec1.device, "can1");
             if let CanAnyFrame::Fd(frame) = rec1.frame {
-                assert_eq!(frame.id(), 0x080);
+                assert_eq!(frame.raw_id(), 0x080);
                 assert_eq!(frame.is_remote_frame(), false);
                 assert_eq!(frame.is_error(), false);
                 assert_eq!(frame.is_extended(), false);
@@ -284,7 +284,7 @@ mod test {
             assert_eq!(rec2.t_us, 1469439874299654);
             assert_eq!(rec2.device, "can1");
             if let CanAnyFrame::Fd(frame) = rec2.frame {
-                assert_eq!(frame.id(), 0x701);
+                assert_eq!(frame.raw_id(), 0x701);
                 assert_eq!(frame.is_remote_frame(), false);
                 assert_eq!(frame.is_error(), false);
                 assert_eq!(frame.is_extended(), false);
