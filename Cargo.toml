@@ -1,12 +1,15 @@
 [package]
-authors = ["Marc Brinkmann <git@marcbrinkmann.de>"]
+name = "socketcan"
+version = "2.0.0-pre.0"
+edition = "2018"
+authors = [
+    "Marc Brinkmann <git@marcbrinkmann.de>",
+    "Frank Pagliughi <fpagliughi@mindspring.com>"
+]
 description = "Linux SocketCAN library. Send and receive CAN frames via CAN bus on Linux."
 documentation = "https://docs.rs/socketcan"
-license = "MIT"
-edition = "2018"
-name = "socketcan"
 repository = "https://github.com/mbr/socketcan-rs"
-version = "2.0.0"
+license = "MIT"
 
 # Features:
 #

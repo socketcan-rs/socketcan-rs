@@ -1,11 +1,25 @@
-Rust SocketCAN support
-======================
+Rust SocketCAN
+==============
 
-**Maintenance status**: This crate is in the process of entering renewed joint maintainership with [@fpagliughi](https://github.com/fpagliughi). Please stay patient for a while for this to get cleaned up. -- @mbr.
+This library allows Controller Area Network (CAN) communications on Linux using the SocketCAN interfaces. This provides a network socket interface to the CAN bus.
 
-The Linux kernel supports using CAN-devices through a network-like API
-(see https://www.kernel.org/doc/Documentation/networking/can.txt). This
-crate allows easy access to this functionality without having to wrestle
-libc calls.
+[Linux SocketCAN](https://docs.kernel.org/networking/can.html)
 
-Please see the [documentation](https://docs.rs/socketcan) for details.
+**Maintenance status**: This crate is in the process of entering renewed joint maintainership with [@fpagliughi
+
+Please see the [documentation](https://docs.rs/socketcan) for details about the Rust API provided by this library.
+
+
+## Latest News
+
+After a period of some stagnation, this library is currently being upated for a v2.0 release to add the following features:
+
+- CAN Flexible Data Rate (FD) support
+- Proper handling of Extended CAN ID's
+- Integration with the Rust Embedded HAL APIs for CAN
+- Control of the CAN network interfaces via netlink with the [neli](https://crates.io/crates/neli) crate.
+- Tighter integration with [libc](https://crates.io/crates/libc) and [nix](https://crates.io/crates/nix) crates, including upstream
+- Updated documentation and dependencies
+
+Note that the `master` branch will be in heavy flux over the next few weeks and should be assumed to be highly unstable.
+

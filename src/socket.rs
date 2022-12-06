@@ -1,3 +1,16 @@
+// socketcan/src/socket.rs
+//
+// Implements sockets for CANbus 2.0 and FD for SocketCAN on Linux.
+//
+// This file is part of the Rust 'socketcan-rs' library.
+//
+// Licensed under the MIT license:
+//   <LICENSE or http://opensource.org/licenses/MIT>
+// This file may not be copied, modified, or distributed except according
+// to those terms.
+
+/// Implementation of sockets for CANbus 2.0 and FD for SocketCAN on Linux.
+
 use crate::{
     err::CanSocketOpenError,
     frame::ERR_MASK,
@@ -425,13 +438,12 @@ fn set_fd_mode(socket_fd: c_int, fd_mode_enable: bool) -> io::Result<c_int> {
     Ok(socket_fd)
 }
 
-fn raw_write_frame<T>(socket_fd: c_int, frame: &T) -> io::Result<()> {
-    let write_rv = unsafe {
-        let frame_ptr = frame as *const T;
+fn raw_write_frame<T>(socket_fd: c_int, frame_ptr: *const T) -> io::Result<()> {
+    let ret = unsafe {
         write(socket_fd, frame_ptr as *const c_void, size_of::<T>())
     };
 
-    if write_rv as usize != size_of::<T>() {
+    if ret as usize != size_of::<T>() {
         return Err(io::Error::last_os_error());
     }
 
@@ -450,13 +462,13 @@ pub trait Socket: AsRawFd {
         Self: Sized,
     {
         let if_index = if_nametoindex(ifname)?;
-        Self::open_if(if_index)
+        Self::open_interface(if_index)
     }
 
     /// Open CAN device by interface number.
     ///
     /// Opens a CAN device by kernel interface number.
-    fn open_if(if_index: c_uint) -> Result<Self, CanSocketOpenError>
+    fn open_interface(if_index: c_uint) -> Result<Self, CanSocketOpenError>
     where
         Self: Sized;
 
@@ -677,19 +689,19 @@ pub trait Socket: AsRawFd {
 impl Socket for CanSocket {
     type FrameType = CanFrame;
 
-    fn open_if(if_index: c_uint) -> Result<Self, CanSocketOpenError> {
+    fn open_interface(if_index: c_uint) -> Result<Self, CanSocketOpenError> {
         raw_open_socket(if_index).map(|sock_fd| Self { fd: sock_fd })
     }
 
     fn write_frame(&self, frame: &CanFrame) -> io::Result<()> {
-        raw_write_frame(self.fd, frame)
+        raw_write_frame(self.fd, frame.as_ptr())
     }
 
     fn read_frame(&self) -> io::Result<CanFrame> {
         let mut frame = Self::FrameType::default();
 
         let read_rv = unsafe {
-            let frame_ptr = &mut frame as *mut CanFrame;
+            let frame_ptr = frame.as_mut_ptr();
             read(
                 self.fd,
                 frame_ptr as *mut c_void,
@@ -708,7 +720,7 @@ impl Socket for CanSocket {
 impl Socket for CanFdSocket {
     type FrameType = CanAnyFrame;
 
-    fn open_if(if_index: c_uint) -> Result<Self, CanSocketOpenError> {
+    fn open_interface(if_index: c_uint) -> Result<Self, CanSocketOpenError> {
         raw_open_socket(if_index)
             .and_then(|sock_fd| {
                 set_fd_mode(sock_fd, true).map_err(|io_err| CanSocketOpenError::IOError(io_err))
@@ -718,8 +730,8 @@ impl Socket for CanFdSocket {
 
     fn write_frame(&self, frame: &CanAnyFrame) -> io::Result<()> {
         match frame {
-            CanAnyFrame::Normal(frame) => raw_write_frame(self.fd, frame),
-            CanAnyFrame::Fd(fd_frame) => raw_write_frame(self.fd, fd_frame),
+            CanAnyFrame::Normal(frame) => raw_write_frame(self.fd, frame.as_ptr()),
+            CanAnyFrame::Fd(fd_frame) => raw_write_frame(self.fd, fd_frame.as_ptr()),
         }
     }
 
@@ -727,7 +739,7 @@ impl Socket for CanFdSocket {
         let mut frame = CanFdFrame::default();
 
         let read_rv = unsafe {
-            let frame_ptr = &mut frame as *mut CanFdFrame;
+            let frame_ptr = frame.as_mut_ptr();
             read(self.fd, frame_ptr as *mut c_void, size_of::<CanFdFrame>())
         };
         match read_rv as usize {
@@ -755,7 +767,7 @@ impl AsRawFd for CanSocket {
 
 impl FromRawFd for CanSocket {
     unsafe fn from_raw_fd(fd: RawFd) -> CanSocket {
-        CanSocket { fd: fd }
+        CanSocket { fd }
     }
 }
 
@@ -767,7 +779,7 @@ impl IntoRawFd for CanSocket {
 
 impl Drop for CanSocket {
     fn drop(&mut self) {
-        self.close().ok(); // ignore result
+        let _ = self.close();
     }
 }
 
@@ -779,7 +791,7 @@ impl AsRawFd for CanFdSocket {
 
 impl FromRawFd for CanFdSocket {
     unsafe fn from_raw_fd(fd: RawFd) -> CanFdSocket {
-        CanFdSocket { fd: fd }
+        CanFdSocket { fd }
     }
 }
 
@@ -791,7 +803,7 @@ impl IntoRawFd for CanFdSocket {
 
 impl Drop for CanFdSocket {
     fn drop(&mut self) {
-        self.close().ok(); // ignore result
+        let _ = self.close();
     }
 }
 
