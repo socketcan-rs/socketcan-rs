@@ -1,6 +1,6 @@
 use socketcan::{
-    CanFrame, CanSocket, Socket, ShouldRetry,
     frame::{IdFlags, ERR_MASK_ALL, ERR_MASK_NONE},
+    CanFrame, CanSocket, ShouldRetry, Socket,
 };
 use std::time;
 

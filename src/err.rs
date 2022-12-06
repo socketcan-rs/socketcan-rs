@@ -123,9 +123,7 @@ impl embedded_can::Error for CanError {
         match *self {
             CanError::ControllerProblem(cp) => match cp {
                 ControllerProblem::ReceiveBufferOverflow
-                | ControllerProblem::TransmitBufferOverflow => {
-                    embedded_can::ErrorKind::Overrun
-                }
+                | ControllerProblem::TransmitBufferOverflow => embedded_can::ErrorKind::Overrun,
                 ControllerProblem::Unspecified | _ => embedded_can::ErrorKind::Other,
             },
             CanError::NoAck => embedded_can::ErrorKind::Acknowledge,

@@ -10,7 +10,6 @@
 // to those terms.
 
 /// Implementation of sockets for CANbus 2.0 and FD for SocketCAN on Linux.
-
 use crate::{
     err::CanSocketOpenError,
     frame::CAN_ERR_MASK,
@@ -18,8 +17,9 @@ use crate::{
     CanAnyFrame, CanFdFrame, CanFrame,
 };
 use libc::{
-    canid_t, bind, close, fcntl, read, setsockopt, sockaddr, socket, suseconds_t, time_t, timeval, write,
-    EINPROGRESS, F_GETFL, F_SETFL, O_NONBLOCK, SOCK_RAW, SOL_SOCKET, SO_RCVTIMEO, SO_SNDTIMEO,
+    bind, canid_t, close, fcntl, read, setsockopt, sockaddr, socket, suseconds_t, time_t, timeval,
+    write, EINPROGRESS, F_GETFL, F_SETFL, O_NONBLOCK, SOCK_RAW, SOL_SOCKET, SO_RCVTIMEO,
+    SO_SNDTIMEO,
 };
 use nix::net::if_::if_nametoindex;
 use std::{
@@ -34,19 +34,9 @@ use std::{
 };
 
 pub use libc::{
-    AF_CAN,
-    PF_CAN,
-    CAN_RAW,
-    SOL_CAN_BASE,
+    AF_CAN, CANFD_MTU, CAN_MTU, CAN_RAW, CAN_RAW_ERR_FILTER, CAN_RAW_FD_FRAMES, CAN_RAW_FILTER,
+    CAN_RAW_JOIN_FILTERS, CAN_RAW_LOOPBACK, CAN_RAW_RECV_OWN_MSGS, PF_CAN, SOL_CAN_BASE,
     SOL_CAN_RAW,
-    CAN_RAW_FILTER,
-    CAN_RAW_ERR_FILTER,
-    CAN_RAW_LOOPBACK,
-    CAN_RAW_RECV_OWN_MSGS,
-    CAN_RAW_FD_FRAMES,
-    CAN_RAW_JOIN_FILTERS,
-    CAN_MTU,
-    CANFD_MTU,
 };
 
 /// Check an error return value for timeouts.
@@ -435,9 +425,7 @@ fn set_fd_mode(socket_fd: c_int, fd_mode_enable: bool) -> io::Result<c_int> {
 }
 
 fn raw_write_frame<T>(socket_fd: c_int, frame_ptr: *const T) -> io::Result<()> {
-    let ret = unsafe {
-        write(socket_fd, frame_ptr as *const c_void, size_of::<T>())
-    };
+    let ret = unsafe { write(socket_fd, frame_ptr as *const c_void, size_of::<T>()) };
 
     if ret as usize != size_of::<T>() {
         return Err(io::Error::last_os_error());
@@ -698,11 +686,7 @@ impl Socket for CanSocket {
 
         let read_rv = unsafe {
             let frame_ptr = frame.as_mut_ptr();
-            read(
-                self.fd,
-                frame_ptr as *mut c_void,
-                size_of::<CanFrame>(),
-            )
+            read(self.fd, frame_ptr as *mut c_void, size_of::<CanFrame>())
         };
 
         if read_rv as usize != size_of::<CanFrame>() {
@@ -818,7 +802,10 @@ pub struct CanFilter(libc::can_filter);
 impl CanFilter {
     /// Construct a new CAN filter.
     pub fn new(id: canid_t, mask: canid_t) -> Self {
-        Self(libc::can_filter { can_id: id, can_mask: mask })
+        Self(libc::can_filter {
+            can_id: id,
+            can_mask: mask,
+        })
     }
 
     /// Construct a new inverted CAN filter.
@@ -833,7 +820,7 @@ impl From<libc::can_filter> for CanFilter {
     }
 }
 
-impl From<(u32,u32)> for CanFilter {
+impl From<(u32, u32)> for CanFilter {
     fn from(filt: (u32, u32)) -> Self {
         CanFilter::new(filt.0, filt.1)
     }
@@ -841,7 +828,6 @@ impl From<(u32,u32)> for CanFilter {
 
 impl AsRef<libc::can_filter> for CanFilter {
     fn as_ref(&self) -> &libc::can_filter {
-            &self.0
+        &self.0
     }
 }
-

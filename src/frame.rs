@@ -9,9 +9,9 @@
 // This file may not be copied, modified, or distributed except according
 // to those terms.
 
-use bitflags::bitflags;
 use crate::err::{CanError, CanErrorDecodingFailure, ConstructionError};
 use crate::util::hal_id_to_raw;
+use bitflags::bitflags;
 use embedded_can::{ExtendedId, Frame as EmbeddedFrame, Id, StandardId};
 use libc::{can_frame, canfd_frame, canid_t};
 
@@ -20,16 +20,8 @@ use std::{convert::TryFrom, fmt, mem};
 use itertools::Itertools;
 
 pub use libc::{
-    CAN_EFF_FLAG,
-    CAN_RTR_FLAG,
-    CAN_ERR_FLAG,
-    CAN_SFF_MASK,
-    CAN_EFF_MASK,
-    CAN_ERR_MASK,
-    CAN_MAX_DLEN,
-    CANFD_MAX_DLEN,
-    CANFD_BRS,
-    CANFD_ESI,
+    CANFD_BRS, CANFD_ESI, CANFD_MAX_DLEN, CAN_EFF_FLAG, CAN_EFF_MASK, CAN_ERR_FLAG, CAN_ERR_MASK,
+    CAN_MAX_DLEN, CAN_RTR_FLAG, CAN_SFF_MASK,
 };
 
 /// an error mask that will cause SocketCAN to report all errors
@@ -198,11 +190,7 @@ pub struct CanFrame(can_frame);
 
 impl CanFrame {
     /// Initializes a CAN frame from raw parts.
-    pub fn init(
-        id: u32,
-        data: &[u8],
-        flags: IdFlags,
-    ) -> Result<Self, ConstructionError> {
+    pub fn init(id: u32, data: &[u8], flags: IdFlags) -> Result<Self, ConstructionError> {
         let n = data.len();
 
         if n > CAN_MAX_DLEN {
@@ -322,14 +310,14 @@ impl TryFrom<CanFdFrame> for CanFrame {
         CanFrame::init(
             frame.raw_id(),
             &frame.data()[..(frame.0.len as usize)],
-            frame.id_flags()
+            frame.id_flags(),
         )
     }
 }
 
 impl AsRef<libc::can_frame> for CanFrame {
     fn as_ref(&self) -> &can_frame {
-            &self.0
+        &self.0
     }
 }
 
@@ -347,7 +335,7 @@ impl CanFdFrame {
         id: u32,
         data: &[u8],
         mut flags: IdFlags,
-        fd_flags: FdFlags
+        fd_flags: FdFlags,
     ) -> Result<Self, ConstructionError> {
         let n = data.len();
 
@@ -506,7 +494,7 @@ impl From<CanFrame> for CanFdFrame {
 
 impl AsRef<libc::canfd_frame> for CanFdFrame {
     fn as_ref(&self) -> &canfd_frame {
-            &self.0
+        &self.0
     }
 }
 
@@ -570,6 +558,4 @@ mod tests {
         assert!(frame.is_data_frame());
         assert!(!frame.is_remote_frame());
     }
-
 }
-

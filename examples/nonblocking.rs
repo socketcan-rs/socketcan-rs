@@ -10,7 +10,7 @@ use clap::Parser;
 
 use embedded_can::{nb::Can, Frame as EmbeddedFrame, Id, StandardId};
 use nb::block;
-use socketcan::{CanFrame, CanSocket, Socket, Frame};
+use socketcan::{CanFrame, CanSocket, Frame, Socket};
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]

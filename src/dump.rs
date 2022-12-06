@@ -13,7 +13,7 @@
 //! [csv](https://crates.io/crates/csv) crate.
 
 use crate::{
-    frame::{IdFlags, FdFlags},
+    frame::{FdFlags, IdFlags},
     CanFdFrame, CanFrame,
 };
 use hex::FromHex;
@@ -170,7 +170,7 @@ impl<R: io::BufRead> Reader<R> {
                 parse_raw(can_id, 16).ok_or(ParseError::InvalidCanFrame)? as u32,
                 &data,
                 flags,
-                fd_flags
+                fd_flags,
             )
             .map(|frame| super::CanAnyFrame::Fd(frame))
         } else {
