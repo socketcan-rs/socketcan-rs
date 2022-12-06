@@ -14,7 +14,7 @@
 
 use crate::{
     frame::{CANFD_BRS, CANFD_ESI},
-    CanFdFrame, CanNormalFrame,
+    CanFdFrame, CanFrame,
 };
 use hex::FromHex;
 use std::{fs, io, path};
@@ -174,7 +174,7 @@ impl<R: io::BufRead> Reader<R> {
             )
             .map(|frame| super::CanAnyFrame::Fd(frame))
         } else {
-            CanNormalFrame::init(
+            CanFrame::init(
                 parse_raw(can_id, 16).ok_or(ParseError::InvalidCanFrame)? as u32,
                 &data,
                 false, // TODO: is extended?

@@ -9,9 +9,7 @@ use anyhow::Context;
 use clap::Parser;
 
 use embedded_hal::can::{blocking::Can, Frame as EmbeddedFrame, Id, StandardId};
-use socketcan::{
-    CanNormalFrame as CanFrame, CanNormalSocket as CanSocket, CanSocket as CanSocketT, Frame,
-};
+use socketcan::{CanFrame, CanSocket, Socket, Frame};
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]

@@ -2,7 +2,7 @@ use crate::{
     err::CanSocketOpenError,
     frame::ERR_MASK,
     util::{set_socket_option, set_socket_option_mult},
-    CanAnyFrame, CanFdFrame, CanNormalFrame,
+    CanAnyFrame, CanFdFrame, CanFrame,
 };
 use libc::{
     canid_t, bind, close, fcntl, read, setsockopt, sockaddr, socket, suseconds_t, time_t, timeval, write,
@@ -363,7 +363,7 @@ impl Drop for CanSocket {
 /// Will be closed upon deallocation. To close manually, use std::drop::Drop.
 /// Internally this is just a wrapped file-descriptor.
 #[derive(Debug)]
-pub struct CanNormalSocket {
+pub struct CanSocket {
     fd: c_int,
 }
 
@@ -438,7 +438,7 @@ fn raw_write_frame<T>(socket_fd: c_int, frame: &T) -> io::Result<()> {
     Ok(())
 }
 
-pub trait CanSocket: AsRawFd {
+pub trait Socket: AsRawFd {
     type FrameType;
 
     /// Open a named CAN device.
@@ -674,30 +674,30 @@ pub trait CanSocket: AsRawFd {
     }
 }
 
-impl CanSocket for CanNormalSocket {
-    type FrameType = CanNormalFrame;
+impl Socket for CanSocket {
+    type FrameType = CanFrame;
 
     fn open_if(if_index: c_uint) -> Result<Self, CanSocketOpenError> {
         raw_open_socket(if_index).map(|sock_fd| Self { fd: sock_fd })
     }
 
-    fn write_frame(&self, frame: &CanNormalFrame) -> io::Result<()> {
+    fn write_frame(&self, frame: &CanFrame) -> io::Result<()> {
         raw_write_frame(self.fd, frame)
     }
 
-    fn read_frame(&self) -> io::Result<CanNormalFrame> {
+    fn read_frame(&self) -> io::Result<CanFrame> {
         let mut frame = Self::FrameType::default();
 
         let read_rv = unsafe {
-            let frame_ptr = &mut frame as *mut CanNormalFrame;
+            let frame_ptr = &mut frame as *mut CanFrame;
             read(
                 self.fd,
                 frame_ptr as *mut c_void,
-                size_of::<CanNormalFrame>(),
+                size_of::<CanFrame>(),
             )
         };
 
-        if read_rv as usize != size_of::<CanNormalFrame>() {
+        if read_rv as usize != size_of::<CanFrame>() {
             return Err(io::Error::last_os_error());
         }
 
@@ -705,7 +705,7 @@ impl CanSocket for CanNormalSocket {
     }
 }
 
-impl CanSocket for CanFdSocket {
+impl Socket for CanFdSocket {
     type FrameType = CanAnyFrame;
 
     fn open_if(if_index: c_uint) -> Result<Self, CanSocketOpenError> {
@@ -731,12 +731,12 @@ impl CanSocket for CanFdSocket {
             read(self.fd, frame_ptr as *mut c_void, size_of::<CanFdFrame>())
         };
         match read_rv as usize {
-            CAN_MTU => CanNormalFrame::try_from(frame)
+            CAN_MTU => CanFrame::try_from(frame)
                 .map(|frame| frame.into())
                 .map_err(|_| {
                     io::Error::new(
                         io::ErrorKind::Other,
-                        "BUG in read_frame: cannot convert to CanNormalFrame",
+                        "BUG in read_frame: cannot convert to CanFrame",
                     )
                 }),
 
@@ -747,25 +747,25 @@ impl CanSocket for CanFdSocket {
     }
 }
 
-impl AsRawFd for CanNormalSocket {
+impl AsRawFd for CanSocket {
     fn as_raw_fd(&self) -> RawFd {
         self.fd
     }
 }
 
-impl FromRawFd for CanNormalSocket {
-    unsafe fn from_raw_fd(fd: RawFd) -> CanNormalSocket {
-        CanNormalSocket { fd: fd }
+impl FromRawFd for CanSocket {
+    unsafe fn from_raw_fd(fd: RawFd) -> CanSocket {
+        CanSocket { fd: fd }
     }
 }
 
-impl IntoRawFd for CanNormalSocket {
+impl IntoRawFd for CanSocket {
     fn into_raw_fd(self) -> RawFd {
         self.fd
     }
 }
 
-impl Drop for CanNormalSocket {
+impl Drop for CanSocket {
     fn drop(&mut self) {
         self.close().ok(); // ignore result
     }

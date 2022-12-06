@@ -1,5 +1,5 @@
 use socketcan::{
-    CanNormalFrame as CanFrame, CanNormalSocket as CanSocket, CanSocket as CanSocketT, ShouldRetry,
+    CanFrame, CanSocket, Socket, ShouldRetry,
     frame::{ERR_MASK_ALL, ERR_MASK_NONE},
 };
 use std::time;

@@ -114,7 +114,7 @@ pub trait Frame: EmbeddedFrame {
 // ===== CanAnyFrame =====
 
 pub enum CanAnyFrame {
-    Normal(CanNormalFrame),
+    Normal(CanFrame),
     Fd(CanFdFrame),
 }
 
@@ -132,13 +132,13 @@ impl fmt::Debug for CanAnyFrame {
     }
 }
 
-// ===== CanNormalFrame =====
+// ===== CanFrame =====
 
 /// Uses the same memory layout as the underlying kernel struct for performance
 /// reasons.
 #[derive(Debug, Copy, Clone)]
 #[repr(C, align(8))]
-pub struct CanNormalFrame {
+pub struct CanFrame {
     /// 32 bit CAN_ID + EFF/RTR/ERR flags
     _id: u32,
 
@@ -158,7 +158,7 @@ pub struct CanNormalFrame {
     _data: [u8; CAN_DATA_LEN_MAX],
 }
 
-impl CanNormalFrame {
+impl CanFrame {
     pub fn init(
         id: u32,
         data: &[u8],
@@ -186,7 +186,7 @@ impl CanNormalFrame {
     }
 }
 
-impl EmbeddedFrame for CanNormalFrame {
+impl EmbeddedFrame for CanFrame {
     /// Create a new frame
     fn new(id: impl Into<Id>, data: &[u8]) -> Option<Self> {
         let id = id.into();
@@ -231,19 +231,19 @@ impl EmbeddedFrame for CanNormalFrame {
     }
 }
 
-impl Frame for CanNormalFrame {
+impl Frame for CanFrame {
     fn id_word(&self) -> u32 {
         self._id
     }
 }
 
-impl Default for CanNormalFrame {
+impl Default for CanFrame {
     fn default() -> Self {
         unsafe { mem::zeroed() }
     }
 }
 
-impl TryFrom<CanFdFrame> for CanNormalFrame {
+impl TryFrom<CanFdFrame> for CanFrame {
     type Error = ConstructionError;
 
     fn try_from(frame: CanFdFrame) -> Result<Self, Self::Error> {
@@ -251,7 +251,7 @@ impl TryFrom<CanFdFrame> for CanNormalFrame {
             return Err(ConstructionError::TooMuchData);
         }
 
-        CanNormalFrame::init(
+        CanFrame::init(
             frame.raw_id(),
             &frame.data()[..(frame._data_len as usize)],
             frame.is_extended(),
@@ -403,8 +403,8 @@ impl Default for CanFdFrame {
     }
 }
 
-impl From<CanNormalFrame> for CanFdFrame {
-    fn from(frame: CanNormalFrame) -> Self {
+impl From<CanFrame> for CanFdFrame {
+    fn from(frame: CanFrame) -> Self {
         CanFdFrame {
             _id: frame._id,
             _data_len: frame.data().len() as u8,
@@ -416,8 +416,8 @@ impl From<CanNormalFrame> for CanFdFrame {
     }
 }
 
-impl From<CanNormalFrame> for CanAnyFrame {
-    fn from(frame: CanNormalFrame) -> Self {
+impl From<CanFrame> for CanAnyFrame {
+    fn from(frame: CanFrame) -> Self {
         CanAnyFrame::Normal(frame)
     }
 }
@@ -437,7 +437,7 @@ fn slice_to_array<const S: usize>(data: &[u8]) -> [u8; S] {
     array
 }
 
-impl fmt::UpperHex for CanNormalFrame {
+impl fmt::UpperHex for CanFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(f, "{:X}{}", self._id, "#")?;
         let mut parts = self.data().iter().map(|v| format!("{:02X}", v));

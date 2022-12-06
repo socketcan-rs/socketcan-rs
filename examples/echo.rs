@@ -9,9 +9,7 @@ use anyhow::Context;
 use clap::Parser;
 
 use embedded_hal::can::{blocking::Can, Frame as EmbeddedFrame, Id, StandardId};
-use socketcan::{
-    CanNormalFrame as CanFrame, CanNormalSocket as CanSocket, CanSocket as CanSocketT, Frame,
-};
+use socketcan::{CanFrame, CanSocket, Socket, Frame};
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
