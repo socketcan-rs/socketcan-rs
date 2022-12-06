@@ -19,39 +19,30 @@ use std::{convert::TryFrom, fmt, mem};
 
 use itertools::Itertools;
 
-/// if set, indicate 29 bit extended format
-pub const EFF_FLAG: u32 = 0x80000000;
-
-/// remote transmission request flag
-pub const RTR_FLAG: u32 = 0x40000000;
-
-/// error flag
-pub const ERR_FLAG: u32 = 0x20000000;
-
-/// valid bits in standard frame id
-pub const SFF_MASK: u32 = 0x000007ff;
-
-/// valid bits in extended frame id
-pub const EFF_MASK: u32 = 0x1fffffff;
-
-/// valid bits in error frame
-pub const ERR_MASK: u32 = 0x1fffffff;
+pub use libc::{
+    CAN_EFF_FLAG,
+    CAN_RTR_FLAG,
+    CAN_ERR_FLAG,
+    CAN_SFF_MASK,
+    CAN_EFF_MASK,
+    CAN_ERR_MASK,
+    CAN_MAX_DLEN,
+    CANFD_MAX_DLEN,
+};
 
 /// an error mask that will cause SocketCAN to report all errors
-pub const ERR_MASK_ALL: u32 = ERR_MASK;
+pub const ERR_MASK_ALL: u32 = CAN_ERR_MASK;
 
 /// an error mask that will cause SocketCAN to silently drop all errors
 pub const ERR_MASK_NONE: u32 = 0;
 
-/// 'legacy' CAN frame
-pub const CAN_DATA_LEN_MAX: usize = 8;
+// CAN FD flags
 
-/// CAN FD frame
-pub const CANFD_DATA_LEN_MAX: usize = 64;
+/// bit rate switch (second bitrate for payload data)
+pub const CANFD_BRS: u8 = libc::CANFD_BRS as u8;
 
-/// CAN FD flags
-pub const CANFD_BRS: u8 = 0x01; /* bit rate switch (second bitrate for payload data) */
-pub const CANFD_ESI: u8 = 0x02; /* error state indicator of the transmitting node */
+/// Error state indicator of the transmitting node
+pub const CANFD_ESI: u8 = libc::CANFD_ESI as u8;
 
 /// Creates a composite 32-bit CAN ID word for SocketCAN.
 ///
@@ -59,20 +50,20 @@ pub const CANFD_ESI: u8 = 0x02; /* error state indicator of the transmitting nod
 fn init_id_word(id: canid_t, ext_id: bool, rtr: bool, err: bool) -> Result<canid_t, ConstructionError> {
     let mut _id = id;
 
-    if id > EFF_MASK {
+    if id > CAN_EFF_MASK {
         return Err(ConstructionError::IDTooLarge);
     }
 
-    if ext_id || id > SFF_MASK {
-        _id |= EFF_FLAG;
+    if ext_id || id > CAN_SFF_MASK {
+        _id |= CAN_EFF_FLAG;
     }
 
     if rtr {
-        _id |= RTR_FLAG;
+        _id |= CAN_RTR_FLAG;
     }
 
     if err {
-        _id |= ERR_FLAG;
+        _id |= CAN_ERR_FLAG;
     }
 
     Ok(_id)
@@ -102,15 +93,15 @@ pub trait Frame: EmbeddedFrame {
     /// Return the actual raw CAN ID (without EFF/RTR/ERR flags)
     fn raw_id(&self) -> u32 {
         // TODO: Standard use SFF mask, or is this OK?
-        self.id_word() & EFF_MASK
+        self.id_word() & CAN_EFF_MASK
     }
 
     /// Return the CAN ID as the embedded HAL Id type.
     fn hal_id(&self) -> Id {
         if self.is_extended() {
-            Id::Extended(ExtendedId::new(self.id_word() & EFF_MASK).unwrap())
+            Id::Extended(ExtendedId::new(self.id_word() & CAN_EFF_MASK).unwrap())
         } else {
-            Id::Standard(StandardId::new((self.id_word() & SFF_MASK) as u16).unwrap())
+            Id::Standard(StandardId::new((self.id_word() & CAN_SFF_MASK) as u16).unwrap())
         }
     }
 
@@ -121,12 +112,12 @@ pub trait Frame: EmbeddedFrame {
 
     /// Return the error message
     fn err(&self) -> u32 {
-        self.id_word() & ERR_MASK
+        self.id_word() & CAN_ERR_MASK
     }
 
     /// Check if frame is an error message
     fn is_error(&self) -> bool {
-        self.id_word() & ERR_FLAG != 0
+        self.id_word() & CAN_ERR_FLAG != 0
     }
 
     fn error(&self) -> Result<CanError, CanErrorDecodingFailure>
@@ -202,7 +193,7 @@ impl CanFrame {
     ) -> Result<Self, ConstructionError> {
         let n = data.len();
 
-        if n > CAN_DATA_LEN_MAX {
+        if n > CAN_MAX_DLEN {
             return Err(ConstructionError::TooMuchData);
         }
 
@@ -247,12 +238,12 @@ impl EmbeddedFrame for CanFrame {
 
     /// Check if frame uses 29 bit extended frame format
     fn is_extended(&self) -> bool {
-        self.0.can_id & EFF_FLAG != 0
+        self.0.can_id & CAN_EFF_FLAG != 0
     }
 
     /// Check if frame is a remote transmission request.
     fn is_remote_frame(&self) -> bool {
-        self.0.can_id & RTR_FLAG != 0
+        self.0.can_id & CAN_RTR_FLAG != 0
     }
 
     /// Return the frame identifier.
@@ -306,7 +297,7 @@ impl TryFrom<CanFdFrame> for CanFrame {
     type Error = ConstructionError;
 
     fn try_from(frame: CanFdFrame) -> Result<Self, Self::Error> {
-        if frame.0.len > CAN_DATA_LEN_MAX as u8 {
+        if frame.0.len > CAN_MAX_DLEN as u8 {
             return Err(ConstructionError::TooMuchData);
         }
 
@@ -346,7 +337,7 @@ impl CanFdFrame {
     ) -> Result<Self, ConstructionError> {
         let n = data.len();
 
-        if n > CAN_DATA_LEN_MAX {
+        if n > CAN_MAX_DLEN {
             return Err(ConstructionError::TooMuchData);
         }
 
@@ -420,7 +411,7 @@ impl EmbeddedFrame for CanFdFrame {
 
     /// Check if frame uses 29 bit extended frame format
     fn is_extended(&self) -> bool {
-        self.0.can_id & EFF_FLAG != 0
+        self.0.can_id & CAN_EFF_FLAG != 0
     }
 
     /// The FD frames don't support remote request
@@ -483,7 +474,7 @@ impl From<CanFrame> for CanFdFrame {
         // TODO: force rtr off?
         fdframe.0.can_id = frame.0.can_id;
         fdframe.0.len = frame.0.can_dlc as u8;
-        fdframe.0.data = slice_to_array::<CANFD_DATA_LEN_MAX>(frame.data());
+        fdframe.0.data = slice_to_array::<CANFD_MAX_DLEN>(frame.data());
         fdframe
     }
 }

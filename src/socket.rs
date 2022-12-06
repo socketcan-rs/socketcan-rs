@@ -13,7 +13,7 @@
 
 use crate::{
     err::CanSocketOpenError,
-    frame::ERR_MASK,
+    frame::CAN_ERR_MASK,
     util::{set_socket_option, set_socket_option_mult},
     CanAnyFrame, CanFdFrame, CanFrame,
 };
@@ -33,25 +33,21 @@ use std::{
     time,
 };
 
-// constants stolen from C headers
-const AF_CAN: c_int = 29;
-const PF_CAN: c_int = 29;
-const CAN_RAW: c_int = 1;
-const SOL_CAN_BASE: c_int = 100;
-const SOL_CAN_RAW: c_int = SOL_CAN_BASE + CAN_RAW;
-
-const CAN_RAW_FILTER: c_int = 1;
-const CAN_RAW_ERR_FILTER: c_int = 2;
-const CAN_RAW_LOOPBACK: c_int = 3;
-const CAN_RAW_RECV_OWN_MSGS: c_int = 4;
-const CAN_RAW_FD_FRAMES: c_int = 5;
-const CAN_RAW_JOIN_FILTERS: c_int = 6;
-
-// CAN normal frame
-pub const CAN_MTU: usize = 16;
-
-/// CAN FD frame
-pub const CANFD_MTU: usize = 72;
+pub use libc::{
+    AF_CAN,
+    PF_CAN,
+    CAN_RAW,
+    SOL_CAN_BASE,
+    SOL_CAN_RAW,
+    CAN_RAW_FILTER,
+    CAN_RAW_ERR_FILTER,
+    CAN_RAW_LOOPBACK,
+    CAN_RAW_RECV_OWN_MSGS,
+    CAN_RAW_FD_FRAMES,
+    CAN_RAW_JOIN_FILTERS,
+    CAN_MTU,
+    CANFD_MTU,
+};
 
 /// Check an error return value for timeouts.
 ///
@@ -633,7 +629,7 @@ pub trait Socket: AsRawFd {
 
     #[inline(always)]
     fn error_filter_accept_all(&self) -> io::Result<()> {
-        self.set_error_filter(ERR_MASK)
+        self.set_error_filter(CAN_ERR_MASK)
     }
 
     /// Sets the error mask on the socket.
