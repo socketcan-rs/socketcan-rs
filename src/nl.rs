@@ -12,21 +12,21 @@
 
 use neli::{
     consts::{
-        nl::{NlmF, NlmFFlags, NlType},
+        nl::{NlType, NlmF, NlmFFlags},
         rtnl::{Arphrd, RtAddrFamily, Rtm},
         socket::NlFamily,
     },
     err::NlError,
-    nl::{Nlmsghdr, NlPayload},
+    nl::{NlPayload, Nlmsghdr},
     rtnl::Ifinfomsg,
-    ToBytes,
-    types::RtBuffer,
     socket::NlSocketHandle,
+    types::RtBuffer,
+    ToBytes,
 };
-use nix::{self, unistd, net::if_::if_nametoindex};
+use nix::{self, net::if_::if_nametoindex, unistd};
 use std::{
-    os::raw::{c_int, c_uint},
     fmt::Debug,
+    os::raw::{c_int, c_uint},
 };
 
 /// A result for Netlink errors.
@@ -54,7 +54,9 @@ impl CanInterface {
     /// Creates a new `CanInterface` instance. No actual "opening" is necessary
     /// or performed when calling this function.
     pub fn open_iface(if_index: u32) -> Self {
-        Self { if_index: if_index as c_uint }
+        Self {
+            if_index: if_index as c_uint,
+        }
     }
 
     /// Sends an info message
@@ -73,7 +75,6 @@ impl CanInterface {
         // send the message
         Self::send_and_read_ack(&mut nl, hdr)
     }
-
 
     /// Sends a netlink message down a netlink socket, and checks if an ACK was
     /// properly received.
@@ -107,7 +108,7 @@ impl CanInterface {
             RtAddrFamily::Unspecified,
             Arphrd::Netrom,
             self.if_index as c_int,
-            RtBuffer::new()
+            RtBuffer::new(),
         );
         Self::send_info_msg(info)
     }
@@ -120,7 +121,7 @@ impl CanInterface {
             RtAddrFamily::Unspecified,
             Arphrd::Netrom,
             self.if_index as c_int,
-            RtBuffer::new()
+            RtBuffer::new(),
         );
         Self::send_info_msg(info)
     }

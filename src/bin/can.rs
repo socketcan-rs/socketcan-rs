@@ -4,12 +4,7 @@
 //! command line, similar to 'can-utils'.
 
 use anyhow::{anyhow, Result};
-use clap::{
-    App,
-    Arg,
-    ArgMatches,
-    SubCommand,
-};
+use clap::{App, Arg, ArgMatches, SubCommand};
 use socketcan::CanInterface;
 use std::process;
 
@@ -26,16 +21,10 @@ fn iface_cmd(iface_name: &str, opts: &ArgMatches) -> Result<()> {
     let iface = CanInterface::open(iface_name)?;
 
     match opts.subcommand_name() {
-        Some("up") => {
-            iface.bring_up()
-        },
-        Some("down") => {
-            iface.bring_down()
-        },
-        Some("bitrate") => {
-            return Err(anyhow!("Unimplemented"))
-        },
-        _ => return Err(anyhow!("Unknown 'iface' subcommand"))
+        Some("up") => iface.bring_up(),
+        Some("down") => iface.bring_down(),
+        Some("bitrate") => return Err(anyhow!("Unimplemented")),
+        _ => return Err(anyhow!("Unknown 'iface' subcommand")),
     }?;
     Ok(())
 }
@@ -55,27 +44,21 @@ fn main() {
         .version(VERSION)
         .about("Command line tool to interact with the CAN bus on Linux")
         .help_short("?")
-        .arg(Arg::with_name("iface")
-            .help("The CAN interface to use, like 'can0', 'vcan0', etc")
-            .required(true)
-            .index(1))
+        .arg(
+            Arg::with_name("iface")
+                .help("The CAN interface to use, like 'can0', 'vcan0', etc")
+                .required(true)
+                .index(1),
+        )
         .subcommand(
             SubCommand::with_name("iface")
                 .help_short("?")
                 .about("Get/set parameters on the CAN interface")
+                .subcommand(SubCommand::with_name("up").about("Bring the interface up"))
+                .subcommand(SubCommand::with_name("down").about("Bring the interface down"))
                 .subcommand(
-                    SubCommand::with_name("up")
-                        .about("Bring the interface up")
-                )
-                .subcommand(
-                    SubCommand::with_name("down")
-                        .about("Bring the interface down")
-                )
-                .subcommand(
-                    SubCommand::with_name("bitrate")
-                        .about("Set the bit rate on the interface.")
-                )
-
+                    SubCommand::with_name("bitrate").about("Set the bit rate on the interface."),
+                ),
         )
         .get_matches();
 
@@ -83,8 +66,7 @@ fn main() {
 
     let res = if let Some(sub_opts) = opts.subcommand_matches("iface") {
         iface_cmd(&iface_name, &sub_opts)
-    }
-    else {
+    } else {
         Err(anyhow!("Need to specify a subcommand (-? for help)."))
     };
 
@@ -93,4 +75,3 @@ fn main() {
         process::exit(1);
     }
 }
-

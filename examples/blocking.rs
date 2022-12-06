@@ -8,10 +8,10 @@
 use anyhow::Context;
 use clap::Parser;
 
-
-use socketcan::{Frame, CanSocket as CanSocketT, CanNormalSocket as CanSocket, CanNormalFrame as CanFrame};
 use embedded_hal::can::{blocking::Can, Frame as EmbeddedFrame, Id, StandardId};
-
+use socketcan::{
+    CanNormalFrame as CanFrame, CanNormalSocket as CanSocket, CanSocket as CanSocketT, Frame,
+};
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -21,9 +21,7 @@ struct Args {
     interface: String,
 }
 
-
 fn main() -> anyhow::Result<()> {
-
     let args = Args::parse();
     let can_interface = args.interface;
 
@@ -36,19 +34,22 @@ fn main() -> anyhow::Result<()> {
         println!("{}", frame_to_string(&frame));
     }
 
-    let write_frame = CanFrame::new(
-        StandardId::new(0x1f1).unwrap(),
-        &[1, 2, 3, 4]
-    ).expect("Failed to create CAN frame");
+    let write_frame = CanFrame::new(StandardId::new(0x1f1).unwrap(), &[1, 2, 3, 4])
+        .expect("Failed to create CAN frame");
 
-    socket.transmit(&write_frame).expect("Failed to transmit frame");
+    socket
+        .transmit(&write_frame)
+        .expect("Failed to transmit frame");
 
     Ok(())
 }
 
 fn frame_to_string<F: Frame>(f: &F) -> String {
     let id = get_raw_id(&f.id());
-    let data_string = f.data().iter().fold(String::from(""), |a, b| format!("{} {:02x}", a, b));
+    let data_string = f
+        .data()
+        .iter()
+        .fold(String::from(""), |a, b| format!("{} {:02x}", a, b));
 
     format!("{:08X}  [{}] {}", id, f.dlc(), data_string)
 }

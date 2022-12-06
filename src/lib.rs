@@ -65,13 +65,12 @@ mod err;
 pub use err::{CanError, CanErrorDecodingFailure, CanSocketOpenError, ConstructionError};
 
 mod frame;
-pub use frame::{Frame, CanNormalFrame, CanFdFrame, CanAnyFrame};
+pub use frame::{CanAnyFrame, CanFdFrame, CanNormalFrame, Frame};
 
 pub mod dump;
 
 mod socket;
-pub use socket::{CanSocket, CanNormalSocket, CanFdSocket, CanFilter, ShouldRetry};
-
+pub use socket::{CanFdSocket, CanFilter, CanNormalSocket, CanSocket, ShouldRetry};
 
 mod util;
 
@@ -95,11 +94,11 @@ impl embedded_hal::can::blocking::Can for CanNormalSocket {
                 } else {
                     Err(frame.error().unwrap_or(CanError::Unknown(0)))
                 }
-            },
+            }
             Err(e) => {
                 let code = e.raw_os_error().unwrap_or(0);
                 Err(CanError::Unknown(code as u32))
-            },
+            }
         }
     }
 
@@ -109,7 +108,7 @@ impl embedded_hal::can::blocking::Can for CanNormalSocket {
             Err(e) => {
                 let code = e.raw_os_error().unwrap_or(0);
                 Err(CanError::Unknown(code as u32))
-            },
+            }
         }
     }
 }
@@ -127,7 +126,7 @@ impl embedded_hal::can::nb::Can for CanNormalSocket {
                     let can_error = frame.error().unwrap_or(CanError::Unknown(0));
                     Err(nb::Error::Other(can_error))
                 }
-            },
+            }
             Err(e) => {
                 let e = match e.kind() {
                     ErrorKind::WouldBlock => nb::Error::WouldBlock,
@@ -158,4 +157,3 @@ impl embedded_hal::can::nb::Can for CanNormalSocket {
         }
     }
 }
-

@@ -12,9 +12,12 @@
 //! Can be parsed by a `Reader` object. The API is inspired by the
 //! [csv](https://crates.io/crates/csv) crate.
 
-use std::{fs, io, path};
+use crate::{
+    frame::{CANFD_BRS, CANFD_ESI},
+    CanFdFrame, CanNormalFrame,
+};
 use hex::FromHex;
-use crate::{CanNormalFrame, CanFdFrame, frame::{CANFD_BRS, CANFD_ESI}};
+use std::{fs, io, path};
 
 // cannot be generic, because from_str_radix is not part of any Trait
 fn parse_raw(bytes: &[u8], radix: u32) -> Option<u64> {
@@ -110,7 +113,8 @@ impl<R: io::BufRead> Reader<R> {
         let inner = &f[1..f.len() - 1];
 
         // split at dot, read both parts
-        let dot = inner.iter()
+        let dot = inner
+            .iter()
             .position(|&c| c == b'.')
             .ok_or(ParseError::InvalidTimestamp)?;
 
@@ -129,8 +133,10 @@ impl<R: io::BufRead> Reader<R> {
         // parse packet
         let can_raw = field_iter.next().ok_or(ParseError::UnexpectedEndOfLine)?;
 
-        let sep_idx =
-            can_raw.iter().position(|&c| c == b'#').ok_or(ParseError::InvalidCanFrame)?;
+        let sep_idx = can_raw
+            .iter()
+            .position(|&c| c == b'#')
+            .ok_or(ParseError::InvalidCanFrame)?;
         let (can_id, mut can_data) = can_raw.split_at(sep_idx);
 
         // determine frame type (FD or classical) and skip separator(s)
@@ -160,20 +166,20 @@ impl<R: io::BufRead> Reader<R> {
             CanFdFrame::init(
                 parse_raw(can_id, 16).ok_or(ParseError::InvalidCanFrame)? as u32,
                 &data,
-                false,  // TODO: is extended?
+                false, // TODO: is extended?
                 // FIXME: how are error frames saved?
                 false,
                 fd_flags & CANFD_BRS == CANFD_BRS,
-                fd_flags & CANFD_ESI == CANFD_ESI
+                fd_flags & CANFD_ESI == CANFD_ESI,
             )
             .map(|frame| super::CanAnyFrame::Fd(frame))
         } else {
             CanNormalFrame::init(
                 parse_raw(can_id, 16).ok_or(ParseError::InvalidCanFrame)? as u32,
                 &data,
-                false,  // TODO: is extended?
+                false, // TODO: is extended?
                 rtr,
-                false
+                false,
             )
             .map(|frame| super::CanAnyFrame::Normal(frame))
         }?;
@@ -202,7 +208,7 @@ impl<'a, R: io::Read> Iterator for CanDumpRecords<'a, io::BufReader<R>> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{Frame, CanAnyFrame, CanNormalFrame as CanFrame, util::hal_id_to_raw};
+    use crate::{util::hal_id_to_raw, CanAnyFrame, CanNormalFrame as CanFrame, Frame};
     use embedded_hal::can::Frame as EmbeddedFrame;
 
     #[test]
@@ -224,8 +230,7 @@ mod test {
                 assert_eq!(frame.is_error(), false);
                 assert_eq!(frame.is_extended(), false);
                 assert_eq!(frame.data(), &[]);
-            }
-            else {
+            } else {
                 panic!("Expected Normal frame, got FD");
             }
         }
@@ -241,8 +246,7 @@ mod test {
                 assert_eq!(frame.is_error(), false);
                 assert_eq!(frame.is_extended(), false);
                 assert_eq!(frame.data(), &[0x7F]);
-            }
-            else {
+            } else {
                 panic!("Expected Normal frame, got FD");
             }
         }
@@ -270,8 +274,7 @@ mod test {
                 assert_eq!(frame.is_brs(), false);
                 assert_eq!(frame.is_esi(), false);
                 assert_eq!(frame.data(), &[]);
-            }
-            else {
+            } else {
                 panic!("Expected FD frame, got Normal");
             }
         }
@@ -288,8 +291,7 @@ mod test {
                 assert_eq!(frame.is_brs(), true);
                 assert_eq!(frame.is_esi(), false);
                 assert_eq!(frame.data(), &[0x7F]);
-            }
-            else {
+            } else {
                 panic!("Expected FD frame, got Normal");
             }
         }

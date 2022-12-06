@@ -8,12 +8,13 @@
 use anyhow::Context;
 use clap::Parser;
 
-use socketcan::{Frame, CanSocket as CanSocketT, CanNormalSocket as CanSocket, CanNormalFrame as CanFrame};
 use embedded_hal::can::{blocking::Can, Frame as EmbeddedFrame, Id, StandardId};
+use socketcan::{
+    CanNormalFrame as CanFrame, CanNormalSocket as CanSocket, CanSocket as CanSocketT, Frame,
+};
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -23,21 +24,21 @@ struct Args {
     interface: String,
 }
 
-
 fn main() -> anyhow::Result<()> {
-
     let args = Args::parse();
     let can_interface = args.interface;
 
     let mut socket = CanSocket::open(&can_interface)
         .with_context(|| format!("Failed to open socket on interface {}", can_interface))?;
-    socket.set_nonblocking(true).with_context(|| format!("Failed to make socket non-blocking"))?;
+    socket
+        .set_nonblocking(true)
+        .with_context(|| format!("Failed to make socket non-blocking"))?;
 
     let shutdown = AtomicBool::new(false);
     let shutdown = Arc::new(shutdown);
     let signal_shutdown = shutdown.clone();
 
-    ctrlc::set_handler(move ||{
+    ctrlc::set_handler(move || {
         signal_shutdown.store(true, Ordering::Relaxed);
     })
     .expect("Failed to set signal handler");
@@ -51,10 +52,12 @@ fn main() -> anyhow::Result<()> {
                 let new_id = StandardId::new(new_id as u16).expect("Failed to create ID");
 
                 if let Some(echo_frame) = CanFrame::new(new_id, frame.data()) {
-                    socket.transmit(&echo_frame).expect("Failed to echo recieved frame");
+                    socket
+                        .transmit(&echo_frame)
+                        .expect("Failed to echo recieved frame");
                 }
-            },
-            Err(_) => {},
+            }
+            Err(_) => {}
         }
     }
 
@@ -64,7 +67,10 @@ fn main() -> anyhow::Result<()> {
 fn frame_to_string<F: Frame>(f: &F) -> String {
     let id = get_raw_id(&f.id());
 
-    let data_string = f.data().iter().fold(String::from(""), |a, b| format!("{} {:02x}", a, b));
+    let data_string = f
+        .data()
+        .iter()
+        .fold(String::from(""), |a, b| format!("{} {:02x}", a, b));
 
     format!("{:08X}  [{}] {}", id, f.dlc(), data_string)
 }

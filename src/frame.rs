@@ -1,11 +1,10 @@
-use crate::err::{ConstructionError, CanError, CanErrorDecodingFailure};
-use embedded_hal::can::{Frame as EmbeddedFrame, Id, StandardId, ExtendedId};
+use crate::err::{CanError, CanErrorDecodingFailure, ConstructionError};
 use crate::util::hal_id_to_raw;
+use embedded_hal::can::{ExtendedId, Frame as EmbeddedFrame, Id, StandardId};
 
-use std::{fmt, convert::TryFrom, mem};
+use std::{convert::TryFrom, fmt, mem};
 
 use itertools::Itertools;
-
 
 /// if set, indicate 29 bit extended format
 pub const EFF_FLAG: u32 = 0x80000000;
@@ -34,7 +33,6 @@ pub const CANFD_DATA_LEN_MAX: usize = 64;
 /// CAN FD flags
 pub const CANFD_BRS: u8 = 0x01; /* bit rate switch (second bitrate for payload data) */
 pub const CANFD_ESI: u8 = 0x02; /* error state indicator of the transmitting node */
-
 
 fn init_raw_id(id: u32, ext_id: bool, rtr: bool, err: bool) -> Result<u32, ConstructionError> {
     let mut _id = id;
@@ -78,13 +76,9 @@ pub trait Frame: EmbeddedFrame {
     /// Return the CAN ID as the embedded HAL Id type.
     fn hal_id(&self) -> Id {
         if self.is_extended() {
-            Id::Extended(
-                ExtendedId::new(self.id_word() & EFF_MASK).unwrap()
-            )
+            Id::Extended(ExtendedId::new(self.id_word() & EFF_MASK).unwrap())
         } else {
-            Id::Standard(
-                StandardId::new((self.id_word() & SFF_MASK) as u16).unwrap()
-            )
+            Id::Standard(StandardId::new((self.id_word() & SFF_MASK) as u16).unwrap())
         }
     }
 
@@ -103,7 +97,10 @@ pub trait Frame: EmbeddedFrame {
         self.id_word() & ERR_FLAG != 0
     }
 
-    fn error(&self) -> Result<CanError, CanErrorDecodingFailure> where Self: Sized {
+    fn error(&self) -> Result<CanError, CanErrorDecodingFailure>
+    where
+        Self: Sized,
+    {
         CanError::from_frame(self)
     }
 }
@@ -119,11 +116,11 @@ impl fmt::Debug for CanAnyFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Normal(frame) => {
-                write!(f, "CAN Frame {:?}", frame )
+                write!(f, "CAN Frame {:?}", frame)
             }
 
             Self::Fd(frame) => {
-                write!(f, "CAN FD Frame {:?}", frame )
+                write!(f, "CAN FD Frame {:?}", frame)
             }
         }
     }
@@ -155,9 +152,14 @@ pub struct CanNormalFrame {
     _data: [u8; CAN_DATA_LEN_MAX],
 }
 
-
 impl CanNormalFrame {
-    pub fn init(id: u32, data: &[u8], ext_id: bool, rtr: bool, err: bool) -> Result<Self, ConstructionError> {
+    pub fn init(
+        id: u32,
+        data: &[u8],
+        ext_id: bool,
+        rtr: bool,
+        err: bool,
+    ) -> Result<Self, ConstructionError> {
         let n = data.len();
 
         if n > CAN_DATA_LEN_MAX {
@@ -240,7 +242,7 @@ impl TryFrom<CanFdFrame> for CanNormalFrame {
 
     fn try_from(frame: CanFdFrame) -> Result<Self, Self::Error> {
         if frame._data_len > CAN_DATA_LEN_MAX as u8 {
-            return Err(ConstructionError::TooMuchData)
+            return Err(ConstructionError::TooMuchData);
         }
 
         CanNormalFrame::init(
@@ -248,7 +250,7 @@ impl TryFrom<CanFdFrame> for CanNormalFrame {
             &frame.data()[..(frame._data_len as usize)],
             frame.is_extended(),
             false,
-            frame.is_error()
+            frame.is_error(),
         )
     }
 }
@@ -276,12 +278,18 @@ pub struct CanFdFrame {
     _res1: u8,
 
     /// buffer for data
-    _data: [u8; CANFD_DATA_LEN_MAX]
+    _data: [u8; CANFD_DATA_LEN_MAX],
 }
 
-
 impl CanFdFrame {
-    pub fn init(id: u32, data: &[u8], ext_id: bool, err: bool, brs: bool, esi: bool) -> Result<Self, ConstructionError> {
+    pub fn init(
+        id: u32,
+        data: &[u8],
+        ext_id: bool,
+        err: bool,
+        brs: bool,
+        esi: bool,
+    ) -> Result<Self, ConstructionError> {
         let n = data.len();
 
         if n > CAN_DATA_LEN_MAX {
@@ -383,7 +391,6 @@ impl Frame for CanFdFrame {
     }
 }
 
-
 impl Default for CanFdFrame {
     fn default() -> Self {
         unsafe { mem::zeroed() }
@@ -415,9 +422,8 @@ impl From<CanFdFrame> for CanAnyFrame {
     }
 }
 
-
-fn slice_to_array<const S: usize>(data: &[u8]) -> [u8;S] {
-    let mut array = [0;S];
+fn slice_to_array<const S: usize>(data: &[u8]) -> [u8; S] {
+    let mut array = [0; S];
 
     for (i, b) in data.iter().enumerate() {
         array[i] = *b;
@@ -452,4 +458,3 @@ impl fmt::UpperHex for CanAnyFrame {
         }
     }
 }
-

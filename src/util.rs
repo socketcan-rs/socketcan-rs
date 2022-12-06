@@ -1,13 +1,17 @@
+use embedded_hal::can::Id;
 use libc::{
-    c_int, c_void, setsockopt, socklen_t,
+    c_int,
+    c_void,
+    setsockopt,
+    socklen_t,
     //timespec, timeval, time_t, suseconds_t
 };
 use std::{
-    io, ptr,
+    io,
     mem::size_of,
     //time::{Duration, SystemTime, UNIX_EPOCH},
+    ptr,
 };
-use embedded_hal::can::Id;
 
 /// `setsockopt` wrapper
 ///
@@ -32,11 +36,13 @@ pub fn set_socket_option<T>(fd: c_int, level: c_int, name: c_int, val: &T) -> io
     let rv = unsafe {
         let val_ptr: *const T = val as *const T;
 
-        setsockopt(fd,
-                   level,
-                   name,
-                   val_ptr as *const c_void,
-                   size_of::<T>() as socklen_t)
+        setsockopt(
+            fd,
+            level,
+            name,
+            val_ptr as *const c_void,
+            size_of::<T>() as socklen_t,
+        )
     };
 
     if rv != 0 {
@@ -46,12 +52,12 @@ pub fn set_socket_option<T>(fd: c_int, level: c_int, name: c_int, val: &T) -> io
     Ok(())
 }
 
-pub fn set_socket_option_mult<T>(fd: c_int,
-                                 level: c_int,
-                                 name: c_int,
-                                 values: &[T])
-                                 -> io::Result<()> {
-
+pub fn set_socket_option_mult<T>(
+    fd: c_int,
+    level: c_int,
+    name: c_int,
+    values: &[T],
+) -> io::Result<()> {
     let rv = if values.is_empty() {
         // can't pass in a pointer to the first element if a 0-length slice,
         // pass a nullpointer instead
@@ -60,11 +66,13 @@ pub fn set_socket_option_mult<T>(fd: c_int,
         unsafe {
             let val_ptr = &values[0] as *const T;
 
-            setsockopt(fd,
-                       level,
-                       name,
-                       val_ptr as *const c_void,
-                       (size_of::<T>() * values.len()) as socklen_t)
+            setsockopt(
+                fd,
+                level,
+                name,
+                val_ptr as *const c_void,
+                (size_of::<T>() * values.len()) as socklen_t,
+            )
         }
     };
 
