@@ -1,3 +1,16 @@
+// socketcan/src/errors.rs
+//
+// Implements errors for Rust SocketCAN library on Linux.
+//
+// This file is part of the Rust 'socketcan-rs' library.
+//
+// Licensed under the MIT license:
+//   <LICENSE or http://opensource.org/licenses/MIT>
+// This file may not be copied, modified, or distributed except according
+// to those terms.
+
+/// CAN bus errors.
+
 // information from https://raw.githubusercontent.com/torvalds/linux/master/
 //                  /include/uapi/linux/can/error.h
 

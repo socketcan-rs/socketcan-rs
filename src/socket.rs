@@ -10,24 +10,24 @@
 // to those terms.
 
 /// Implementation of sockets for CANbus 2.0 and FD for SocketCAN on Linux.
+
 use crate::{
-    err::CanSocketOpenError,
+    CanSocketOpenError,
     frame::CAN_ERR_MASK,
-    util::{set_socket_option, set_socket_option_mult},
     CanAnyFrame, CanFdFrame, CanFrame,
 };
 use libc::{
-    bind, canid_t, close, fcntl, read, setsockopt, sockaddr, socket, suseconds_t, time_t, timeval,
+    canid_t, fcntl, read, sa_family_t, setsockopt, sockaddr, sockaddr_can,
+    socklen_t, suseconds_t, time_t, timeval,
     write, EINPROGRESS, F_GETFL, F_SETFL, O_NONBLOCK, SOCK_RAW, SOL_SOCKET, SO_RCVTIMEO,
     SO_SNDTIMEO,
 };
 use nix::net::if_::if_nametoindex;
 use std::{
     convert::TryFrom,
-    fmt, io,
-    mem::size_of,
+    fmt, io, mem, ptr,
     os::{
-        raw::{c_int, c_short, c_uint, c_void},
+        raw::{c_int, c_uint, c_void},
         unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd},
     },
     time,
@@ -82,6 +82,61 @@ impl<E: fmt::Debug> ShouldRetry for io::Result<E> {
     }
 }
 
+// ===== CanAddr =====
+
+/// CAN socket address.
+///
+/// This is based on and compatible with the
+/// [ref](https://docs.rs/libc/latest/libc/struct.sockaddr_can.html)
+#[derive(Clone, Copy)]
+struct CanAddr(sockaddr_can);
+
+impl CanAddr {
+    /// Creates a new CAN socket address for the specified interface by index.
+    pub fn new(ifindex: c_uint) -> Self {
+        let mut addr = Self::default();
+        addr.0.can_ifindex = ifindex as c_int;
+        addr
+    }
+
+    /// Gets the address of the structure as a sockaddr_can.
+    pub fn as_ptr(&self) -> *const sockaddr_can {
+        &self.0
+    }
+}
+
+impl Default for CanAddr {
+    fn default() -> Self {
+        let mut addr: sockaddr_can = unsafe { mem::zeroed() };
+        addr.can_family = AF_CAN as sa_family_t;
+        Self(addr)
+    }
+}
+
+impl fmt::Debug for CanAddr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f, "CanAddr {{ can_family: {}, can_ifindex: {} }}",
+            self.0.can_family,
+            self.0.can_ifindex
+        )
+    }
+}
+
+impl From<sockaddr_can> for CanAddr {
+    fn from(addr: sockaddr_can) -> Self {
+        Self(addr)
+    }
+}
+
+impl AsRef<sockaddr_can> for CanAddr {
+    fn as_ref(&self) -> &sockaddr_can {
+        &self.0
+    }
+}
+
+// ===== Private local helper functions =====
+
 fn c_timeval_new(t: time::Duration) -> timeval {
     timeval {
         tv_sec: t.as_secs() as time_t,
@@ -89,323 +144,27 @@ fn c_timeval_new(t: time::Duration) -> timeval {
     }
 }
 
-#[derive(Debug)]
-#[repr(C)]
-struct CanAddr {
-    _af_can: c_short,
-    if_index: c_int, // address familiy,
-    rx_id: u32,
-    tx_id: u32,
-}
-
-/*
-/// A socket for a CAN device.
-///
-/// Will be closed upon deallocation. To close manually, use std::drop::Drop.
-/// Internally this is just a wrapped file-descriptor.
-#[derive(Debug)]
-pub struct CanSocket {
-    fd: c_int,
-}
-
-impl CanSocket {
-    /// Open a named CAN device.
-    ///
-    /// Usually the more common case, opens a socket can device by name, such
-    /// as "vcan0" or "socan0".
-    pub fn open(ifname: &str) -> Result<CanSocket, CanSocketOpenError> {
-        let if_index = if_nametoindex(ifname)?;
-        CanSocket::open_if(if_index)
-    }
-
-    /// Open CAN device by interface number.
-    ///
-    /// Opens a CAN device by kernel interface number.
-    pub fn open_if(if_index: c_uint) -> Result<CanSocket, CanSocketOpenError> {
-        let addr = CanAddr {
-            _af_can: AF_CAN as c_short,
-            if_index: if_index as c_int,
-            rx_id: 0, // ?
-            tx_id: 0, // ?
-        };
-
-        // open socket
-        let sock_fd;
-        unsafe {
-            sock_fd = socket(PF_CAN, SOCK_RAW, CAN_RAW);
-        }
-
-        if sock_fd == -1 {
-            return Err(CanSocketOpenError::from(io::Error::last_os_error()));
-        }
-
-        // bind it
-        let bind_rv;
-        unsafe {
-            let sockaddr_ptr = &addr as *const CanAddr;
-            bind_rv = bind(sock_fd,
-                           sockaddr_ptr as *const sockaddr,
-                           size_of::<CanAddr>() as u32);
-        }
-
-        // FIXME: on fail, close socket (do not leak socketfds)
-        if bind_rv == -1 {
-            let e = io::Error::last_os_error();
-            unsafe {
-                close(sock_fd);
-            }
-            return Err(CanSocketOpenError::from(e));
-        }
-
-        Ok(CanSocket { fd: sock_fd })
-    }
-
-    fn close(&mut self) -> io::Result<()> {
-        unsafe {
-            let rv = close(self.fd);
-            if rv != -1 {
-                return Err(io::Error::last_os_error());
-            }
-        }
-        Ok(())
-    }
-
-    /// Change socket to non-blocking mode
-    pub fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
-        // retrieve current flags
-        let oldfl = unsafe { fcntl(self.fd, F_GETFL) };
-
-        if oldfl == -1 {
-            return Err(io::Error::last_os_error());
-        }
-
-        let newfl = if nonblocking {
-            oldfl | O_NONBLOCK
-        } else {
-            oldfl & !O_NONBLOCK
-        };
-
-        let rv = unsafe { fcntl(self.fd, F_SETFL, newfl) };
-
-        if rv != 0 {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(())
-    }
-
-    /// Sets the read timeout on the socket
-    ///
-    /// For convenience, the result value can be checked using
-    /// `ShouldRetry::should_retry` when a timeout is set.
-    pub fn set_read_timeout(&self, duration: time::Duration) -> io::Result<()> {
-        set_socket_option(self.fd, SOL_SOCKET, SO_RCVTIMEO, &c_timeval_new(duration))
-    }
-
-    /// Sets the write timeout on the socket
-    pub fn set_write_timeout(&self, duration: time::Duration) -> io::Result<()> {
-        set_socket_option(self.fd, SOL_SOCKET, SO_SNDTIMEO, &c_timeval_new(duration))
-    }
-
-    /// Blocking read a single can frame.
-    pub fn read_frame(&self) -> io::Result<CanFrame> {
-        let mut frame = CanFrame::default();
-
-        let read_rv = unsafe {
-            let frame_ptr = &mut frame as *mut CanFrame;
-            read(self.fd, frame_ptr as *mut c_void, size_of::<CanFrame>())
-        };
-
-        if read_rv as usize != size_of::<CanFrame>() {
-            return Err(io::Error::last_os_error());
-        }
-
-        Ok(frame)
-    }
-
-    /// Blocking read a single can frame with timestamp
-    ///
-    /// Note that reading a frame and retrieving the timestamp requires two
-    /// consecutive syscalls. To avoid race conditions, exclusive access
-    /// to the socket is enforce through requiring a `mut &self`.
-    pub fn read_frame_with_timestamp(&mut self) -> io::Result<(CanFrame, time::SystemTime)> {
-        let frame = self.read_frame()?;
-
-        let mut ts = timespec { tv_sec: 0, tv_nsec: 0 };
-        let rval = unsafe {
-            libc::ioctl(self.fd, SIOCGSTAMPNS as c_ulong, &mut ts as *mut timespec)
-        };
-
-        if rval == -1 {
-            return Err(io::Error::last_os_error());
-        }
-
-        Ok((frame, system_time_from_timespec(ts)))
-    }
-
-    /// Write a single can frame.
-    ///
-    /// Note that this function can fail with an `EAGAIN` error or similar.
-    /// Use `write_frame_insist` if you need to be sure that the message got
-    /// sent or failed.
-    pub fn write_frame(&self, frame: &CanFrame) -> io::Result<()> {
-        // not a mutable reference needed (see std::net::UdpSocket) for
-        // a comparison
-        // debug!("Sending: {:?}", frame);
-
-        let write_rv = unsafe {
-            let frame_ptr = frame as *const CanFrame;
-            write(self.fd, frame_ptr as *const c_void, size_of::<CanFrame>())
-        };
-
-        if write_rv as usize != size_of::<CanFrame>() {
-            return Err(io::Error::last_os_error());
-        }
-
-        Ok(())
-    }
-
-    /// Blocking write a single can frame, retrying until it gets sent
-    /// successfully.
-    pub fn write_frame_insist(&self, frame: &CanFrame) -> io::Result<()> {
-        loop {
-            match self.write_frame(frame) {
-                Ok(v) => return Ok(v),
-                Err(e) => {
-                    if !e.should_retry() {
-                        return Err(e);
-                    }
-                }
-            }
-        }
-    }
-
-    /// Sets filters on the socket.
-    ///
-    /// CAN packages received by SocketCAN are matched against these filters,
-    /// only matching packets are returned by the interface.
-    ///
-    /// See `CanFilter` for details on how filtering works. By default, all
-    /// single filter matching all incoming frames is installed.
-    pub fn set_filters(&self, filters: &[CanFilter]) -> io::Result<()> {
-        set_socket_option_mult(self.fd, SOL_CAN_RAW, CAN_RAW_FILTER, filters)
-    }
-
-    /// Sets the error mask on the socket.
-    ///
-    /// By default (`ERR_MASK_NONE`) no error conditions are reported as
-    /// special error frames by the socket. Enabling error conditions by
-    /// setting `ERR_MASK_ALL` or another non-empty error mask causes the
-    /// socket to receive notification about the specified conditions.
-    #[inline]
-    pub fn set_error_mask(&self, mask: u32) -> io::Result<()> {
-        set_socket_option(self.fd, SOL_CAN_RAW, CAN_RAW_ERR_FILTER, &mask)
-    }
-
-    /// Enable or disable loopback.
-    ///
-    /// By default, loopback is enabled, causing other applications that open
-    /// the same CAN bus to see frames emitted by different applications on
-    /// the same system.
-    #[inline]
-    pub fn set_loopback(&self, enabled: bool) -> io::Result<()> {
-        let loopback: c_int = if enabled { 1 } else { 0 };
-        set_socket_option(self.fd, SOL_CAN_RAW, CAN_RAW_LOOPBACK, &loopback)
-    }
-
-    /// Enable or disable receiving of own frames.
-    ///
-    /// When loopback is enabled, this settings controls if CAN frames sent
-    /// are received back immediately by sender. Default is off.
-    pub fn set_recv_own_msgs(&self, enabled: bool) -> io::Result<()> {
-        let recv_own_msgs: c_int = if enabled { 1 } else { 0 };
-        set_socket_option(self.fd, SOL_CAN_RAW, CAN_RAW_RECV_OWN_MSGS, &recv_own_msgs)
-    }
-
-    /// Enable or disable join filters.
-    ///
-    /// By default a frame is accepted if it matches any of the filters set
-    /// with `set_filters`. If join filters is enabled, a frame has to match
-    /// _all_ filters to be accepted.
-    pub fn set_join_filters(&self, enabled: bool) -> io::Result<()> {
-        let join_filters: c_int = if enabled { 1 } else { 0 };
-        set_socket_option(self.fd, SOL_CAN_RAW, CAN_RAW_JOIN_FILTERS, &join_filters)
-    }
-}
-
-impl AsRawFd for CanSocket {
-    fn as_raw_fd(&self) -> RawFd {
-        self.fd
-    }
-}
-
-impl FromRawFd for CanSocket {
-    unsafe fn from_raw_fd(fd: RawFd) -> CanSocket {
-        CanSocket { fd, }
-    }
-}
-
-impl IntoRawFd for CanSocket {
-    fn into_raw_fd(self) -> RawFd {
-        self.fd
-    }
-}
-
-impl Drop for CanSocket {
-    fn drop(&mut self) {
-        self.close().ok(); // ignore result
-    }
-}
-*/
-
-/// A socket for a CAN device.
-///
-/// Will be closed upon deallocation. To close manually, use std::drop::Drop.
-/// Internally this is just a wrapped file-descriptor.
-#[allow(missing_copy_implementations)]
-#[derive(Debug)]
-pub struct CanSocket {
-    /// The raw file descriptor
-    fd: c_int,
-}
-
-/// A socket for CAN FD devices.
-///
-/// This can transmit and receive CAN 2.0 frames with up to 8-bytes of data,
-/// or CAN Flexible Data (FD) frames with up to 64-bytes of data.
-#[allow(missing_copy_implementations)]
-#[derive(Debug)]
-pub struct CanFdSocket {
-    /// The raw file descriptor
-    fd: c_int,
-}
-
-fn raw_open_socket(if_index: c_uint) -> Result<i32, CanSocketOpenError> {
-    let addr = CanAddr {
-        _af_can: AF_CAN as c_short,
-        if_index: if_index as c_int,
-        rx_id: 0, // ?
-        tx_id: 0, // ?
-    };
-
-    let sock_fd = unsafe { socket(PF_CAN, SOCK_RAW, CAN_RAW) };
+/// Tries to open the CAN socket by the interface number.
+fn raw_open_socket(ifindex: c_uint) -> Result<c_int, CanSocketOpenError> {
+    let sock_fd = unsafe { libc::socket(PF_CAN, SOCK_RAW, CAN_RAW) };
 
     if sock_fd == -1 {
         return Err(CanSocketOpenError::from(io::Error::last_os_error()));
     }
 
+    let addr = CanAddr::new(ifindex);
+
     let bind_rv = unsafe {
-        bind(
+        libc::bind(
             sock_fd,
-            &addr as *const _ as *const sockaddr,
-            size_of::<CanAddr>() as u32,
+            addr.as_ptr() as *const sockaddr,
+            mem::size_of::<CanAddr>() as u32,
         )
     };
 
     if bind_rv == -1 {
         let e = io::Error::last_os_error();
-        unsafe {
-            close(sock_fd);
-        }
+        unsafe { libc::close(sock_fd) };
         return Err(CanSocketOpenError::from(e));
     }
 
@@ -420,7 +179,7 @@ fn set_fd_mode(socket_fd: c_int, fd_mode_enable: bool) -> io::Result<c_int> {
             SOL_CAN_RAW,
             CAN_RAW_FD_FRAMES,
             &fd_mode_enable as *const _ as *const c_void,
-            size_of::<c_int>() as u32,
+            mem::size_of::<c_int>() as u32,
         )
     };
 
@@ -431,16 +190,88 @@ fn set_fd_mode(socket_fd: c_int, fd_mode_enable: bool) -> io::Result<c_int> {
 }
 
 fn raw_write_frame<T>(socket_fd: c_int, frame_ptr: *const T) -> io::Result<()> {
-    let ret = unsafe { write(socket_fd, frame_ptr as *const c_void, size_of::<T>()) };
+    let ret = unsafe { write(socket_fd, frame_ptr as *const c_void, mem::size_of::<T>()) };
 
-    if ret as usize != size_of::<T>() {
+    if ret as usize != mem::size_of::<T>() {
         return Err(io::Error::last_os_error());
     }
 
     Ok(())
 }
 
+/// `setsockopt` wrapper
+///
+/// The libc `setsockopt` function is set to set various options on a socket.
+/// `set_socket_option` offers a somewhat type-safe wrapper that does not
+/// require messing around with `*const c_void`s.
+///
+/// A proper `std::io::Error` will be returned on failure.
+///
+/// Example use:
+///
+/// ```text
+/// let fd = ...;  // some file descriptor, this will be stdout
+/// set_socket_option(fd, SOL_TCP, TCP_NO_DELAY, 1 as c_int)
+/// ```
+///
+/// Note that the `val` parameter must be specified correctly; if an option
+/// expects an integer, it is advisable to pass in a `c_int`, not the default
+/// of `i32`.
+#[inline]
+pub fn set_socket_option<T>(fd: c_int, level: c_int, name: c_int, val: &T) -> io::Result<()> {
+    let rv = unsafe {
+        setsockopt(
+            fd,
+            level,
+            name,
+            val as *const _ as *const c_void,
+            mem::size_of::<T>() as socklen_t,
+        )
+    };
+
+    if rv != 0 {
+        return Err(io::Error::last_os_error());
+    }
+
+    Ok(())
+}
+
+/// Sets a collection of multiple socke options with one call.
+pub fn set_socket_option_mult<T>(
+    fd: c_int,
+    level: c_int,
+    name: c_int,
+    values: &[T],
+) -> io::Result<()> {
+    let rv = if values.is_empty() {
+        // can't pass in a ptr to a 0-len slice, pass a null ptr instead
+        unsafe { setsockopt(fd, level, name, ptr::null(), 0) }
+    } else {
+        unsafe {
+            setsockopt(
+                fd,
+                level,
+                name,
+                values.as_ptr() as *const c_void,
+                (mem::size_of::<T>() * values.len()) as socklen_t,
+            )
+        }
+    };
+
+    if rv != 0 {
+        return Err(io::Error::last_os_error());
+    }
+
+    Ok(())
+}
+
+// ===== Common 'Socket' trait =====
+
+/// Common trait for SocketCAN sockets.
+///
+/// Note that a socket it created by opening it, and then closed by dropping it.
 pub trait Socket: AsRawFd {
+    /// The type of CAN frame that can be read and written by the socket.
     type FrameType;
 
     /// Open a named CAN device.
@@ -461,15 +292,6 @@ pub trait Socket: AsRawFd {
     fn open_interface(if_index: c_uint) -> Result<Self, CanSocketOpenError>
     where
         Self: Sized;
-
-    fn close(&mut self) -> io::Result<()> {
-        unsafe {
-            if close(self.as_raw_fd()) == -1 {
-                return Err(io::Error::last_os_error());
-            }
-        }
-        Ok(())
-    }
 
     /// Blocking read a single can frame.
     fn read_frame(&self) -> io::Result<Self::FrameType>;
@@ -496,7 +318,7 @@ pub trait Socket: AsRawFd {
         }
     }
 
-    /// Change socket to non-blocking mode
+    /// Change socket to non-blocking mode or back to blocking mode.
     fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
         // retrieve current flags
         let oldfl = unsafe { fcntl(self.as_raw_fd(), F_GETFL) };
@@ -524,45 +346,15 @@ pub trait Socket: AsRawFd {
     /// For convenience, the result value can be checked using
     /// `ShouldRetry::should_retry` when a timeout is set.
     fn set_read_timeout(&self, duration: time::Duration) -> io::Result<()> {
-        let rv = unsafe {
-            let tv = c_timeval_new(duration);
-            setsockopt(
-                self.as_raw_fd(),
-                SOL_SOCKET,
-                SO_RCVTIMEO,
-                &tv as *const _ as *const c_void,
-                size_of::<timeval>() as u32,
-            )
-        };
-
-        if rv != 0 {
-            return Err(io::Error::last_os_error());
-        }
-
-        Ok(())
+        set_socket_option(self.as_raw_fd(), SOL_SOCKET, SO_RCVTIMEO, &c_timeval_new(duration))
     }
 
     /// Sets the write timeout on the socket
     fn set_write_timeout(&self, duration: time::Duration) -> io::Result<()> {
-        let rv = unsafe {
-            let tv = c_timeval_new(duration);
-            setsockopt(
-                self.as_raw_fd(),
-                SOL_SOCKET,
-                SO_SNDTIMEO,
-                &tv as *const _ as *const c_void,
-                size_of::<timeval>() as u32,
-            )
-        };
-
-        if rv != 0 {
-            return Err(io::Error::last_os_error());
-        }
-
-        Ok(())
+        set_socket_option(self.as_raw_fd(), SOL_SOCKET, SO_SNDTIMEO, &c_timeval_new(duration))
     }
 
-    /// Sets filters on the socket.
+    /// Sets CAN ID filters on the socket.
     ///
     /// CAN packages received by SocketCAN are matched against these filters,
     /// only matching packets are returned by the interface.
@@ -580,7 +372,6 @@ pub trait Socket: AsRawFd {
     /// Disable reception of CAN frames.
     ///
     /// Sets a completely empty filter; disabling all CAN frame reception.
-    #[inline(always)]
     fn filter_drop_all(&self) -> io::Result<()> {
         let filters: &[CanFilter] = &[];
         set_socket_option_mult(self.as_raw_fd(), SOL_CAN_RAW, CAN_RAW_FILTER, filters)
@@ -595,23 +386,14 @@ pub trait Socket: AsRawFd {
         self.set_filters(&[(0, 0)])
     }
 
-    #[inline(always)]
+    /// Sets the error mask on the socket.
+    ///
+    /// By default (`ERR_MASK_NONE`) no error conditions are reported as
+    /// special error frames by the socket. Enabling error conditions by
+    /// setting `ERR_MASK_ALL` or another non-empty error mask causes the
+    /// socket to receive notification about the specified conditions.
     fn set_error_filter(&self, mask: u32) -> io::Result<()> {
-        let rv = unsafe {
-            setsockopt(
-                self.as_raw_fd(),
-                SOL_CAN_RAW,
-                CAN_RAW_ERR_FILTER,
-                &mask as *const _ as *const c_void,
-                size_of::<u32>() as u32,
-            )
-        };
-
-        if rv != 0 {
-            return Err(io::Error::last_os_error());
-        }
-
-        Ok(())
+        set_socket_option(self.as_raw_fd(), SOL_CAN_RAW, CAN_RAW_ERR_FILTER, &mask)
     }
 
     #[inline(always)]
@@ -674,72 +456,74 @@ pub trait Socket: AsRawFd {
     }
 }
 
+// TODO: We need to restore this, but preferably with TIMESTAMPING
+
+/*
+impl CanSocket {
+
+    /// Blocking read a single can frame with timestamp
+    ///
+    /// Note that reading a frame and retrieving the timestamp requires two
+    /// consecutive syscalls. To avoid race conditions, exclusive access
+    /// to the socket is enforce through requiring a `mut &self`.
+    pub fn read_frame_with_timestamp(&mut self) -> io::Result<(CanFrame, time::SystemTime)> {
+        let frame = self.read_frame()?;
+
+        let mut ts = timespec { tv_sec: 0, tv_nsec: 0 };
+        let rval = unsafe {
+            libc::ioctl(self.fd, SIOCGSTAMPNS as c_ulong, &mut ts as *mut timespec)
+        };
+
+        if rval == -1 {
+            return Err(io::Error::last_os_error());
+        }
+
+        Ok((frame, system_time_from_timespec(ts)))
+    }
+
+}
+*/
+
+// ===== CanSocket =====
+
+/// A socket for a CAN 2.0 device.
+///
+/// Will be closed upon deallocation. To close manually, use std::drop::Drop.
+/// Internally this is just a wrapped file-descriptor.
+#[allow(missing_copy_implementations)]
+#[derive(Debug)]
+pub struct CanSocket {
+    /// The raw file descriptor
+    fd: c_int,
+}
+
 impl Socket for CanSocket {
     type FrameType = CanFrame;
 
+    /// Opens the socket by interface index.
     fn open_interface(if_index: c_uint) -> Result<Self, CanSocketOpenError> {
         raw_open_socket(if_index).map(|sock_fd| Self { fd: sock_fd })
     }
 
+    /// Writes a normal CAN 2.0 frame to the socket.
     fn write_frame(&self, frame: &CanFrame) -> io::Result<()> {
         raw_write_frame(self.fd, frame.as_ptr())
     }
 
+    /// Reads a normal CAN 2.0 frame from the socket.
     fn read_frame(&self) -> io::Result<CanFrame> {
         let mut frame = Self::FrameType::default();
 
         let read_rv = unsafe {
             let frame_ptr = frame.as_mut_ptr();
-            read(self.fd, frame_ptr as *mut c_void, size_of::<CanFrame>())
+            read(self.fd, frame_ptr as *mut c_void, mem::size_of::<CanFrame>())
         };
 
-        if read_rv as usize != size_of::<CanFrame>() {
+        if read_rv as usize != mem::size_of::<CanFrame>() {
             return Err(io::Error::last_os_error());
         }
 
         Ok(frame)
-    }
-}
-
-impl Socket for CanFdSocket {
-    type FrameType = CanAnyFrame;
-
-    fn open_interface(if_index: c_uint) -> Result<Self, CanSocketOpenError> {
-        raw_open_socket(if_index)
-            .and_then(|sock_fd| {
-                set_fd_mode(sock_fd, true).map_err(CanSocketOpenError::IOError)
-            })
-            .map(|sock_fd| Self { fd: sock_fd })
-    }
-
-    fn write_frame(&self, frame: &CanAnyFrame) -> io::Result<()> {
-        match frame {
-            CanAnyFrame::Normal(frame) => raw_write_frame(self.fd, frame.as_ptr()),
-            CanAnyFrame::Fd(fd_frame) => raw_write_frame(self.fd, fd_frame.as_ptr()),
-        }
-    }
-
-    fn read_frame(&self) -> io::Result<CanAnyFrame> {
-        let mut frame = CanFdFrame::default();
-
-        let read_rv = unsafe {
-            let frame_ptr = frame.as_mut_ptr();
-            read(self.fd, frame_ptr as *mut c_void, size_of::<CanFdFrame>())
-        };
-        match read_rv as usize {
-            CAN_MTU => CanFrame::try_from(frame)
-                .map(|frame| frame.into())
-                .map_err(|_| {
-                    io::Error::new(
-                        io::ErrorKind::Other,
-                        "BUG in read_frame: cannot convert to CanFrame",
-                    )
-                }),
-
-            CANFD_MTU => Ok(frame.into()), // Ok(CanAnyFrame::from(frame)),
-
-            _ => Err(io::Error::last_os_error()),
-        }
     }
 }
 
@@ -763,7 +547,65 @@ impl IntoRawFd for CanSocket {
 
 impl Drop for CanSocket {
     fn drop(&mut self) {
-        let _ = self.close();
+        unsafe { libc::close(self.as_raw_fd()) };
+    }
+}
+
+// ===== CanFdSocket =====
+
+/// A socket for CAN FD devices.
+///
+/// This can transmit and receive CAN 2.0 frames with up to 8-bytes of data,
+/// or CAN Flexible Data (FD) frames with up to 64-bytes of data.
+#[allow(missing_copy_implementations)]
+#[derive(Debug)]
+pub struct CanFdSocket {
+    /// The raw file descriptor
+    fd: c_int,
+}
+
+impl Socket for CanFdSocket {
+    type FrameType = CanAnyFrame;
+
+    /// Opens the FD socket by interface index.
+    fn open_interface(if_index: c_uint) -> Result<Self, CanSocketOpenError> {
+        raw_open_socket(if_index)
+            .and_then(|sock_fd| {
+                set_fd_mode(sock_fd, true).map_err(CanSocketOpenError::IOError)
+            })
+            .map(|sock_fd| Self { fd: sock_fd })
+    }
+
+    /// Writes either type of CAN frame to the socket.
+    fn write_frame(&self, frame: &CanAnyFrame) -> io::Result<()> {
+        match frame {
+            CanAnyFrame::Normal(frame) => raw_write_frame(self.fd, frame.as_ptr()),
+            CanAnyFrame::Fd(fd_frame) => raw_write_frame(self.fd, fd_frame.as_ptr()),
+        }
+    }
+
+    /// Reads either type of CAN frame from the socket.
+    fn read_frame(&self) -> io::Result<CanAnyFrame> {
+        let mut frame = CanFdFrame::default();
+
+        let read_rv = unsafe {
+            let frame_ptr = frame.as_mut_ptr();
+            read(self.fd, frame_ptr as *mut c_void, mem::size_of::<CanFdFrame>())
+        };
+        match read_rv as usize {
+            CAN_MTU => CanFrame::try_from(frame)
+                .map(|frame| frame.into())
+                .map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::Other,
+                        "BUG in read_frame: cannot convert to CanFrame",
+                    )
+                }),
+
+            CANFD_MTU => Ok(frame.into()), // Ok(CanAnyFrame::from(frame)),
+
+            _ => Err(io::Error::last_os_error()),
+        }
     }
 }
 
@@ -787,7 +629,7 @@ impl IntoRawFd for CanFdSocket {
 
 impl Drop for CanFdSocket {
     fn drop(&mut self) {
-        let _ = self.close();
+        unsafe { libc::close(self.as_raw_fd()) };
     }
 }
 
@@ -798,7 +640,7 @@ impl Drop for CanFdSocket {
 /// Each filter contains an internal id and mask. Packets are considered to be matched
 /// by a filter if `received_id & mask == filter_id & mask` holds true.
 ///
-/// A socket can be given multiple filters, and each one can be interted
+/// A socket can be given multiple filters, and each one can be inverted
 /// ([ref](https://docs.kernel.org/networking/can.html#raw-protocol-sockets-with-can-filters-sock-raw))
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct CanFilter(libc::can_filter);
@@ -835,3 +677,4 @@ impl AsRef<libc::can_filter> for CanFilter {
         &self.0
     }
 }
+

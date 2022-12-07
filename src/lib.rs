@@ -72,8 +72,8 @@
     unused_qualifications
 )]
 
-pub mod err;
-pub use err::{CanError, CanErrorDecodingFailure, CanSocketOpenError, ConstructionError};
+pub mod errors;
+pub use errors::{CanError, CanErrorDecodingFailure, CanSocketOpenError, ConstructionError};
 
 pub mod frame;
 pub use frame::{CanAnyFrame, CanFdFrame, CanFrame, Frame};
@@ -82,8 +82,6 @@ pub mod dump;
 
 pub mod socket;
 pub use socket::{CanFdSocket, CanFilter, CanSocket, ShouldRetry, Socket};
-
-mod util;
 
 #[cfg(feature = "netlink")]
 mod nl;

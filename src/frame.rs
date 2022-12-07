@@ -9,14 +9,15 @@
 // This file may not be copied, modified, or distributed except according
 // to those terms.
 
-use crate::err::{CanError, CanErrorDecodingFailure, ConstructionError};
-use crate::util::hal_id_to_raw;
+/// CAN bus frames.
+
+use crate::{
+    CanError, CanErrorDecodingFailure, ConstructionError,
+};
 use bitflags::bitflags;
 use embedded_can::{ExtendedId, Frame as EmbeddedFrame, Id, StandardId};
 use libc::{can_frame, canfd_frame, canid_t};
-
 use std::{convert::TryFrom, fmt, mem};
-
 use itertools::Itertools;
 
 pub use libc::{
@@ -63,6 +64,14 @@ fn init_id_word(id: canid_t, mut flags: IdFlags) -> Result<canid_t, Construction
     }
 
     Ok(id | flags.bits())
+}
+
+/// Gets the raw ID value from an Id
+pub fn hal_id_to_raw(id: Id) -> u32 {
+    match id {
+        Id::Standard(id) => id.as_raw() as u32,
+        Id::Extended(id) => id.as_raw(),
+    }
 }
 
 fn is_extended(id: &Id) -> bool {
