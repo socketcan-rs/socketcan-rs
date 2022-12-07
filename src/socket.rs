@@ -283,13 +283,13 @@ pub trait Socket: AsRawFd {
         Self: Sized,
     {
         let if_index = if_nametoindex(ifname)?;
-        Self::open_interface(if_index)
+        Self::open_iface(if_index)
     }
 
     /// Open CAN device by interface number.
     ///
     /// Opens a CAN device by kernel interface number.
-    fn open_interface(if_index: c_uint) -> Result<Self, CanSocketOpenError>
+    fn open_iface(if_index: c_uint) -> Result<Self, CanSocketOpenError>
     where
         Self: Sized;
 
@@ -501,7 +501,7 @@ impl Socket for CanSocket {
     type FrameType = CanFrame;
 
     /// Opens the socket by interface index.
-    fn open_interface(if_index: c_uint) -> Result<Self, CanSocketOpenError> {
+    fn open_iface(if_index: c_uint) -> Result<Self, CanSocketOpenError> {
         raw_open_socket(if_index).map(|sock_fd| Self { fd: sock_fd })
     }
 
@@ -568,7 +568,7 @@ impl Socket for CanFdSocket {
     type FrameType = CanAnyFrame;
 
     /// Opens the FD socket by interface index.
-    fn open_interface(if_index: c_uint) -> Result<Self, CanSocketOpenError> {
+    fn open_iface(if_index: c_uint) -> Result<Self, CanSocketOpenError> {
         raw_open_socket(if_index)
             .and_then(|sock_fd| {
                 set_fd_mode(sock_fd, true).map_err(CanSocketOpenError::IOError)
