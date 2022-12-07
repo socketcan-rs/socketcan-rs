@@ -72,16 +72,10 @@ fn is_extended(id: &Id) -> bool {
     }
 }
 
-fn slice_to_array<const S: usize>(data: &[u8]) -> [u8; S] {
-    let mut arr = [0; S];
-    for (i, b) in data.iter().enumerate() {
-        arr[i] = *b;
-    }
-    arr
-}
-
 // ===== Frame trait =====
 
+/// Shared trait for CAN frames
+#[allow(clippy::len_without_is_empty)]
 pub trait Frame: EmbeddedFrame {
     /// Get the composite SocketCAN ID word, with EFF/RTR/ERR flags
     fn id_word(&self) -> canid_t;
@@ -137,6 +131,7 @@ pub trait Frame: EmbeddedFrame {
 // ===== CanAnyFrame =====
 
 /// Any frame type.
+#[derive(Clone, Copy, Debug)]
 pub enum CanAnyFrame {
     /// A classic CAN 2.0 frame, with up to 8-bytes of data
     Normal(CanFrame),
@@ -144,6 +139,7 @@ pub enum CanAnyFrame {
     Fd(CanFdFrame),
 }
 
+/*
 impl fmt::Debug for CanAnyFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -157,6 +153,7 @@ impl fmt::Debug for CanAnyFrame {
         }
     }
 }
+*/
 
 impl fmt::UpperHex for CanAnyFrame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -200,7 +197,7 @@ impl CanFrame {
         let mut frame: can_frame = unsafe { mem::zeroed() };
         frame.can_id = init_id_word(id, flags)?;
         frame.can_dlc = n as u8;
-        (&mut frame.data[..n]).copy_from_slice(data);
+        frame.data[..n].copy_from_slice(data);
 
         Ok(Self(frame))
     }
@@ -208,13 +205,13 @@ impl CanFrame {
     /// Gets a pointer to the CAN frame structure that is compatible with
     /// the Linux C API.
     pub fn as_ptr(&self) -> *const can_frame {
-        &self.0 as *const can_frame
+        &self.0
     }
 
     /// Gets a mutable pointer to the CAN frame structure that is compatible
     /// with the Linux C API.
     pub fn as_mut_ptr(&mut self) -> *mut can_frame {
-        &mut self.0 as *mut can_frame
+        &mut self.0
     }
 }
 
@@ -284,17 +281,18 @@ impl Default for CanFrame {
 
 impl fmt::Debug for CanFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let _ = write!(f, "CanFrame {{ ")?;
-        let _ = fmt::UpperHex::fmt(self, f)?;
+        write!(f, "CanFrame {{ ")?;
+        fmt::UpperHex::fmt(self, f)?;
         write!(f, " }}")
     }
 }
 
 impl fmt::UpperHex for CanFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{:X}{}", self.0.can_id, "#")?;
+        write!(f, "{:X}#", self.0.can_id)?;
         let mut parts = self.data().iter().map(|v| format!("{:02X}", v));
-        let sep = if f.alternate() { " " } else { " " };
+        //let sep = if f.alternate() { " " } else { " " };
+        let sep = " ";
         write!(f, "{}", parts.join(sep))
     }
 }
@@ -315,7 +313,7 @@ impl TryFrom<CanFdFrame> for CanFrame {
     }
 }
 
-impl AsRef<libc::can_frame> for CanFrame {
+impl AsRef<can_frame> for CanFrame {
     fn as_ref(&self) -> &can_frame {
         &self.0
     }
@@ -349,7 +347,7 @@ impl CanFdFrame {
         frame.0.can_id = init_id_word(id, flags)?;
         frame.0.len = n as u8;
         frame.0.flags = fd_flags.bits();
-        (&mut frame.0.data[..n]).copy_from_slice(data);
+        frame.0.data[..n].copy_from_slice(data);
 
         Ok(frame)
     }
@@ -394,13 +392,13 @@ impl CanFdFrame {
     /// Gets a pointer to the CAN frame structure that is compatible with
     /// the Linux C API.
     pub fn as_ptr(&self) -> *const canfd_frame {
-        &self.0 as *const canfd_frame
+        &self.0
     }
 
     /// Gets a mutable pointer to the CAN frame structure that is compatible
     /// with the Linux C API.
     pub fn as_mut_ptr(&mut self) -> *mut canfd_frame {
-        &mut self.0 as *mut canfd_frame
+        &mut self.0
     }
 }
 
@@ -465,34 +463,37 @@ impl Default for CanFdFrame {
 
 impl fmt::Debug for CanFdFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let _ = write!(f, "CanFdFrame {{ ")?;
-        let _ = fmt::UpperHex::fmt(self, f)?;
+        write!(f, "CanFdFrame {{ ")?;
+        fmt::UpperHex::fmt(self, f)?;
         write!(f, " }}")
     }
 }
 
 impl fmt::UpperHex for CanFdFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{:X}{}", self.0.can_id, "##")?;
+        write!(f, "{:X}##", self.0.can_id)?;
         write!(f, "{} ", self.0.flags)?;
         let mut parts = self.data().iter().map(|v| format!("{:02X}", v));
-        let sep = if f.alternate() { " " } else { " " };
+        //let sep = if f.alternate() { " " } else { " " };
+        let sep = " ";
         write!(f, "{}", parts.join(sep))
     }
 }
 
 impl From<CanFrame> for CanFdFrame {
     fn from(frame: CanFrame) -> Self {
+        let n = frame.0.can_dlc as usize;
+
         let mut fdframe = Self::default();
         // TODO: force rtr off?
         fdframe.0.can_id = frame.0.can_id;
-        fdframe.0.len = frame.0.can_dlc as u8;
-        fdframe.0.data = slice_to_array::<CANFD_MAX_DLEN>(frame.data());
+        fdframe.0.len = n as u8;
+        fdframe.0.data[..n].copy_from_slice(&frame.0.data[..n]);
         fdframe
     }
 }
 
-impl AsRef<libc::canfd_frame> for CanFdFrame {
+impl AsRef<canfd_frame> for CanFdFrame {
     fn as_ref(&self) -> &canfd_frame {
         &self.0
     }
@@ -507,8 +508,12 @@ mod tests {
     const STD_ID: Id = Id::Standard(StandardId::MAX);
     const EXT_ID: Id = Id::Extended(ExtendedId::MAX);
 
+    const EXT_LOW_ID: Id = Id::Extended(unsafe { ExtendedId::new_unchecked(0x7FF) });
+
     const DATA: &[u8] = &[0, 1, 2, 3];
     const DATA_LEN: usize = DATA.len();
+
+    const ZERO_DATA: &[u8] = &[0u8; DATA_LEN];
 
     #[test]
     fn test_data_frame() {
@@ -519,6 +524,7 @@ mod tests {
         assert!(!frame.is_extended());
         assert!(frame.is_data_frame());
         assert!(!frame.is_remote_frame());
+        assert_eq!(DATA, frame.data());
 
         let frame = CanFrame::new(EXT_ID, DATA).unwrap();
         assert_eq!(EXT_ID, frame.id());
@@ -527,6 +533,13 @@ mod tests {
         assert!(frame.is_extended());
         assert!(frame.is_data_frame());
         assert!(!frame.is_remote_frame());
+        assert_eq!(DATA, frame.data());
+
+        // Should keep Extended flag even if ID <= 0x7FF (standard range)
+        let frame = CanFrame::new(EXT_LOW_ID, DATA).unwrap();
+        assert_eq!(EXT_LOW_ID, frame.id());
+        assert!(!frame.is_standard());
+        assert!(frame.is_extended());
     }
 
     #[test]
@@ -538,6 +551,7 @@ mod tests {
         assert!(!frame.is_extended());
         assert!(!frame.is_data_frame());
         assert!(frame.is_remote_frame());
+        assert_eq!(ZERO_DATA, frame.data());
     }
 
     #[test]
@@ -549,6 +563,7 @@ mod tests {
         assert!(!frame.is_extended());
         assert!(frame.is_data_frame());
         assert!(!frame.is_remote_frame());
+        assert_eq!(DATA, frame.data());
 
         let frame = CanFdFrame::new(EXT_ID, DATA).unwrap();
         assert_eq!(EXT_ID, frame.id());
@@ -557,5 +572,23 @@ mod tests {
         assert!(frame.is_extended());
         assert!(frame.is_data_frame());
         assert!(!frame.is_remote_frame());
+        assert_eq!(DATA, frame.data());
+
+        // Should keep Extended flag even if ID <= 0x7FF (standard range)
+        let frame = CanFdFrame::new(EXT_LOW_ID, DATA).unwrap();
+        assert_eq!(EXT_LOW_ID, frame.id());
+        assert!(!frame.is_standard());
+        assert!(frame.is_extended());
+    }
+
+    #[test]
+    fn test_frame_to_fd() {
+        let frame = CanFrame::new(STD_ID, DATA).unwrap();
+
+        let frame = CanFdFrame::from(frame);
+        assert_eq!(STD_ID, frame.id());
+        assert!(frame.is_standard());
+        assert!(frame.is_data_frame());
+        assert_eq!(DATA, frame.data());
     }
 }

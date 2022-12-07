@@ -34,13 +34,11 @@ use std::{
 #[inline]
 pub fn set_socket_option<T>(fd: c_int, level: c_int, name: c_int, val: &T) -> io::Result<()> {
     let rv = unsafe {
-        let val_ptr: *const T = val as *const T;
-
         setsockopt(
             fd,
             level,
             name,
-            val_ptr as *const c_void,
+            val as *const _ as *const c_void,
             size_of::<T>() as socklen_t,
         )
     };
@@ -59,18 +57,15 @@ pub fn set_socket_option_mult<T>(
     values: &[T],
 ) -> io::Result<()> {
     let rv = if values.is_empty() {
-        // can't pass in a pointer to the first element if a 0-length slice,
-        // pass a nullpointer instead
+        // can't pass in a ptr to a 0-len slice, pass a null ptr instead
         unsafe { setsockopt(fd, level, name, ptr::null(), 0) }
     } else {
         unsafe {
-            let val_ptr = &values[0] as *const T;
-
             setsockopt(
                 fd,
                 level,
                 name,
-                val_ptr as *const c_void,
+                values.as_ptr() as *const c_void,
                 (size_of::<T>() * values.len()) as socklen_t,
             )
         }
@@ -105,6 +100,6 @@ pub fn system_time_from_timespec(ts: timespec) -> SystemTime {
 pub fn hal_id_to_raw(id: Id) -> u32 {
     match id {
         Id::Standard(id) => id.as_raw() as u32,
-        Id::Extended(id) => id.as_raw() as u32,
+        Id::Extended(id) => id.as_raw(),
     }
 }

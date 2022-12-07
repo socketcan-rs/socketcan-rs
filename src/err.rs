@@ -124,7 +124,7 @@ impl embedded_can::Error for CanError {
             CanError::ControllerProblem(cp) => match cp {
                 ControllerProblem::ReceiveBufferOverflow
                 | ControllerProblem::TransmitBufferOverflow => embedded_can::ErrorKind::Overrun,
-                ControllerProblem::Unspecified | _ => embedded_can::ErrorKind::Other,
+                _ => embedded_can::ErrorKind::Other,
             },
             CanError::NoAck => embedded_can::ErrorKind::Acknowledge,
             _ => embedded_can::ErrorKind::Other,
@@ -134,28 +134,28 @@ impl embedded_can::Error for CanError {
 
 #[derive(Copy, Clone, Debug)]
 pub enum ControllerProblem {
-    // unspecified
+    /// unspecified
     Unspecified,
 
-    // RX buffer overflow
+    /// RX buffer overflow
     ReceiveBufferOverflow,
 
-    // TX buffer overflow
+    /// TX buffer overflow
     TransmitBufferOverflow,
 
-    // reached warning level for RX errors
+    /// reached warning level for RX errors
     ReceiveErrorWarning,
 
-    // reached warning level for TX errors
+    /// reached warning level for TX errors
     TransmitErrorWarning,
 
-    // reached error passive status RX
+    /// reached error passive status RX
     ReceiveErrorPassive,
 
-    // reached error passive status TX
+    /// reached error passive status TX
     TransmitErrorPassive,
 
-    // recovered to error active state
+    /// recovered to error active state
     Active,
 }
 
@@ -386,6 +386,7 @@ impl TryFrom<u8> for Location {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
 pub enum TransceiverError {
     Unspecified,
     CanHighNoWire,

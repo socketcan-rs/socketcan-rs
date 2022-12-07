@@ -5,8 +5,6 @@ This library allows Controller Area Network (CAN) communications on Linux using 
 
 [Linux SocketCAN](https://docs.kernel.org/networking/can.html)
 
-**Maintenance status**: This crate is in the process of entering renewed joint maintainership with [@fpagliughi
-
 Please see the [documentation](https://docs.rs/socketcan) for details about the Rust API provided by this library.
 
 

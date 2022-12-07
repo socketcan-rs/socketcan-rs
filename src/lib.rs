@@ -59,7 +59,18 @@
 //!
 
 // clippy: do not warn about things like "SocketCAN" inside the docs
-#![allow(clippy::doc_markdown)]
+#![allow(clippy::doc_markdown,)]
+
+// TODO: Change this to 'deny' before release
+// TODO: Add these warnings before release:
+//    missing_docs,
+#![warn(
+    missing_copy_implementations,
+    missing_debug_implementations,
+    unstable_features,
+    unused_import_braces,
+    unused_qualifications
+)]
 
 pub mod err;
 pub use err::{CanError, CanErrorDecodingFailure, CanSocketOpenError, ConstructionError};
@@ -141,7 +152,7 @@ impl embedded_can::nb::Can for CanSocket {
     }
 
     fn transmit(&mut self, frame: &Self::Frame) -> nb::Result<Option<Self::Frame>, Self::Error> {
-        match self.write_frame(&frame) {
+        match self.write_frame(frame) {
             Ok(_) => Ok(None),
             Err(e) => {
                 match e.kind() {

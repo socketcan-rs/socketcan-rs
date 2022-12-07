@@ -163,7 +163,7 @@ impl<R: io::BufRead> Reader<R> {
         let data = if flags.contains(IdFlags::RTR) {
             Vec::new()
         } else {
-            Vec::from_hex(&can_data).map_err(|_| ParseError::InvalidCanFrame)?
+            Vec::from_hex(can_data).map_err(|_| ParseError::InvalidCanFrame)?
         };
         let frame: super::CanAnyFrame = if is_fd_frame {
             CanFdFrame::init(
@@ -172,14 +172,14 @@ impl<R: io::BufRead> Reader<R> {
                 flags,
                 fd_flags,
             )
-            .map(|frame| super::CanAnyFrame::Fd(frame))
+            .map(super::CanAnyFrame::Fd)
         } else {
             CanFrame::init(
                 parse_raw(can_id, 16).ok_or(ParseError::InvalidCanFrame)? as u32,
                 &data,
                 flags,
             )
-            .map(|frame| super::CanAnyFrame::Normal(frame))
+            .map(super::CanAnyFrame::Normal)
         }?;
 
         Ok(Some(CanDumpRecord {

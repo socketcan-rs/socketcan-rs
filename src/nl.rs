@@ -36,6 +36,8 @@ type NlResult<T> = Result<T, NlError>;
 ///
 /// Controlled through the kernel's Netlink interface, CAN devices can be
 /// brought up or down or configured through this.
+#[allow(missing_copy_implementations)]
+#[derive(Debug)]
 pub struct CanInterface {
     if_index: c_uint,
 }

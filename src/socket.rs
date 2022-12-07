@@ -361,13 +361,21 @@ impl Drop for CanSocket {
 ///
 /// Will be closed upon deallocation. To close manually, use std::drop::Drop.
 /// Internally this is just a wrapped file-descriptor.
+#[allow(missing_copy_implementations)]
 #[derive(Debug)]
 pub struct CanSocket {
+    /// The raw file descriptor
     fd: c_int,
 }
 
+/// A socket for CAN FD devices.
+///
+/// This can transmit and receive CAN 2.0 frames with up to 8-bytes of data,
+/// or CAN Flexible Data (FD) frames with up to 64-bytes of data.
+#[allow(missing_copy_implementations)]
 #[derive(Debug)]
 pub struct CanFdSocket {
+    /// The raw file descriptor
     fd: c_int,
 }
 
@@ -386,10 +394,9 @@ fn raw_open_socket(if_index: c_uint) -> Result<i32, CanSocketOpenError> {
     }
 
     let bind_rv = unsafe {
-        let sockaddr_ptr = &addr as *const CanAddr;
         bind(
             sock_fd,
-            sockaddr_ptr as *const sockaddr,
+            &addr as *const _ as *const sockaddr,
             size_of::<CanAddr>() as u32,
         )
     };
@@ -407,13 +414,12 @@ fn raw_open_socket(if_index: c_uint) -> Result<i32, CanSocketOpenError> {
 
 fn set_fd_mode(socket_fd: c_int, fd_mode_enable: bool) -> io::Result<c_int> {
     let fd_mode_enable = fd_mode_enable as c_int;
-    let opt_ptr = &fd_mode_enable as *const c_int;
     let rv = unsafe {
         setsockopt(
             socket_fd,
             SOL_CAN_RAW,
             CAN_RAW_FD_FRAMES,
-            opt_ptr as *const c_void,
+            &fd_mode_enable as *const _ as *const c_void,
             size_of::<c_int>() as u32,
         )
     };
@@ -520,12 +526,11 @@ pub trait Socket: AsRawFd {
     fn set_read_timeout(&self, duration: time::Duration) -> io::Result<()> {
         let rv = unsafe {
             let tv = c_timeval_new(duration);
-            let tv_ptr: *const timeval = &tv as *const timeval;
             setsockopt(
                 self.as_raw_fd(),
                 SOL_SOCKET,
                 SO_RCVTIMEO,
-                tv_ptr as *const c_void,
+                &tv as *const _ as *const c_void,
                 size_of::<timeval>() as u32,
             )
         };
@@ -541,12 +546,11 @@ pub trait Socket: AsRawFd {
     fn set_write_timeout(&self, duration: time::Duration) -> io::Result<()> {
         let rv = unsafe {
             let tv = c_timeval_new(duration);
-            let tv_ptr: *const timeval = &tv as *const timeval;
             setsockopt(
                 self.as_raw_fd(),
                 SOL_SOCKET,
                 SO_SNDTIMEO,
-                tv_ptr as *const c_void,
+                &tv as *const _ as *const c_void,
                 size_of::<timeval>() as u32,
             )
         };
@@ -598,7 +602,7 @@ pub trait Socket: AsRawFd {
                 self.as_raw_fd(),
                 SOL_CAN_RAW,
                 CAN_RAW_ERR_FILTER,
-                (&mask as *const u32) as *const c_void,
+                &mask as *const _ as *const c_void,
                 size_of::<u32>() as u32,
             )
         };
@@ -636,7 +640,7 @@ pub trait Socket: AsRawFd {
     /// the same CAN bus to see frames emitted by different applications on
     /// the same system.
     fn set_loopback(&self, enabled: bool) -> io::Result<()> {
-        let loopback: c_int = if enabled { 1 } else { 0 };
+        let loopback = c_int::from(enabled);
         set_socket_option(self.as_raw_fd(), SOL_CAN_RAW, CAN_RAW_LOOPBACK, &loopback)
     }
 
@@ -645,7 +649,7 @@ pub trait Socket: AsRawFd {
     /// When loopback is enabled, this settings controls if CAN frames sent
     /// are received back immediately by sender. Default is off.
     fn set_recv_own_msgs(&self, enabled: bool) -> io::Result<()> {
-        let recv_own_msgs: c_int = if enabled { 1 } else { 0 };
+        let recv_own_msgs = c_int::from(enabled);
         set_socket_option(
             self.as_raw_fd(),
             SOL_CAN_RAW,
@@ -660,7 +664,7 @@ pub trait Socket: AsRawFd {
     /// with `set_filters`. If join filters is enabled, a frame has to match
     /// _all_ filters to be accepted.
     fn set_join_filters(&self, enabled: bool) -> io::Result<()> {
-        let join_filters: c_int = if enabled { 1 } else { 0 };
+        let join_filters = c_int::from(enabled);
         set_socket_option(
             self.as_raw_fd(),
             SOL_CAN_RAW,
@@ -703,7 +707,7 @@ impl Socket for CanFdSocket {
     fn open_interface(if_index: c_uint) -> Result<Self, CanSocketOpenError> {
         raw_open_socket(if_index)
             .and_then(|sock_fd| {
-                set_fd_mode(sock_fd, true).map_err(|io_err| CanSocketOpenError::IOError(io_err))
+                set_fd_mode(sock_fd, true).map_err(CanSocketOpenError::IOError)
             })
             .map(|sock_fd| Self { fd: sock_fd })
     }
