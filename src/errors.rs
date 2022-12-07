@@ -10,10 +10,8 @@
 // to those terms.
 
 /// CAN bus errors.
-
 // information from https://raw.githubusercontent.com/torvalds/linux/master/
 //                  /include/uapi/linux/can/error.h
-
 use crate::Frame;
 use std::{convert::TryFrom, error, fmt, io};
 

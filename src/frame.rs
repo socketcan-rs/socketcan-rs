@@ -10,15 +10,12 @@
 // to those terms.
 
 /// CAN bus frames.
-
-use crate::{
-    CanError, CanErrorDecodingFailure, ConstructionError,
-};
+use crate::{CanError, CanErrorDecodingFailure, ConstructionError};
 use bitflags::bitflags;
 use embedded_can::{ExtendedId, Frame as EmbeddedFrame, Id, StandardId};
+use itertools::Itertools;
 use libc::{can_frame, canfd_frame, canid_t};
 use std::{convert::TryFrom, fmt, mem};
-use itertools::Itertools;
 
 pub use libc::{
     CANFD_BRS, CANFD_ESI, CANFD_MAX_DLEN, CAN_EFF_FLAG, CAN_EFF_MASK, CAN_ERR_FLAG, CAN_ERR_MASK,

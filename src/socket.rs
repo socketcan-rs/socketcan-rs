@@ -10,27 +10,21 @@
 // to those terms.
 
 /// Implementation of sockets for CANbus 2.0 and FD for SocketCAN on Linux.
-
-use crate::{
-    CanSocketOpenError,
-    frame::CAN_ERR_MASK,
-    CanAnyFrame, CanFdFrame, CanFrame,
-};
+use crate::{frame::CAN_ERR_MASK, CanAnyFrame, CanFdFrame, CanFrame, CanSocketOpenError};
 use libc::{
-    canid_t, fcntl, read, sa_family_t, setsockopt, sockaddr, sockaddr_can,
-    socklen_t, suseconds_t, time_t, timeval,
-    write, EINPROGRESS, F_GETFL, F_SETFL, O_NONBLOCK, SOCK_RAW, SOL_SOCKET, SO_RCVTIMEO,
-    SO_SNDTIMEO,
+    canid_t, fcntl, read, sa_family_t, setsockopt, sockaddr, sockaddr_can, socklen_t, suseconds_t,
+    time_t, timeval, write, EINPROGRESS, F_GETFL, F_SETFL, O_NONBLOCK, SOCK_RAW, SOL_SOCKET,
+    SO_RCVTIMEO, SO_SNDTIMEO,
 };
 use nix::net::if_::if_nametoindex;
 use std::{
     convert::TryFrom,
-    fmt, io, mem, ptr,
+    fmt, io, mem,
     os::{
         raw::{c_int, c_uint, c_void},
         unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd},
     },
-    time,
+    ptr, time,
 };
 
 pub use libc::{
@@ -116,9 +110,9 @@ impl Default for CanAddr {
 impl fmt::Debug for CanAddr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
-            f, "CanAddr {{ can_family: {}, can_ifindex: {} }}",
-            self.0.can_family,
-            self.0.can_ifindex
+            f,
+            "CanAddr {{ can_family: {}, can_ifindex: {} }}",
+            self.0.can_family, self.0.can_ifindex
         )
     }
 }
@@ -346,12 +340,22 @@ pub trait Socket: AsRawFd {
     /// For convenience, the result value can be checked using
     /// `ShouldRetry::should_retry` when a timeout is set.
     fn set_read_timeout(&self, duration: time::Duration) -> io::Result<()> {
-        set_socket_option(self.as_raw_fd(), SOL_SOCKET, SO_RCVTIMEO, &c_timeval_new(duration))
+        set_socket_option(
+            self.as_raw_fd(),
+            SOL_SOCKET,
+            SO_RCVTIMEO,
+            &c_timeval_new(duration),
+        )
     }
 
     /// Sets the write timeout on the socket
     fn set_write_timeout(&self, duration: time::Duration) -> io::Result<()> {
-        set_socket_option(self.as_raw_fd(), SOL_SOCKET, SO_SNDTIMEO, &c_timeval_new(duration))
+        set_socket_option(
+            self.as_raw_fd(),
+            SOL_SOCKET,
+            SO_SNDTIMEO,
+            &c_timeval_new(duration),
+        )
     }
 
     /// Sets CAN ID filters on the socket.
@@ -516,7 +520,11 @@ impl Socket for CanSocket {
 
         let read_rv = unsafe {
             let frame_ptr = frame.as_mut_ptr();
-            read(self.fd, frame_ptr as *mut c_void, mem::size_of::<CanFrame>())
+            read(
+                self.fd,
+                frame_ptr as *mut c_void,
+                mem::size_of::<CanFrame>(),
+            )
         };
 
         if read_rv as usize != mem::size_of::<CanFrame>() {
@@ -570,9 +578,7 @@ impl Socket for CanFdSocket {
     /// Opens the FD socket by interface index.
     fn open_iface(if_index: c_uint) -> Result<Self, CanSocketOpenError> {
         raw_open_socket(if_index)
-            .and_then(|sock_fd| {
-                set_fd_mode(sock_fd, true).map_err(CanSocketOpenError::IOError)
-            })
+            .and_then(|sock_fd| set_fd_mode(sock_fd, true).map_err(CanSocketOpenError::IOError))
             .map(|sock_fd| Self { fd: sock_fd })
     }
 
@@ -590,7 +596,11 @@ impl Socket for CanFdSocket {
 
         let read_rv = unsafe {
             let frame_ptr = frame.as_mut_ptr();
-            read(self.fd, frame_ptr as *mut c_void, mem::size_of::<CanFdFrame>())
+            read(
+                self.fd,
+                frame_ptr as *mut c_void,
+                mem::size_of::<CanFdFrame>(),
+            )
         };
         match read_rv as usize {
             CAN_MTU => CanFrame::try_from(frame)
@@ -677,4 +687,3 @@ impl AsRef<libc::can_filter> for CanFilter {
         &self.0
     }
 }
-

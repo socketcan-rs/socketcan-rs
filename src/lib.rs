@@ -59,8 +59,7 @@
 //!
 
 // clippy: do not warn about things like "SocketCAN" inside the docs
-#![allow(clippy::doc_markdown,)]
-
+#![allow(clippy::doc_markdown)]
 // TODO: Change this to 'deny' before release
 // TODO: Add these warnings before release:
 //    missing_docs,
