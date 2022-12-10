@@ -86,9 +86,12 @@ impl CanInterface {
         P: ToBytes + Debug,
     {
         sock.send(msg)?;
-        // TODO: Implement this
-        //sock.recv_ack()?;
-        Ok(())
+        // This will actually produce an Err if the response is a netlink error, no need to match.
+        if let NlPayload::Ack(_) = sock.recv()? {
+            Ok(())
+        } else {
+            Err(NlError::NoAck)
+        }
     }
 
     /// Opens a new netlink socket, bound to this process' PID
