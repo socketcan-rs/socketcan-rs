@@ -64,13 +64,13 @@ impl CanInterface {
     }
 
     /// Sends an info message
-    fn send_info_msg(info: Ifinfomsg, additional_flags: &[NlmF]) -> NlResult<()> {
+    fn send_info_msg(msg_type: Rtm, info: Ifinfomsg, additional_flags: &[NlmF]) -> NlResult<()> {
         let mut nl = Self::open_route_socket()?;
 
         // prepare message
         let hdr = Nlmsghdr::new(
             None,
-            Rtm::Newlink,
+            msg_type,
             {
                 let mut flags = NlmFFlags::new(&[NlmF::Request, NlmF::Ack]);
                 for flag in additional_flags {
@@ -127,7 +127,7 @@ impl CanInterface {
             self.if_index as c_int,
             RtBuffer::new(),
         );
-        Self::send_info_msg(info, &[])
+        Self::send_info_msg(Rtm::Newlink, info, &[])
     }
 
     /// Bring up CAN interface
@@ -140,7 +140,7 @@ impl CanInterface {
             self.if_index as c_int,
             RtBuffer::new(),
         );
-        Self::send_info_msg(info, &[])
+        Self::send_info_msg(Rtm::Newlink, info, &[])
     }
 
     pub fn create_vcan(name: &str) -> NlResult<Self> {
@@ -161,7 +161,7 @@ impl CanInterface {
                 buffer
             },
         );
-        let _ = Self::send_info_msg(info, &[NlmF::Create, NlmF::Excl])?;
+        let _ = Self::send_info_msg(Rtm::Newlink, info, &[NlmF::Create, NlmF::Excl])?;
         if let Ok(if_index) = if_nametoindex(name) {
             Ok(Self { if_index })
         } else {
@@ -172,17 +172,33 @@ impl CanInterface {
             ))
         }
     }
+
+    pub fn delete(self) -> Result<(), (Self, NlError)> {
+        let info = Ifinfomsg::new(
+            RtAddrFamily::Unspecified,
+            Arphrd::Netrom,
+            self.if_index as c_int,
+            IffFlags::empty(),
+            IffFlags::empty(),
+            RtBuffer::new(),
+        );
+        match Self::send_info_msg(Rtm::Dellink, info, &[]) {
+            Ok(()) => Ok(()),
+            Err(err) => Err((self, err)),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ops::Deref;
 
-    struct AutoInterface {
+    struct TemporaryInterface {
         interface: CanInterface,
     }
 
-    impl AutoInterface {
+    impl TemporaryInterface {
         fn new(name: &str) -> NlResult<Self> {
             Ok(Self {
                 interface: CanInterface::create_vcan(name)?,
@@ -190,17 +206,28 @@ mod tests {
         }
     }
 
-    impl Drop for AutoInterface {
+    impl Drop for TemporaryInterface {
         fn drop(&mut self) {
-            let _ = interface.remove();
+            assert!(CanInterface::open_iface(self.interface.if_index)
+                .delete()
+                .is_ok());
+        }
+    }
+
+    impl Deref for TemporaryInterface {
+        type Target = CanInterface;
+
+        fn deref(&self) -> &Self::Target {
+            &self.interface
         }
     }
 
     #[cfg(feature = "vcan_tests")]
     #[cfg(feature = "root_tests")]
     #[test]
-    fn bring_up() {
-        let interface = dbg!(CanInterface::create_vcan("bring_up")).unwrap();
-        assert!(dbg!(interface.bring_up()).is_ok())
+    fn up_down() {
+        let interface = TemporaryInterface::new("up_down").unwrap();
+        assert!(dbg!(interface.bring_up()).is_ok());
+        assert!(dbg!(interface.bring_down()).is_ok())
     }
 }
