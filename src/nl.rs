@@ -350,6 +350,7 @@ pub mod tests {
     }
 
     impl TemporaryInterface {
+        #[allow(unused)]
         pub fn new(name: &str) -> NlResult<Self> {
             Ok(Self {
                 interface: CanInterface::create_vcan(name)?,
