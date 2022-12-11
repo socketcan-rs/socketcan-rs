@@ -62,7 +62,7 @@ pub struct Details {
     pub mtu: Option<Mtu>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
 pub enum Mtu {
     Standard = 16,
@@ -197,7 +197,7 @@ impl CanInterface {
                 buffer
             },
         );
-        let _ = Self::send_info_msg(Rtm::Newlink, info, &[NlmF::Create, NlmF::Excl])?;
+        Self::send_info_msg(Rtm::Newlink, info, &[NlmF::Create, NlmF::Excl])?;
 
         if let Ok(if_index) = if_nametoindex(name) {
             Ok(Self { if_index })
