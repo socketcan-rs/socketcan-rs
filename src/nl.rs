@@ -39,6 +39,14 @@ type NlResult<T> = Result<T, NlError>;
 ///
 /// Controlled through the kernel's Netlink interface, CAN devices can be
 /// brought up or down or configured through this.
+///
+/// Note while that this API is designed in an RAII-fashion, it cannot really make the same guarantees:
+/// It is entirely possible for another user/process to modify, remove and re-add an interface
+/// while you are holding this object with a reference to it.
+///
+/// Some actions possible on this interface require the process/user to have the ```CAP_NET_ADMIN```
+/// capability, like the root user does. This is indicated by their documentation starting with
+/// "PRIVILEGED:".
 #[allow(missing_copy_implementations)]
 #[derive(Debug)]
 pub struct CanInterface {
@@ -48,9 +56,17 @@ pub struct CanInterface {
 #[allow(missing_copy_implementations)]
 #[derive(Debug)]
 pub struct Details {
-    pub if_name: Option<String>,
+    pub name: Option<String>,
+    pub index: c_uint,
     pub is_up: bool,
-    pub mtu: Option<u32>,
+    pub mtu: Option<Mtu>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(u32)]
+pub enum Mtu {
+    Standard = 16,
+    Fd = 72,
 }
 
 impl CanInterface {
@@ -117,7 +133,9 @@ impl CanInterface {
     }
 
     /// Opens a new netlink socket, bound to this process' PID
-    fn open_route_socket() -> NlResult<NlSocketHandle> {
+    /// The function is generic allow for usage in contexts where NlError has specific,
+    /// non-default generic parameters.
+    fn open_route_socket<T, P>() -> Result<NlSocketHandle, NlError<T, P>> {
         // retrieve PID
         let pid = unistd::getpid().as_raw() as u32;
 
@@ -153,7 +171,15 @@ impl CanInterface {
         Self::send_info_msg(Rtm::Newlink, info, &[])
     }
 
+    /// PRIVILEGED: Create a VCAN interface. Useful for testing applications.
+    /// Note that the length of the name is capped by ```libc::IFNAMSIZ```.
     pub fn create_vcan(name: &str) -> NlResult<Self> {
+        Self::create(name, "vcan")
+    }
+
+    /// PRIVILEGED: Create a of the given kind.
+    /// Note that the length of the name is capped by ```libc::IFNAMSIZ```.
+    pub fn create(name: &str, kind: &str) -> NlResult<Self> {
         debug_assert!(name.len() <= libc::IFNAMSIZ);
 
         let info = Ifinfomsg::new(
@@ -166,12 +192,13 @@ impl CanInterface {
                 let mut buffer = RtBuffer::new();
                 buffer.push(Rtattr::new(None, Ifla::Ifname, name)?);
                 let mut linkinfo = Rtattr::new(None, Ifla::Linkinfo, Vec::<u8>::new())?;
-                linkinfo.add_nested_attribute(&Rtattr::new(None, IflaInfo::Kind, "vcan")?)?;
+                linkinfo.add_nested_attribute(&Rtattr::new(None, IflaInfo::Kind, kind)?)?;
                 buffer.push(linkinfo);
                 buffer
             },
         );
         let _ = Self::send_info_msg(Rtm::Newlink, info, &[NlmF::Create, NlmF::Excl])?;
+
         if let Ok(if_index) = if_nametoindex(name) {
             Ok(Self { if_index })
         } else {
@@ -181,6 +208,7 @@ impl CanInterface {
         }
     }
 
+    /// PRIVILEGED: Attempt to delete the interface.
     pub fn delete(self) -> Result<(), (Self, NlError)> {
         let info = Ifinfomsg::new(
             RtAddrFamily::Unspecified,
@@ -196,7 +224,8 @@ impl CanInterface {
         }
     }
 
-    pub fn info(&self) -> Result<Details, NlError<Rtm, Ifinfomsg>> {
+    /// Attempt to query detailed information on the interface.
+    pub fn details(&self) -> Result<Details, NlError<Rtm, Ifinfomsg>> {
         let info = Ifinfomsg::new(
             RtAddrFamily::Unspecified,
             Arphrd::Netrom,
@@ -210,9 +239,8 @@ impl CanInterface {
             },
         );
 
-        let mut nl = Self::open_route_socket().unwrap(); // TODO
+        let mut nl = Self::open_route_socket()?;
 
-        // prepare message
         let hdr = Nlmsghdr::new(
             None,
             Rtm::Getlink,
@@ -226,7 +254,8 @@ impl CanInterface {
         match nl.recv::<'_, Rtm, Ifinfomsg>()? {
             Some(msg_hdr) => {
                 let mut info = Details {
-                    if_name: None,
+                    name: None,
+                    index: self.if_index,
                     is_up: false,
                     mtu: None,
                 };
@@ -237,25 +266,31 @@ impl CanInterface {
                     for attr in payload.rtattrs.iter() {
                         match attr.rta_type {
                             Ifla::Ifname => {
-                                // Cut of the \0 terminator..
                                 if let Ok(string) =
                                     CString::from_vec_with_nul(Vec::from(attr.rta_payload.as_ref()))
                                 {
                                     if let Ok(string) = string.into_string() {
-                                        info.if_name = Some(string);
+                                        info.name = Some(string);
                                     }
                                 }
                             }
                             Ifla::Mtu => {
                                 if attr.rta_payload.len() == 4 {
-                                    let mut be_bytes = [0u8; 4];
+                                    let mut bytes = [0u8; 4];
                                     for (index, byte) in
                                         attr.rta_payload.as_ref().iter().enumerate()
                                     {
-                                        be_bytes[index] = *byte;
+                                        bytes[index] = *byte;
                                     }
 
-                                    info.mtu = Some(u32::from_be_bytes(be_bytes));
+                                    const STANDARD: u32 = Mtu::Standard as u32;
+                                    const FD: u32 = Mtu::Fd as u32;
+
+                                    info.mtu = match u32::from_ne_bytes(bytes) {
+                                        STANDARD => Some(Mtu::Standard),
+                                        FD => Some(Mtu::Fd),
+                                        _ => None,
+                                    }
                                 }
                             }
                             _ => (),
@@ -267,6 +302,27 @@ impl CanInterface {
             }
             None => Err(NlError::NoAck),
         }
+    }
+
+    /// PRIVILEGED: Set the MTU of the given interface.
+    pub fn set_mtu(&self, mtu: Mtu) -> NlResult<()> {
+        let info = Ifinfomsg::new(
+            RtAddrFamily::Unspecified,
+            Arphrd::Netrom,
+            self.if_index as c_int,
+            IffFlags::empty(),
+            IffFlags::empty(),
+            {
+                let mut buffer = RtBuffer::new();
+                buffer.push(Rtattr::new(
+                    None,
+                    Ifla::Mtu,
+                    &u32::to_ne_bytes(mtu as u32)[..],
+                )?);
+                buffer
+            },
+        );
+        Self::send_info_msg(Rtm::Newlink, info, &[])
     }
 }
 
@@ -317,22 +373,35 @@ pub mod tests {
         }
     }
 
-    #[cfg(feature = "vcan_tests")]
-    #[cfg(feature = "root_tests")]
+    #[cfg(feature = "netlink_tests")]
     #[test]
     fn up_down() {
         let interface = TemporaryInterface::new("up_down").unwrap();
         assert!(interface.bring_up().is_ok());
-        assert!(interface.info().unwrap().is_up);
+        assert!(interface.details().unwrap().is_up);
         assert!(interface.bring_down().is_ok());
-        assert!(!interface.info().unwrap().is_up);
+        assert!(!interface.details().unwrap().is_up);
     }
 
-    #[cfg(feature = "vcan_tests")]
-    #[cfg(feature = "root_tests")]
+    #[cfg(feature = "netlink_tests")]
     #[test]
-    fn info() {
+    fn details() {
         let interface = TemporaryInterface::new("info").unwrap();
-        assert_eq!("info", interface.info().unwrap().if_name.unwrap());
+        let details = interface.details().unwrap();
+        assert_eq!("info", details.name.unwrap());
+        assert!(details.mtu.is_some());
+        assert!(!details.is_up);
+    }
+
+    #[cfg(feature = "netlink_tests")]
+    #[test]
+    fn mtu() {
+        let interface = TemporaryInterface::new("mtu").unwrap();
+
+        assert!(interface.set_mtu(Mtu::Fd).is_ok());
+        assert_eq!(Mtu::Fd, interface.details().unwrap().mtu.unwrap());
+
+        assert!(interface.set_mtu(Mtu::Standard).is_ok());
+        assert_eq!(Mtu::Standard, interface.details().unwrap().mtu.unwrap());
     }
 }
