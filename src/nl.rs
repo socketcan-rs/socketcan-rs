@@ -173,19 +173,19 @@ impl CanInterface {
 
     /// PRIVILEGED: Create a VCAN interface. Useful for testing applications.
     /// Note that the length of the name is capped by ```libc::IFNAMSIZ```.
-    pub fn create_vcan(name: &str) -> NlResult<Self> {
-        Self::create(name, "vcan")
+    pub fn create_vcan(name: &str, index: Option<u32>) -> NlResult<Self> {
+        Self::create(name, index, "vcan")
     }
 
     /// PRIVILEGED: Create a of the given kind.
     /// Note that the length of the name is capped by ```libc::IFNAMSIZ```.
-    pub fn create(name: &str, kind: &str) -> NlResult<Self> {
+    pub fn create(name: &str, index: Option<u32>, kind: &str) -> NlResult<Self> {
         debug_assert!(name.len() <= libc::IFNAMSIZ);
 
         let info = Ifinfomsg::new(
             RtAddrFamily::Unspecified,
             Arphrd::Netrom,
-            0,
+            index.unwrap_or(0) as c_int,
             IffFlags::empty(),
             IffFlags::empty(),
             {
@@ -199,12 +199,18 @@ impl CanInterface {
         );
         Self::send_info_msg(Rtm::Newlink, info, &[NlmF::Create, NlmF::Excl])?;
 
-        if let Ok(if_index) = if_nametoindex(name) {
-            Ok(Self { if_index })
+        if let Some(index) = index {
+            Ok(Self { if_index: index })
         } else {
-            Err(NlError::Msg(
-                "Interface must have been deleted between request and this check".to_string(),
-            ))
+            // Unfortunately netlink does not return the the if_index assigned to the interface..
+            if let Ok(if_index) = if_nametoindex(name) {
+                Ok(Self { if_index })
+            } else {
+                Err(NlError::Msg(
+                    "Interface must have been deleted between request and this if_nametoindex"
+                        .to_string(),
+                ))
+            }
         }
     }
 
@@ -353,7 +359,7 @@ pub mod tests {
         #[allow(unused)]
         pub fn new(name: &str) -> NlResult<Self> {
             Ok(Self {
-                interface: CanInterface::create_vcan(name)?,
+                interface: CanInterface::create_vcan(name, None)?,
             })
         }
     }
