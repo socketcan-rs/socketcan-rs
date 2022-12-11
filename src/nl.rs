@@ -9,12 +9,13 @@
 //! > between different userspace processes, in a way similar to the Unix
 //! > domain sockets.
 //!
+use std::ffi::CString;
 use std::{
     fmt::Debug,
     os::raw::{c_int, c_uint},
 };
 
-use neli::consts::rtnl::{IffFlags, Ifla, IflaInfo};
+use neli::consts::rtnl::{Iff, IffFlags, Ifla, IflaInfo};
 use neli::rtnl::Rtattr;
 use neli::{
     consts::{
@@ -42,6 +43,14 @@ type NlResult<T> = Result<T, NlError>;
 #[derive(Debug)]
 pub struct CanInterface {
     if_index: c_uint,
+}
+
+#[allow(missing_copy_implementations)]
+#[derive(Debug)]
+pub struct Details {
+    pub if_name: Option<String>,
+    pub is_up: bool,
+    pub mtu: Option<u32>,
 }
 
 impl CanInterface {
@@ -94,6 +103,7 @@ impl CanInterface {
         P: ToBytes + Debug,
     {
         sock.send(msg)?;
+
         // This will actually produce an Err if the response is a netlink error, no need to match.
         if let Some(Nlmsghdr {
             nl_payload: NlPayload::Ack(_),
@@ -166,9 +176,7 @@ impl CanInterface {
             Ok(Self { if_index })
         } else {
             Err(NlError::Msg(
-                "Interface must have been deleted between request and this check"
-                    .parse()
-                    .unwrap(),
+                "Interface must have been deleted between request and this check".to_string(),
             ))
         }
     }
@@ -187,19 +195,106 @@ impl CanInterface {
             Err(err) => Err((self, err)),
         }
     }
+
+    pub fn info(&self) -> Result<Details, NlError<Rtm, Ifinfomsg>> {
+        let info = Ifinfomsg::new(
+            RtAddrFamily::Unspecified,
+            Arphrd::Netrom,
+            self.if_index as c_int,
+            IffFlags::empty(),
+            IffFlags::empty(),
+            {
+                let mut buffer = RtBuffer::new();
+                buffer.push(Rtattr::new(None, Ifla::ExtMask, 1 as c_int).unwrap());
+                buffer
+            },
+        );
+
+        let mut nl = Self::open_route_socket().unwrap(); // TODO
+
+        // prepare message
+        let hdr = Nlmsghdr::new(
+            None,
+            Rtm::Getlink,
+            NlmFFlags::new(&[NlmF::Request]),
+            None,
+            None,
+            NlPayload::Payload(info),
+        );
+        nl.send(hdr)?;
+
+        match nl.recv::<'_, Rtm, Ifinfomsg>()? {
+            Some(msg_hdr) => {
+                let mut info = Details {
+                    if_name: None,
+                    is_up: false,
+                    mtu: None,
+                };
+
+                if let Ok(payload) = msg_hdr.get_payload() {
+                    info.is_up = payload.ifi_flags.contains(&Iff::Up);
+
+                    for attr in payload.rtattrs.iter() {
+                        match attr.rta_type {
+                            Ifla::Ifname => {
+                                // Cut of the \0 terminator..
+                                if let Ok(string) =
+                                    CString::from_vec_with_nul(Vec::from(attr.rta_payload.as_ref()))
+                                {
+                                    if let Ok(string) = string.into_string() {
+                                        info.if_name = Some(string);
+                                    }
+                                }
+                            }
+                            Ifla::Mtu => {
+                                if attr.rta_payload.len() == 4 {
+                                    let mut be_bytes = [0u8; 4];
+                                    for (index, byte) in
+                                        attr.rta_payload.as_ref().iter().enumerate()
+                                    {
+                                        be_bytes[index] = *byte;
+                                    }
+
+                                    info.mtu = Some(u32::from_be_bytes(be_bytes));
+                                }
+                            }
+                            _ => (),
+                        }
+                    }
+                }
+
+                Ok(info)
+            }
+            None => Err(NlError::NoAck),
+        }
+    }
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use std::ops::Deref;
 
-    struct TemporaryInterface {
+    /// RAII-style helper to create and clean-up a specific vcan interface for a single test.
+    /// Using drop here ensures that the interface always gets cleaned up
+    /// (although a restart would also remove it).
+    ///
+    /// Intended for use (ONLY) in tests as follows:
+    /// ```
+    /// #[test]
+    /// fn my_test() {
+    ///     let interface = TemporaryInterface::new("my_test").unwrap();
+    ///     // use the interface..
+    /// }
+    /// ```
+    /// Please not that there is a limit to the length of interface names,
+    /// namely 16 characters on Linux.
+    pub struct TemporaryInterface {
         interface: CanInterface,
     }
 
     impl TemporaryInterface {
-        fn new(name: &str) -> NlResult<Self> {
+        pub fn new(name: &str) -> NlResult<Self> {
             Ok(Self {
                 interface: CanInterface::create_vcan(name)?,
             })
@@ -227,7 +322,17 @@ mod tests {
     #[test]
     fn up_down() {
         let interface = TemporaryInterface::new("up_down").unwrap();
-        assert!(dbg!(interface.bring_up()).is_ok());
-        assert!(dbg!(interface.bring_down()).is_ok())
+        assert!(interface.bring_up().is_ok());
+        assert!(interface.info().unwrap().is_up);
+        assert!(interface.bring_down().is_ok());
+        assert!(!interface.info().unwrap().is_up);
+    }
+
+    #[cfg(feature = "vcan_tests")]
+    #[cfg(feature = "root_tests")]
+    #[test]
+    fn info() {
+        let interface = TemporaryInterface::new("info").unwrap();
+        assert_eq!("info", interface.info().unwrap().if_name.unwrap());
     }
 }
