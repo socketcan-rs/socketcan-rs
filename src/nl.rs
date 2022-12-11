@@ -9,7 +9,13 @@
 //! > between different userspace processes, in a way similar to the Unix
 //! > domain sockets.
 //!
+use std::{
+    fmt::Debug,
+    os::raw::{c_int, c_uint},
+};
 
+use neli::consts::rtnl::{IffFlags, Ifla, IflaInfo};
+use neli::rtnl::Rtattr;
 use neli::{
     consts::{
         nl::{NlType, NlmF, NlmFFlags},
@@ -24,10 +30,6 @@ use neli::{
     ToBytes,
 };
 use nix::{self, net::if_::if_nametoindex, unistd};
-use std::{
-    fmt::Debug,
-    os::raw::{c_int, c_uint},
-};
 
 /// A result for Netlink errors.
 type NlResult<T> = Result<T, NlError>;
@@ -62,14 +64,20 @@ impl CanInterface {
     }
 
     /// Sends an info message
-    fn send_info_msg(info: Ifinfomsg) -> NlResult<()> {
+    fn send_info_msg(info: Ifinfomsg, additional_flags: &[NlmF]) -> NlResult<()> {
         let mut nl = Self::open_route_socket()?;
 
         // prepare message
         let hdr = Nlmsghdr::new(
             None,
             Rtm::Newlink,
-            NlmFFlags::new(&[NlmF::Request, NlmF::Ack]),
+            {
+                let mut flags = NlmFFlags::new(&[NlmF::Request, NlmF::Ack]);
+                for flag in additional_flags {
+                    flags.set(flag);
+                }
+                flags
+            },
             None,
             None,
             NlPayload::Payload(info),
@@ -87,7 +95,11 @@ impl CanInterface {
     {
         sock.send(msg)?;
         // This will actually produce an Err if the response is a netlink error, no need to match.
-        if let NlPayload::Ack(_) = sock.recv()? {
+        if let Some(Nlmsghdr {
+            nl_payload: NlPayload::Ack(_),
+            ..
+        }) = sock.recv()?
+        {
             Ok(())
         } else {
             Err(NlError::NoAck)
@@ -115,7 +127,7 @@ impl CanInterface {
             self.if_index as c_int,
             RtBuffer::new(),
         );
-        Self::send_info_msg(info)
+        Self::send_info_msg(info, &[])
     }
 
     /// Bring up CAN interface
@@ -128,6 +140,67 @@ impl CanInterface {
             self.if_index as c_int,
             RtBuffer::new(),
         );
-        Self::send_info_msg(info)
+        Self::send_info_msg(info, &[])
+    }
+
+    pub fn create_vcan(name: &str) -> NlResult<Self> {
+        debug_assert!(name.len() <= libc::IFNAMSIZ);
+
+        let info = Ifinfomsg::new(
+            RtAddrFamily::Unspecified,
+            Arphrd::Netrom,
+            0,
+            IffFlags::empty(),
+            IffFlags::empty(),
+            {
+                let mut buffer = RtBuffer::new();
+                buffer.push(Rtattr::new(None, Ifla::Ifname, name)?);
+                let mut linkinfo = Rtattr::new(None, Ifla::Linkinfo, Vec::<u8>::new())?;
+                linkinfo.add_nested_attribute(&Rtattr::new(None, IflaInfo::Kind, "vcan")?)?;
+                buffer.push(linkinfo);
+                buffer
+            },
+        );
+        let _ = Self::send_info_msg(info, &[NlmF::Create, NlmF::Excl])?;
+        if let Ok(if_index) = if_nametoindex(name) {
+            Ok(Self { if_index })
+        } else {
+            Err(NlError::Msg(
+                "Interface must have been deleted between request and this check"
+                    .parse()
+                    .unwrap(),
+            ))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct AutoInterface {
+        interface: CanInterface,
+    }
+
+    impl AutoInterface {
+        fn new(name: &str) -> NlResult<Self> {
+            Ok(Self {
+                interface: CanInterface::create_vcan(name)?,
+            })
+        }
+    }
+
+    impl Drop for AutoInterface {
+        fn drop(&mut self) {
+            let _ = interface.remove();
+        }
+    }
+
+    #[cfg(feature = "vcan_tests")]
+    #[cfg(feature = "root_tests")]
+    #[test]
+    fn bring_up() {
+        let interface = dbg!(CanInterface::create_vcan("bring_up")).unwrap();
+        assert!(dbg!(interface.bring_up()).is_ok())
     }
 }
