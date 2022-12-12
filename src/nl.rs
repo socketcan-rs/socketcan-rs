@@ -70,7 +70,7 @@ pub enum Mtu {
 }
 
 impl CanInterface {
-    /// Open CAN interface by name
+    /// Open a CAN interface by name.
     ///
     /// Similar to `open_if`, but looks up the device by name instead
     pub fn open(ifname: &str) -> Result<Self, nix::Error> {
@@ -78,7 +78,7 @@ impl CanInterface {
         Ok(Self::open_iface(if_index))
     }
 
-    /// Open CAN interface
+    /// Open a CAN interface.
     ///
     /// Creates a new `CanInterface` instance. No actual "opening" is necessary
     /// or performed when calling this function.
@@ -88,7 +88,7 @@ impl CanInterface {
         }
     }
 
-    /// Sends an info message
+    /// Sends an info message.
     fn send_info_msg(msg_type: Rtm, info: Ifinfomsg, additional_flags: &[NlmF]) -> NlResult<()> {
         let mut nl = Self::open_route_socket()?;
 
@@ -132,8 +132,8 @@ impl CanInterface {
         }
     }
 
-    /// Opens a new netlink socket, bound to this process' PID
-    /// The function is generic allow for usage in contexts where NlError has specific,
+    /// Opens a new netlink socket, bound to this process' PID.
+    /// The function is generic to allow for usage in contexts where NlError has specific,
     /// non-default generic parameters.
     fn open_route_socket<T, P>() -> Result<NlSocketHandle, NlError<T, P>> {
         // retrieve PID
@@ -145,7 +145,7 @@ impl CanInterface {
         Ok(sock)
     }
 
-    /// Bring down CAN interface
+    /// Bring down this interface.
     ///
     /// Use a netlink control socket to set the interface status to "down".
     pub fn bring_down(&self) -> NlResult<()> {
@@ -171,13 +171,13 @@ impl CanInterface {
         Self::send_info_msg(Rtm::Newlink, info, &[])
     }
 
-    /// PRIVILEGED: Create a VCAN interface. Useful for testing applications.
+    /// PRIVILEGED: Attempt to create a VCAN interface. Useful for testing applications.
     /// Note that the length of the name is capped by ```libc::IFNAMSIZ```.
     pub fn create_vcan(name: &str, index: Option<u32>) -> NlResult<Self> {
         Self::create(name, index, "vcan")
     }
 
-    /// PRIVILEGED: Create a of the given kind.
+    /// PRIVILEGED: Create an interface of the given kind.
     /// Note that the length of the name is capped by ```libc::IFNAMSIZ```.
     pub fn create(name: &str, index: Option<u32>, kind: &str) -> NlResult<Self> {
         debug_assert!(name.len() <= libc::IFNAMSIZ);
@@ -310,7 +310,7 @@ impl CanInterface {
         }
     }
 
-    /// PRIVILEGED: Set the MTU of the given interface.
+    /// PRIVILEGED: Attempt to set the MTU of this interface.
     pub fn set_mtu(&self, mtu: Mtu) -> NlResult<()> {
         let info = Ifinfomsg::new(
             RtAddrFamily::Unspecified,
@@ -352,7 +352,7 @@ pub mod tests {
     ///     // use the interface..
     /// }
     /// ```
-    /// Please not that there is a limit to the length of interface names,
+    /// Please note that there is a limit to the length of interface names,
     /// namely 16 characters on Linux.
     pub struct TemporaryInterface {
         interface: CanInterface,
@@ -388,8 +388,10 @@ pub mod tests {
     #[serial]
     fn up_down() {
         let interface = TemporaryInterface::new("up_down").unwrap();
+
         assert!(interface.bring_up().is_ok());
         assert!(interface.details().unwrap().is_up);
+
         assert!(interface.bring_down().is_ok());
         assert!(!interface.details().unwrap().is_up);
     }
