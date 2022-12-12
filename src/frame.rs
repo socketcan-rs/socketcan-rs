@@ -9,7 +9,8 @@
 // This file may not be copied, modified, or distributed except according
 // to those terms.
 
-/// CAN bus frames.
+//! CAN bus frames.
+
 use crate::{CanError, CanErrorDecodingFailure, ConstructionError};
 use bitflags::bitflags;
 use embedded_can::{ExtendedId, Frame as EmbeddedFrame, Id, StandardId};
@@ -22,10 +23,10 @@ pub use libc::{
     CAN_MAX_DLEN, CAN_RTR_FLAG, CAN_SFF_MASK,
 };
 
-/// an error mask that will cause SocketCAN to report all errors
+/// An error mask that will cause SocketCAN to report all errors
 pub const ERR_MASK_ALL: u32 = CAN_ERR_MASK;
 
-/// an error mask that will cause SocketCAN to silently drop all errors
+/// An error mask that will cause SocketCAN to silently drop all errors
 pub const ERR_MASK_NONE: u32 = 0;
 
 bitflags! {
@@ -126,6 +127,7 @@ pub trait Frame: EmbeddedFrame {
         self.id_flags().contains(IdFlags::ERR)
     }
 
+    /// Gets the frame error
     fn error(&self) -> Result<CanError, CanErrorDecodingFailure>
     where
         Self: Sized,
@@ -335,6 +337,7 @@ impl AsRef<can_frame> for CanFrame {
 pub struct CanFdFrame(canfd_frame);
 
 impl CanFdFrame {
+    /// Initialize a FD frame from the raw components.
     pub fn init(
         id: u32,
         data: &[u8],

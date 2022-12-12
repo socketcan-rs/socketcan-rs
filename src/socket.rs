@@ -9,7 +9,8 @@
 // This file may not be copied, modified, or distributed except according
 // to those terms.
 
-/// Implementation of sockets for CANbus 2.0 and FD for SocketCAN on Linux.
+//! Implementation of sockets for CANbus 2.0 and FD for SocketCAN on Linux.
+
 use crate::{frame::CAN_ERR_MASK, CanAnyFrame, CanFdFrame, CanFrame, CanSocketOpenError};
 use libc::{
     canid_t, fcntl, read, sa_family_t, setsockopt, sockaddr, sockaddr_can, socklen_t, suseconds_t,
@@ -400,11 +401,13 @@ pub trait Socket: AsRawFd {
         set_socket_option(self.as_raw_fd(), SOL_CAN_RAW, CAN_RAW_ERR_FILTER, &mask)
     }
 
+    /// Sets the error mask on the socket to reject all errors.
     #[inline(always)]
     fn error_filter_drop_all(&self) -> io::Result<()> {
         self.set_error_filter(0)
     }
 
+    /// Sets the error mask on the socket to accept all errors.
     #[inline(always)]
     fn error_filter_accept_all(&self) -> io::Result<()> {
         self.set_error_filter(CAN_ERR_MASK)

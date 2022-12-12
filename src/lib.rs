@@ -60,10 +60,10 @@
 
 // clippy: do not warn about things like "SocketCAN" inside the docs
 #![allow(clippy::doc_markdown)]
-// TODO: Change this to 'deny' before release
-// TODO: Add these warnings before release:
-//    missing_docs,
-#![warn(
+
+// Some lints
+#![deny(
+    missing_docs,
     missing_copy_implementations,
     missing_debug_implementations,
     unstable_features,

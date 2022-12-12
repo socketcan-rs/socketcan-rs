@@ -9,9 +9,14 @@
 // This file may not be copied, modified, or distributed except according
 // to those terms.
 
-/// CAN bus errors.
-// information from https://raw.githubusercontent.com/torvalds/linux/master/
-//                  /include/uapi/linux/can/error.h
+//! CAN bus errors.
+//!
+//!  information from https://raw.githubusercontent.com/torvalds/linux/master/
+//!                 /include/uapi/linux/can/error.h
+
+// TODO: Remove this before release
+#![allow(missing_docs)]
+
 use crate::Frame;
 use std::{convert::TryFrom, error, fmt, io};
 
@@ -25,30 +30,26 @@ fn get_data(frame: &impl Frame, idx: u8) -> Result<u8, CanErrorDecodingFailure> 
         .ok_or(CanErrorDecodingFailure::NotEnoughData(idx))?)
 }
 
+// ===== CanErrorDecodingFailure =====
+
 /// Error decoding a CanError from a CanFrame.
 #[derive(Copy, Clone, Debug)]
 pub enum CanErrorDecodingFailure {
     /// The supplied CANFrame did not have the error bit set.
     NotAnError,
-
     /// The error type is not known and cannot be decoded.
     UnknownErrorType(u32),
-
     /// The error type indicated a need for additional information as `data`,
     /// but the `data` field was not long enough.
     NotEnoughData(u8),
-
     /// The error type `ControllerProblem` was indicated and additional
     /// information found, but not recognized.
     InvalidControllerProblem,
-
     /// The type of the ProtocolViolation was not valid
     InvalidViolationType,
-
     /// A location was specified for a ProtocolViolation, but the location
     /// was not valid.
     InvalidLocation,
-
     /// The supplied transciever error was invalid.
     InvalidTransceiverError,
 }
@@ -57,53 +58,47 @@ impl error::Error for CanErrorDecodingFailure {}
 
 impl fmt::Display for CanErrorDecodingFailure {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use CanErrorDecodingFailure::*;
         let msg = match *self {
-            CanErrorDecodingFailure::NotAnError => "CAN frame is not an error",
-            CanErrorDecodingFailure::UnknownErrorType(_) => "unknown error type",
-            CanErrorDecodingFailure::NotEnoughData(_) => "not enough data",
-            CanErrorDecodingFailure::InvalidControllerProblem => "not a valid controller problem",
-            CanErrorDecodingFailure::InvalidViolationType => "not a valid violation type",
-            CanErrorDecodingFailure::InvalidLocation => "not a valid location",
-            CanErrorDecodingFailure::InvalidTransceiverError => "not a valid transceiver error",
+            NotAnError => "CAN frame is not an error",
+            UnknownErrorType(_) => "unknown error type",
+            NotEnoughData(_) => "not enough data",
+            InvalidControllerProblem => "not a valid controller problem",
+            InvalidViolationType => "not a valid violation type",
+            InvalidLocation => "not a valid location",
+            InvalidTransceiverError => "not a valid transceiver error",
         };
         write!(f, "{}", msg)
     }
 }
 
+// ===== CanError ====
+
 #[derive(Copy, Clone, Debug)]
 pub enum CanError {
     /// TX timeout (by netdevice driver)
     TransmitTimeout,
-
     /// Arbitration was lost. Contains the number after which arbitration was
     /// lost or 0 if unspecified
     LostArbitration(u8),
-
     /// Controller problem, see `ControllerProblem`
     ControllerProblem(ControllerProblem),
-
     /// Protocol violation at the specified `Location`. See `ProtocolViolation`
     /// for details.
     ProtocolViolation {
         vtype: ViolationType,
         location: Location,
     },
-
     /// Transceiver Error.
     TransceiverError,
-
     /// No ACK received for current CAN frame.
     NoAck,
-
     /// Bus off (due to too many detected errors)
     BusOff,
-
     /// Bus error (due to too many detected errors)
     BusError,
-
     /// The bus has been restarted
     Restarted,
-
     /// Unknown, possibly invalid, error
     Unknown(u32),
 }
@@ -112,19 +107,20 @@ impl error::Error for CanError {}
 
 impl fmt::Display for CanError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use CanError::*;
         match *self {
-            CanError::TransmitTimeout => write!(f, "transmission timeout"),
-            CanError::LostArbitration(n) => write!(f, "arbitration lost after {} bits", n),
-            CanError::ControllerProblem(e) => write!(f, "controller problem: {}", e),
-            CanError::ProtocolViolation { vtype, location } => {
+            TransmitTimeout => write!(f, "transmission timeout"),
+            LostArbitration(n) => write!(f, "arbitration lost after {} bits", n),
+            ControllerProblem(e) => write!(f, "controller problem: {}", e),
+            ProtocolViolation { vtype, location } => {
                 write!(f, "protocol violation at {}: {}", location, vtype)
             }
-            CanError::TransceiverError => write!(f, "transceiver error"),
-            CanError::NoAck => write!(f, "no ack"),
-            CanError::BusOff => write!(f, "bus off"),
-            CanError::BusError => write!(f, "bus error"),
-            CanError::Restarted => write!(f, "restarted"),
-            CanError::Unknown(errno) => write!(f, "unknown error ({})", errno),
+            TransceiverError => write!(f, "transceiver error"),
+            NoAck => write!(f, "no ack"),
+            BusOff => write!(f, "bus off"),
+            BusError => write!(f, "bus error"),
+            Restarted => write!(f, "restarted"),
+            Unknown(errno) => write!(f, "unknown error ({})", errno),
         }
     }
 }
@@ -143,29 +139,24 @@ impl embedded_can::Error for CanError {
     }
 }
 
+// ===== ControllerProblem =====
+
 #[derive(Copy, Clone, Debug)]
 pub enum ControllerProblem {
     /// unspecified
     Unspecified,
-
     /// RX buffer overflow
     ReceiveBufferOverflow,
-
     /// TX buffer overflow
     TransmitBufferOverflow,
-
     /// reached warning level for RX errors
     ReceiveErrorWarning,
-
     /// reached warning level for TX errors
     TransmitErrorWarning,
-
     /// reached error passive status RX
     ReceiveErrorPassive,
-
     /// reached error passive status TX
     TransmitErrorPassive,
-
     /// recovered to error active state
     Active,
 }
@@ -174,15 +165,16 @@ impl error::Error for ControllerProblem {}
 
 impl fmt::Display for ControllerProblem {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use ControllerProblem::*;
         let msg = match *self {
-            ControllerProblem::Unspecified => "unspecified controller problem",
-            ControllerProblem::ReceiveBufferOverflow => "receive buffer overflow",
-            ControllerProblem::TransmitBufferOverflow => "transmit buffer overflow",
-            ControllerProblem::ReceiveErrorWarning => "ERROR WARNING (receive)",
-            ControllerProblem::TransmitErrorWarning => "ERROR WARNING (transmit)",
-            ControllerProblem::ReceiveErrorPassive => "ERROR PASSIVE (receive)",
-            ControllerProblem::TransmitErrorPassive => "ERROR PASSIVE (transmit)",
-            ControllerProblem::Active => "ERROR ACTIVE",
+            Unspecified => "unspecified controller problem",
+            ReceiveBufferOverflow => "receive buffer overflow",
+            TransmitBufferOverflow => "transmit buffer overflow",
+            ReceiveErrorWarning => "ERROR WARNING (receive)",
+            TransmitErrorWarning => "ERROR WARNING (transmit)",
+            ReceiveErrorPassive => "ERROR PASSIVE (receive)",
+            TransmitErrorPassive => "ERROR PASSIVE (transmit)",
+            Active => "ERROR ACTIVE",
         };
         write!(f, "{}", msg)
     }
@@ -192,46 +184,41 @@ impl TryFrom<u8> for ControllerProblem {
     type Error = CanErrorDecodingFailure;
 
     fn try_from(val: u8) -> Result<Self, Self::Error> {
+        use ControllerProblem::*;
         Ok(match val {
-            0x00 => ControllerProblem::Unspecified,
-            0x01 => ControllerProblem::ReceiveBufferOverflow,
-            0x02 => ControllerProblem::TransmitBufferOverflow,
-            0x04 => ControllerProblem::ReceiveErrorWarning,
-            0x08 => ControllerProblem::TransmitErrorWarning,
-            0x10 => ControllerProblem::ReceiveErrorPassive,
-            0x20 => ControllerProblem::TransmitErrorPassive,
-            0x40 => ControllerProblem::Active,
+            0x00 => Unspecified,
+            0x01 => ReceiveBufferOverflow,
+            0x02 => TransmitBufferOverflow,
+            0x04 => ReceiveErrorWarning,
+            0x08 => TransmitErrorWarning,
+            0x10 => ReceiveErrorPassive,
+            0x20 => TransmitErrorPassive,
+            0x40 => Active,
             _ => return Err(CanErrorDecodingFailure::InvalidControllerProblem),
         })
     }
 }
 
+// ===== ViolationType =====
+
 #[derive(Copy, Clone, Debug)]
 pub enum ViolationType {
     /// Unspecified Violation
     Unspecified,
-
     /// Single Bit Error
     SingleBitError,
-
     /// Frame formatting error
     FrameFormatError,
-
     /// Bit stuffing error
     BitStuffingError,
-
     /// A dominant bit was sent, but not received
     UnableToSendDominantBit,
-
     /// A recessive bit was sent, but not received
     UnableToSendRecessiveBit,
-
     /// Bus overloaded
     BusOverload,
-
     /// Bus is active (again)
     Active,
-
     /// Transmission Error
     TransmissionError,
 }
@@ -240,16 +227,17 @@ impl error::Error for ViolationType {}
 
 impl fmt::Display for ViolationType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use ViolationType::*;
         let msg = match *self {
-            ViolationType::Unspecified => "unspecified",
-            ViolationType::SingleBitError => "single bit error",
-            ViolationType::FrameFormatError => "frame format error",
-            ViolationType::BitStuffingError => "bit stuffing error",
-            ViolationType::UnableToSendDominantBit => "unable to send dominant bit",
-            ViolationType::UnableToSendRecessiveBit => "unable to send recessive bit",
-            ViolationType::BusOverload => "bus overload",
-            ViolationType::Active => "active",
-            ViolationType::TransmissionError => "transmission error",
+            Unspecified => "unspecified",
+            SingleBitError => "single bit error",
+            FrameFormatError => "frame format error",
+            BitStuffingError => "bit stuffing error",
+            UnableToSendDominantBit => "unable to send dominant bit",
+            UnableToSendRecessiveBit => "unable to send recessive bit",
+            BusOverload => "bus overload",
+            Active => "active",
+            TransmissionError => "transmission error",
         };
         write!(f, "{}", msg)
     }
@@ -259,16 +247,17 @@ impl TryFrom<u8> for ViolationType {
     type Error = CanErrorDecodingFailure;
 
     fn try_from(val: u8) -> Result<Self, Self::Error> {
+        use ViolationType::*;
         Ok(match val {
-            0x00 => ViolationType::Unspecified,
-            0x01 => ViolationType::SingleBitError,
-            0x02 => ViolationType::FrameFormatError,
-            0x04 => ViolationType::BitStuffingError,
-            0x08 => ViolationType::UnableToSendDominantBit,
-            0x10 => ViolationType::UnableToSendRecessiveBit,
-            0x20 => ViolationType::BusOverload,
-            0x40 => ViolationType::Active,
-            0x80 => ViolationType::TransmissionError,
+            0x00 => Unspecified,
+            0x01 => SingleBitError,
+            0x02 => FrameFormatError,
+            0x04 => BitStuffingError,
+            0x08 => UnableToSendDominantBit,
+            0x10 => UnableToSendRecessiveBit,
+            0x20 => BusOverload,
+            0x40 => Active,
+            0x80 => TransmissionError,
             _ => return Err(CanErrorDecodingFailure::InvalidViolationType),
         })
     }
@@ -281,88 +270,70 @@ impl TryFrom<u8> for ViolationType {
 pub enum Location {
     /// Unspecified
     Unspecified,
-
     /// Start of frame.
     StartOfFrame,
-
     /// ID bits 28-21 (SFF: 10-3)
     Id2821,
-
     /// ID bits 20-18 (SFF: 2-0)
     Id2018,
-
     /// substitute RTR (SFF: RTR)
     SubstituteRtr,
-
     /// extension of identifier
     IdentifierExtension,
-
     /// ID bits 17-13
     Id1713,
-
     /// ID bits 12-5
     Id1205,
-
     /// ID bits 4-0
     Id0400,
-
     /// RTR bit
     Rtr,
-
     /// Reserved bit 1
     Reserved1,
-
     /// Reserved bit 0
     Reserved0,
-
     /// Data length
     DataLengthCode,
-
     /// Data section
     DataSection,
-
     /// CRC sequence
     CrcSequence,
-
     /// CRC delimiter
     CrcDelimiter,
-
     /// ACK slot
     AckSlot,
-
     /// ACK delimiter
     AckDelimiter,
-
     /// End-of-frame
     EndOfFrame,
-
     /// Intermission (between frames)
     Intermission,
 }
 
 impl fmt::Display for Location {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use Location::*;
         let msg = match *self {
-            Location::Unspecified => "unspecified location",
-            Location::StartOfFrame => "start of frame",
-            Location::Id2821 => "ID, bits 28-21",
-            Location::Id2018 => "ID, bits 20-18",
-            Location::SubstituteRtr => "substitute RTR bit",
-            Location::IdentifierExtension => "ID, extension",
-            Location::Id1713 => "ID, bits 17-13",
-            Location::Id1205 => "ID, bits 12-05",
-            Location::Id0400 => "ID, bits 04-00",
-            Location::Rtr => "RTR bit",
-            Location::Reserved1 => "reserved bit 1",
-            Location::Reserved0 => "reserved bit 0",
-            Location::DataLengthCode => "data length code",
-            Location::DataSection => "data section",
-            Location::CrcSequence => "CRC sequence",
-            Location::CrcDelimiter => "CRC delimiter",
-            Location::AckSlot => "ACK slot",
-            Location::AckDelimiter => "ACK delimiter",
-            Location::EndOfFrame => "end of frame",
-            Location::Intermission => "intermission",
+            Unspecified => "unspecified location",
+            StartOfFrame => "start of frame",
+            Id2821 => "ID, bits 28-21",
+            Id2018 => "ID, bits 20-18",
+            SubstituteRtr => "substitute RTR bit",
+            IdentifierExtension => "ID, extension",
+            Id1713 => "ID, bits 17-13",
+            Id1205 => "ID, bits 12-05",
+            Id0400 => "ID, bits 04-00",
+            Rtr => "RTR bit",
+            Reserved1 => "reserved bit 1",
+            Reserved0 => "reserved bit 0",
+            DataLengthCode => "data length code",
+            DataSection => "data section",
+            CrcSequence => "CRC sequence",
+            CrcDelimiter => "CRC delimiter",
+            AckSlot => "ACK slot",
+            AckDelimiter => "ACK delimiter",
+            EndOfFrame => "end of frame",
+            Intermission => "intermission",
         };
         write!(f, "{}", msg)
     }
@@ -415,17 +386,18 @@ impl TryFrom<u8> for TransceiverError {
     type Error = CanErrorDecodingFailure;
 
     fn try_from(val: u8) -> Result<Self, Self::Error> {
+        use TransceiverError::*;
         Ok(match val {
-            0x00 => TransceiverError::Unspecified,
-            0x04 => TransceiverError::CanHighNoWire,
-            0x05 => TransceiverError::CanHighShortToBat,
-            0x06 => TransceiverError::CanHighShortToVcc,
-            0x07 => TransceiverError::CanHighShortToGnd,
-            0x40 => TransceiverError::CanLowNoWire,
-            0x50 => TransceiverError::CanLowShortToBat,
-            0x60 => TransceiverError::CanLowShortToVcc,
-            0x70 => TransceiverError::CanLowShortToGnd,
-            0x80 => TransceiverError::CanLowShortToCanHigh,
+            0x00 => Unspecified,
+            0x04 => CanHighNoWire,
+            0x05 => CanHighShortToBat,
+            0x06 => CanHighShortToVcc,
+            0x07 => CanHighShortToGnd,
+            0x40 => CanLowNoWire,
+            0x50 => CanLowShortToBat,
+            0x60 => CanLowShortToVcc,
+            0x70 => CanLowShortToGnd,
+            0x80 => CanLowShortToCanHigh,
             _ => return Err(CanErrorDecodingFailure::InvalidTransceiverError),
         })
     }
@@ -486,38 +458,17 @@ pub enum CanSocketOpenError {
     IOError(io::Error),
 }
 
-impl fmt::Display for CanSocketOpenError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            CanSocketOpenError::LookupError(ref e) => write!(f, "CAN Device not found: {}", e),
-            CanSocketOpenError::IOError(ref e) => write!(f, "IO: {}", e),
-        }
-    }
-}
-
 impl error::Error for CanSocketOpenError {}
 
-#[derive(Debug, Copy, Clone)]
-/// Error that occurs when creating CAN packets
-pub enum ConstructionError {
-    /// CAN ID was outside the range of valid IDs
-    IDTooLarge,
-    /// More than 8 Bytes of payload data were passed in
-    TooMuchData,
-}
-
-impl fmt::Display for ConstructionError {
+impl fmt::Display for CanSocketOpenError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use CanSocketOpenError::*;
         match *self {
-            ConstructionError::IDTooLarge => write!(f, "CAN ID too large"),
-            ConstructionError::TooMuchData => {
-                write!(f, "Payload is larger than CAN maximum of 8 bytes")
-            }
+            LookupError(ref e) => write!(f, "CAN Device not found: {}", e),
+            IOError(ref e) => write!(f, "IO: {}", e),
         }
     }
 }
-
-impl error::Error for ConstructionError {}
 
 impl From<nix::Error> for CanSocketOpenError {
     fn from(e: nix::Error) -> CanSocketOpenError {
@@ -530,3 +481,29 @@ impl From<io::Error> for CanSocketOpenError {
         CanSocketOpenError::IOError(e)
     }
 }
+
+// ===== ConstructionError =====
+
+#[derive(Debug, Copy, Clone)]
+/// Error that occurs when creating CAN packets
+pub enum ConstructionError {
+    /// CAN ID was outside the range of valid IDs
+    IDTooLarge,
+    /// Larger payload reported than can be held in the frame.
+    TooMuchData,
+}
+
+impl error::Error for ConstructionError {}
+
+impl fmt::Display for ConstructionError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use ConstructionError::*;
+        match *self {
+            IDTooLarge => write!(f, "CAN ID too large"),
+            TooMuchData => {
+                write!(f, "Payload is larger than CAN maximum of 8 bytes")
+            }
+        }
+    }
+}
+

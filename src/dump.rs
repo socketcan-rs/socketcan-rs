@@ -1,3 +1,14 @@
+// socketcan/src/dump.rs
+//
+// Implements candump format parsing.
+//
+// This file is part of the Rust 'socketcan-rs' library.
+//
+// Licensed under the MIT license:
+//   <LICENSE or http://opensource.org/licenses/MIT>
+// This file may not be copied, modified, or distributed except according
+// to those terms.
+
 //! candump format parsing
 //!
 //! Parses the text format emitted by the `candump` utility, which is part of
@@ -34,6 +45,7 @@ pub struct Reader<R> {
 }
 
 impl<R: io::Read> Reader<R> {
+    /// Creates an I/O buffered reader from a CAN log reader.
     pub fn from_reader(rdr: R) -> Reader<io::BufReader<R>> {
         Reader {
             rdr: io::BufReader::new(rdr),
@@ -43,7 +55,11 @@ impl<R: io::Read> Reader<R> {
 }
 
 impl Reader<fs::File> {
-    pub fn from_file<P: AsRef<path::Path>>(path: P) -> io::Result<Reader<io::BufReader<fs::File>>> {
+    /// Creates an I/O buffered reader from a file.
+    pub fn from_file<P>(path: P) -> io::Result<Reader<io::BufReader<fs::File>>>
+    where
+        P: AsRef<path::Path>,
+    {
         Ok(Reader::from_reader(fs::File::open(path)?))
     }
 }
@@ -57,19 +73,28 @@ pub struct CanDumpRecords<'a, R: 'a> {
 /// Recorded CAN frame.
 #[derive(Debug)]
 pub struct CanDumpRecord<'a> {
+    /// The timestamp
     pub t_us: u64,
+    /// The name of the device
     pub device: &'a str,
+    /// The parsed frame
     pub frame: super::CanAnyFrame,
 }
 
 #[derive(Debug)]
 /// candump line parse error
 pub enum ParseError {
+    /// I/O Error
     Io(io::Error),
+    /// Unexpected end of line
     UnexpectedEndOfLine,
+    /// Invalid time stamp
     InvalidTimestamp,
+    /// Invalid device name
     InvalidDeviceName,
+    /// Invalid CAN frame
     InvalidCanFrame,
+    /// Error creating the frame
     ConstructionError(super::ConstructionError),
 }
 
