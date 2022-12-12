@@ -69,6 +69,28 @@ pub enum Mtu {
     Fd = 72,
 }
 
+// These are missing from libc and neli, adding them here as a stand-in for now.
+mod rt {
+    use libc::c_uint;
+
+    #[allow(unused)]
+    pub const EXT_FILTER_VF: c_uint = 1 << 0;
+    #[allow(unused)]
+    pub const EXT_FILTER_BRVLAN: c_uint = 1 << 1;
+    #[allow(unused)]
+    pub const EXT_FILTER_BRVLAN_COMPRESSED: c_uint = 1 << 2;
+    #[allow(unused)]
+    pub const EXT_FILTER_SKIP_STATS: c_uint = 1 << 3;
+    #[allow(unused)]
+    pub const EXT_FILTER_MRP: c_uint = 1 << 4;
+    #[allow(unused)]
+    pub const EXT_FILTER_CFM_CONFIG: c_uint = 1 << 5;
+    #[allow(unused)]
+    pub const EXT_FILTER_CFM_STATUS: c_uint = 1 << 6;
+    #[allow(unused)]
+    pub const EXT_FILTER_MST: c_uint = 1 << 7;
+}
+
 impl CanInterface {
     /// Open a CAN interface by name.
     ///
@@ -240,7 +262,7 @@ impl CanInterface {
             IffFlags::empty(),
             {
                 let mut buffer = RtBuffer::new();
-                buffer.push(Rtattr::new(None, Ifla::ExtMask, 1 as c_int).unwrap());
+                buffer.push(Rtattr::new(None, Ifla::ExtMask, rt::EXT_FILTER_VF).unwrap());
                 buffer
             },
         );
@@ -333,6 +355,7 @@ impl CanInterface {
 }
 
 #[cfg(test)]
+#[cfg(feature = "netlink_tests")]
 pub mod tests {
     use std::ops::Deref;
 
