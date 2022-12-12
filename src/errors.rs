@@ -11,11 +11,32 @@
 
 //! CAN bus errors.
 //!
-//!  information from https://raw.githubusercontent.com/torvalds/linux/master/
-//!                 /include/uapi/linux/can/error.h
-
-// TODO: Remove this before release
-#![allow(missing_docs)]
+//! Most information about the errors on the CANbus are determined from an
+//! error frame. To receive them, the error mask must be set on the socket
+//! for the types of errors that the application would like to receive.
+//!
+//! See [RAW Socket Option CAN_RAW_ERR_FILTER](https://docs.kernel.org/networking/can.html#raw-socket-option-can-raw-err-filter)
+//!
+//! The general types of errors are encoded in the error bits of the CAN ID
+//! of an error frame. This is reported with [`CanError`]. Specific errors
+//! might indicate that more information can be obtained from the data bytes
+//! in the error frame.
+//!
+//! ```text
+//! Lost Arbitration   (0x02) => data[0]
+//! Controller Problem (0x04) => data[1]
+//! Protocol Violation (0x08) => data[2..3]
+//! Transceiver Status (0x10) => data[4]
+//!
+//! Error Counters (0x200) =>
+//!   TX Error Counter => data[6]
+//!   RX Error Counter => data[7]
+//! ```
+//!
+//! All of this error information is not well documented, but can be extracted
+//! from the Linux kernel header file
+//! [linux/can/error.h](https://raw.githubusercontent.com/torvalds/linux/master/include/uapi/linux/can/error.h)
+//!
 
 use crate::Frame;
 use std::{convert::TryFrom, error, fmt, io};
@@ -74,19 +95,21 @@ impl fmt::Display for CanErrorDecodingFailure {
 
 // ===== CanError ====
 
+/// The CAN bus error derived from an error frame.
 #[derive(Copy, Clone, Debug)]
 pub enum CanError {
     /// TX timeout (by netdevice driver)
     TransmitTimeout,
-    /// Arbitration was lost. Contains the number after which arbitration was
-    /// lost or 0 if unspecified
+    /// Arbitration was lost.
+    /// Contains the bit number after which arbitration was lost or 0 if unspecified.
     LostArbitration(u8),
-    /// Controller problem, see `ControllerProblem`
+    /// Controller problem
     ControllerProblem(ControllerProblem),
-    /// Protocol violation at the specified `Location`. See `ProtocolViolation`
-    /// for details.
+    /// Protocol violation at the specified [`Location`].
     ProtocolViolation {
+        /// The type of protocol violation
         vtype: ViolationType,
+        /// The location (field or bit) of the violation
         location: Location,
     },
     /// Transceiver Error.
@@ -101,6 +124,34 @@ pub enum CanError {
     Restarted,
     /// Unknown, possibly invalid, error
     Unknown(u32),
+}
+
+impl CanError {
+    /// Constructs a CAN error from an error frame.
+    /// TODO: This should be: impl TryFrom<Frame> for CanError
+    pub fn from_frame(frame: &impl Frame) -> Result<Self, CanErrorDecodingFailure> {
+        if !frame.is_error() {
+            return Err(CanErrorDecodingFailure::NotAnError);
+        }
+
+        match frame.err() {
+            0x00000001 => Ok(CanError::TransmitTimeout),
+            0x00000002 => Ok(CanError::LostArbitration(get_data(frame, 0)?)),
+            0x00000004 => Ok(CanError::ControllerProblem(ControllerProblem::try_from(
+                get_data(frame, 1)?,
+            )?)),
+            0x00000008 => Ok(CanError::ProtocolViolation {
+                vtype: ViolationType::try_from(get_data(frame, 2)?)?,
+                location: Location::try_from(get_data(frame, 3)?)?,
+            }),
+            0x00000010 => Ok(CanError::TransceiverError),
+            0x00000020 => Ok(CanError::NoAck),
+            0x00000040 => Ok(CanError::BusOff),
+            0x00000080 => Ok(CanError::BusError),
+            0x00000100 => Ok(CanError::Restarted),
+            e => Err(CanErrorDecodingFailure::UnknownErrorType(e)),
+        }
+    }
 }
 
 impl error::Error for CanError {}
@@ -141,6 +192,9 @@ impl embedded_can::Error for CanError {
 
 // ===== ControllerProblem =====
 
+/// Error status of the CAN conroller.
+///
+/// This is derived from `data[1]` of an error frame
 #[derive(Copy, Clone, Debug)]
 pub enum ControllerProblem {
     /// unspecified
@@ -201,6 +255,9 @@ impl TryFrom<u8> for ControllerProblem {
 
 // ===== ViolationType =====
 
+/// The type of protocol violation error.
+///
+/// This is derived from `data[2]` of an error frame.
 #[derive(Copy, Clone, Debug)]
 pub enum ViolationType {
     /// Unspecified Violation
@@ -263,9 +320,12 @@ impl TryFrom<u8> for ViolationType {
     }
 }
 
-/// Location
+/// The location of a CANbus protocol violation.
 ///
-/// Describes where inside a received frame an error occured.
+/// This describes where inside a received frame (as in the field or bit)
+/// at which an error occured.
+///
+/// This is derived from `data[1]` of an error frame.
 #[derive(Copy, Clone, Debug)]
 pub enum Location {
     /// Unspecified
@@ -342,43 +402,59 @@ impl TryFrom<u8> for Location {
     type Error = CanErrorDecodingFailure;
 
     fn try_from(val: u8) -> Result<Self, Self::Error> {
+        use Location::*;
         Ok(match val {
-            0x00 => Location::Unspecified,
-            0x03 => Location::StartOfFrame,
-            0x02 => Location::Id2821,
-            0x06 => Location::Id2018,
-            0x04 => Location::SubstituteRtr,
-            0x05 => Location::IdentifierExtension,
-            0x07 => Location::Id1713,
-            0x0F => Location::Id1205,
-            0x0E => Location::Id0400,
-            0x0C => Location::Rtr,
-            0x0D => Location::Reserved1,
-            0x09 => Location::Reserved0,
-            0x0B => Location::DataLengthCode,
-            0x0A => Location::DataSection,
-            0x08 => Location::CrcSequence,
-            0x18 => Location::CrcDelimiter,
-            0x19 => Location::AckSlot,
-            0x1B => Location::AckDelimiter,
-            0x1A => Location::EndOfFrame,
-            0x12 => Location::Intermission,
+            0x00 => Unspecified,
+            0x03 => StartOfFrame,
+            0x02 => Id2821,
+            0x06 => Id2018,
+            0x04 => SubstituteRtr,
+            0x05 => IdentifierExtension,
+            0x07 => Id1713,
+            0x0F => Id1205,
+            0x0E => Id0400,
+            0x0C => Rtr,
+            0x0D => Reserved1,
+            0x09 => Reserved0,
+            0x0B => DataLengthCode,
+            0x0A => DataSection,
+            0x08 => CrcSequence,
+            0x18 => CrcDelimiter,
+            0x19 => AckSlot,
+            0x1B => AckDelimiter,
+            0x1A => EndOfFrame,
+            0x12 => Intermission,
             _ => return Err(CanErrorDecodingFailure::InvalidLocation),
         })
     }
 }
 
+// ===== TransceiverError =====
+
+/// The error status of the CAN transceiver.
+///
+/// This is derived from `data[4]` of an error frame.
 #[derive(Copy, Clone, Debug)]
 pub enum TransceiverError {
+    /// Unsecified
     Unspecified,
+    /// CAN High, no wire
     CanHighNoWire,
+    /// CAN High, short to BAT
     CanHighShortToBat,
+    /// CAN High, short to VCC
     CanHighShortToVcc,
+    /// CAN High, short to GND
     CanHighShortToGnd,
+    /// CAN Low, no wire
     CanLowNoWire,
+    /// CAN Low, short to BAT
     CanLowShortToBat,
+    /// CAN Low, short to VCC
     CanLowShortToVcc,
+    /// CAN Low, short to GND
     CanLowShortToGnd,
+    /// CAN Low short to  CAN High
     CanLowShortToCanHigh,
 }
 
@@ -403,40 +479,14 @@ impl TryFrom<u8> for TransceiverError {
     }
 }
 
-impl CanError {
-    pub fn from_frame(frame: &impl Frame) -> Result<Self, CanErrorDecodingFailure> {
-        if !frame.is_error() {
-            return Err(CanErrorDecodingFailure::NotAnError);
-        }
-
-        match frame.err() {
-            0x00000001 => Ok(CanError::TransmitTimeout),
-            0x00000002 => Ok(CanError::LostArbitration(get_data(frame, 0)?)),
-            0x00000004 => Ok(CanError::ControllerProblem(ControllerProblem::try_from(
-                get_data(frame, 1)?,
-            )?)),
-
-            0x00000008 => Ok(CanError::ProtocolViolation {
-                vtype: ViolationType::try_from(get_data(frame, 2)?)?,
-                location: Location::try_from(get_data(frame, 3)?)?,
-            }),
-
-            0x00000010 => Ok(CanError::TransceiverError),
-            0x00000020 => Ok(CanError::NoAck),
-            0x00000040 => Ok(CanError::BusOff),
-            0x00000080 => Ok(CanError::BusError),
-            0x00000100 => Ok(CanError::Restarted),
-            e => Err(CanErrorDecodingFailure::UnknownErrorType(e)),
-        }
-    }
-}
-
+/// Get the controller specific error information.
 pub trait ControllerSpecificErrorInformation {
+    /// Get the controller specific error information.
     fn get_ctrl_err(&self) -> Option<&[u8]>;
 }
 
 impl<T: Frame> ControllerSpecificErrorInformation for T {
-    #[inline]
+    /// Get the controller specific error information.
     fn get_ctrl_err(&self) -> Option<&[u8]> {
         let data = self.data();
 
@@ -447,6 +497,8 @@ impl<T: Frame> ControllerSpecificErrorInformation for T {
         }
     }
 }
+
+// ===== CanSocketOpenError =====
 
 #[derive(Debug)]
 /// Errors opening socket
