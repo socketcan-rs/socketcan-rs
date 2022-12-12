@@ -506,4 +506,3 @@ impl fmt::Display for ConstructionError {
         }
     }
 }
-

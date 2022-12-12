@@ -60,7 +60,6 @@
 
 // clippy: do not warn about things like "SocketCAN" inside the docs
 #![allow(clippy::doc_markdown)]
-
 // Some lints
 #![deny(
     missing_docs,
