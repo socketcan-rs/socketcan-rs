@@ -334,8 +334,11 @@ impl CanInterface {
 
 #[cfg(test)]
 pub mod tests {
-    use super::*;
     use std::ops::Deref;
+
+    use serial_test::serial;
+
+    use super::*;
 
     /// RAII-style helper to create and clean-up a specific vcan interface for a single test.
     /// Using drop here ensures that the interface always gets cleaned up
@@ -382,6 +385,7 @@ pub mod tests {
 
     #[cfg(feature = "netlink_tests")]
     #[test]
+    #[serial]
     fn up_down() {
         let interface = TemporaryInterface::new("up_down").unwrap();
         assert!(interface.bring_up().is_ok());
@@ -392,6 +396,7 @@ pub mod tests {
 
     #[cfg(feature = "netlink_tests")]
     #[test]
+    #[serial]
     fn details() {
         let interface = TemporaryInterface::new("info").unwrap();
         let details = interface.details().unwrap();
@@ -402,6 +407,7 @@ pub mod tests {
 
     #[cfg(feature = "netlink_tests")]
     #[test]
+    #[serial]
     fn mtu() {
         let interface = TemporaryInterface::new("mtu").unwrap();
 
