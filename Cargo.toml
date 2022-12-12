@@ -22,6 +22,7 @@ license = "MIT"
 [features]
 default = ["netlink"]
 netlink = ["neli"]
+netlink_tests = ["netlink"]
 vcan_tests = ["netlink"]
 utils = ["clap", "anyhow"]
 
@@ -43,6 +44,7 @@ anyhow = "1.0"
 ctrlc = "3.2.2"
 clap = {version = "3.2.8", features = ["derive"]}
 nb = "1.0"
+serial_test = "0.9"
 
 [[bin]]
 name = "can"
