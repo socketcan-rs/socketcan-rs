@@ -9,57 +9,69 @@
 //! > between different userspace processes, in a way similar to the Unix
 //! > domain sockets.
 //!
-use std::ffi::CString;
-use std::{
-    fmt::Debug,
-    os::raw::{c_int, c_uint},
-};
 
-use neli::consts::rtnl::{Iff, IffFlags, Ifla, IflaInfo};
-use neli::rtnl::Rtattr;
 use neli::{
     consts::{
         nl::{NlType, NlmF, NlmFFlags},
         rtnl::{Arphrd, RtAddrFamily, Rtm},
+        rtnl::{Iff, IffFlags, Ifla, IflaInfo},
         socket::NlFamily,
     },
     err::NlError,
     nl::{NlPayload, Nlmsghdr},
-    rtnl::Ifinfomsg,
+    rtnl::{Ifinfomsg, Rtattr},
     socket::NlSocketHandle,
     types::RtBuffer,
     ToBytes,
 };
 use nix::{self, net::if_::if_nametoindex, unistd};
+use std::{
+    ffi::CString,
+    fmt::Debug,
+    os::raw::{c_int, c_uint},
+};
 
 /// A result for Netlink errors.
 type NlResult<T> = Result<T, NlError>;
 
-/// SocketCAN interface
+/// SocketCAN CanInterface
 ///
 /// Controlled through the kernel's Netlink interface, CAN devices can be
 /// brought up or down or configured through this.
 ///
-/// Note while that this API is designed in an RAII-fashion, it cannot really make the same guarantees:
-/// It is entirely possible for another user/process to modify, remove and re-add an interface
-/// while you are holding this object with a reference to it.
+/// Note while that this API is designed in an RAII-fashion, it cannot really
+/// make the same guarantees: It is entirely possible for another user/process
+/// to modify, remove and re-add an interface while you are holding this object
+/// with a reference to it.
 ///
-/// Some actions possible on this interface require the process/user to have the ```CAP_NET_ADMIN```
-/// capability, like the root user does. This is indicated by their documentation starting with
-/// "PRIVILEGED:".
+/// Some actions possible on this interface require the process/user to have
+/// the `CAP_NET_ADMIN` capability, like the root user does. This is
+/// indicated by their documentation starting with "PRIVILEGED:".
 #[allow(missing_copy_implementations)]
 #[derive(Debug)]
 pub struct CanInterface {
     if_index: c_uint,
 }
 
+/// The details of the interface which can be obtained with the
+/// `CanInterface::detail()` function.
 #[allow(missing_copy_implementations)]
-#[derive(Debug)]
-pub struct Details {
+#[derive(Debug, Default, Clone)]
+pub struct InterfaceDetails {
     pub name: Option<String>,
     pub index: c_uint,
     pub is_up: bool,
     pub mtu: Option<Mtu>,
+}
+
+impl InterfaceDetails {
+    /// Creates a new set of interface details with the specified `index`.
+    pub fn new(index: c_uint) -> Self {
+        Self {
+            index,
+            ..Self::default()
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -202,7 +214,9 @@ impl CanInterface {
     /// PRIVILEGED: Create an interface of the given kind.
     /// Note that the length of the name is capped by ```libc::IFNAMSIZ```.
     pub fn create(name: &str, index: Option<u32>, kind: &str) -> NlResult<Self> {
-        debug_assert!(name.len() <= libc::IFNAMSIZ);
+        if name.len() > libc::IFNAMSIZ {
+            return Err(NlError::Msg("Interface name too long".into()));
+        }
 
         let info = Ifinfomsg::new(
             RtAddrFamily::Unspecified,
@@ -221,8 +235,8 @@ impl CanInterface {
         );
         Self::send_info_msg(Rtm::Newlink, info, &[NlmF::Create, NlmF::Excl])?;
 
-        if let Some(index) = index {
-            Ok(Self { if_index: index })
+        if let Some(if_index) = index {
+            Ok(Self { if_index })
         } else {
             // Unfortunately netlink does not return the the if_index assigned to the interface..
             if let Ok(if_index) = if_nametoindex(name) {
@@ -230,7 +244,7 @@ impl CanInterface {
             } else {
                 Err(NlError::Msg(
                     "Interface must have been deleted between request and this if_nametoindex"
-                        .to_string(),
+                        .into(),
                 ))
             }
         }
@@ -253,7 +267,7 @@ impl CanInterface {
     }
 
     /// Attempt to query detailed information on the interface.
-    pub fn details(&self) -> Result<Details, NlError<Rtm, Ifinfomsg>> {
+    pub fn details(&self) -> Result<InterfaceDetails, NlError<Rtm, Ifinfomsg>> {
         let info = Ifinfomsg::new(
             RtAddrFamily::Unspecified,
             Arphrd::Netrom,
@@ -281,12 +295,7 @@ impl CanInterface {
 
         match nl.recv::<'_, Rtm, Ifinfomsg>()? {
             Some(msg_hdr) => {
-                let mut info = Details {
-                    name: None,
-                    index: self.if_index,
-                    is_up: false,
-                    mtu: None,
-                };
+                let mut info = InterfaceDetails::new(self.if_index);
 
                 if let Ok(payload) = msg_hdr.get_payload() {
                     info.is_up = payload.ifi_flags.contains(&Iff::Up);

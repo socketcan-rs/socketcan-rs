@@ -4,7 +4,7 @@
 //! command line, similar to 'can-utils'.
 
 use anyhow::{anyhow, Result};
-use clap::{arg, ArgAction, ArgMatches, Command, value_parser};
+use clap::{arg, value_parser, ArgAction, ArgMatches, Command};
 use socketcan::CanInterface;
 use std::process;
 
@@ -21,27 +21,26 @@ fn iface_cmd(iface_name: &str, opts: &ArgMatches) -> Result<()> {
     if let Some(_sub_opts) = opts.subcommand_matches("up") {
         let iface = CanInterface::open(iface_name)?;
         iface.bring_up()?;
-    }
-    else if let Some(_sub_opts) = opts.subcommand_matches("down") {
+    } else if let Some(_sub_opts) = opts.subcommand_matches("down") {
         let iface = CanInterface::open(iface_name)?;
         iface.bring_down()?;
-    }
-    else if let Some(_sub_opts) = opts.subcommand_matches("bitrate") {
+    } else if let Some(_sub_opts) = opts.subcommand_matches("bitrate") {
         return Err(anyhow!("Unimplemented"));
-    }
-    else if let Some(sub_opts) = opts.subcommand_matches("add") {
+    } else if let Some(sub_opts) = opts.subcommand_matches("add") {
         let idx = sub_opts.get_one::<u32>("num").copied();
         let typ = sub_opts.get_one::<String>("type").unwrap();
         println!("Add {} idx: {:?}, type: {}", iface_name, idx, typ);
         CanInterface::create(iface_name, idx, typ)?;
-    }
-    else if let Some(_sub_opts) = opts.subcommand_matches("delete") {
+    } else if let Some(_sub_opts) = opts.subcommand_matches("delete") {
         let iface = CanInterface::open(iface_name)?;
         if let Err((_iface, err)) = iface.delete() {
             return Err(err.into());
         }
-    }
-    else {
+    } else if let Some(_sub_opts) = opts.subcommand_matches("details") {
+        let iface = CanInterface::open(iface_name)?;
+        let details = iface.details()?;
+        println!("{:?}", details);
+    } else {
         return Err(anyhow!("Unknown 'iface' subcommand"));
     };
     Ok(())
@@ -82,17 +81,19 @@ fn main() {
                 .subcommand(
                     Command::new("add")
                         .about("Create and add a new CAN interface")
-                        .arg(arg!(<num> "The interface number (i.e. 0 for 'vcan0')")
-                            .required(false)
-                            .value_parser(value_parser!(u32))
-                            //.default_value("0")
+                        .arg(
+                            arg!(<num> "The interface number (i.e. 0 for 'vcan0')")
+                                .required(false)
+                                .value_parser(value_parser!(u32)), //.default_value("0")
                         )
-                        .arg(arg!(<type> "The interface type (i.e. vcan', etc)")
-                            .required(false)
-                            .default_value("vcan")
-                        )
+                        .arg(
+                            arg!(<type> "The interface type (i.e. vcan', etc)")
+                                .required(false)
+                                .default_value("vcan"),
+                        ),
                 )
-                .subcommand(Command::new("delete").about("Delete the interface")),
+                .subcommand(Command::new("delete").about("Delete the interface"))
+                .subcommand(Command::new("details").about("Get details about the interface")),
         )
         .get_matches();
 
