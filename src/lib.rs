@@ -41,13 +41,13 @@ use mio::{event, unix::SourceFd, Interest, Registry, Token};
 
 use thiserror::Error as ThisError;
 
-pub use socketcan_hal::{CanFilter, CanFrame, CanSocketOpenError};
+pub use socketcan::{CanFilter, CanFrame, CanSocketOpenError, Socket};
 use tokio::io::unix::AsyncFd;
 
 #[derive(Debug, ThisError)]
 pub enum Error {
     #[error("Failed to open CAN Socket")]
-    CANSocketOpen(#[from] socketcan_hal::CanSocketOpenError),
+    CANSocketOpen(#[from] socketcan::CanSocketOpenError),
     #[error("IO error")]
     IO(#[from] io::Error),
 }
@@ -73,13 +73,13 @@ impl Future for CANWriteFuture {
     }
 }
 
-/// A socketcan_hal::CANSocket wrapped for mio eventing
+/// A socketcan::CANSocket wrapped for mio eventing
 /// to allow it be integrated in turn into tokio
 #[derive(Debug)]
-pub struct EventedCANSocket(socketcan_hal::CanSocket);
+pub struct EventedCANSocket(socketcan::CanSocket);
 
 impl EventedCANSocket {
-    fn get_ref(&self) -> &socketcan_hal::CanSocket {
+    fn get_ref(&self) -> &socketcan::CanSocket {
         &self.0
     }
 }
@@ -114,21 +114,21 @@ impl event::Source for EventedCANSocket {
     }
 }
 
-/// An asynchronous I/O wrapped socketcan_hal::CANSocket
+/// An asynchronous I/O wrapped socketcan::CANSocket
 #[derive(Debug)]
 pub struct CANSocket(AsyncFd<EventedCANSocket>);
 
 impl CANSocket {
     /// Open a named CAN device such as "vcan0"
     pub fn open(ifname: &str) -> Result<CANSocket, Error> {
-        let sock = socketcan_hal::CanSocket::open(ifname)?;
+        let sock = socketcan::CanSocket::open(ifname)?;
         sock.set_nonblocking(true)?;
         Ok(CANSocket(AsyncFd::new(EventedCANSocket(sock))?))
     }
 
     /// Open CAN device by kernel interface number
     pub fn open_if(if_index: c_uint) -> Result<CANSocket, Error> {
-        let sock = socketcan_hal::CanSocket::open_if(if_index)?;
+        let sock = socketcan::CanSocket::open_iface(if_index)?;
         sock.set_nonblocking(true)?;
         Ok(CANSocket(AsyncFd::new(EventedCANSocket(sock))?))
     }
@@ -184,7 +184,7 @@ impl CANSocket {
             // as long as one of the duplicated file descriptors is open
             // the socket as a whole isn't going to be closed.
             let new_fd = libc::dup(fd);
-            let new = socketcan_hal::CanSocket::from_raw_fd(new_fd);
+            let new = socketcan::CanSocket::from_raw_fd(new_fd);
             Ok(CANSocket(AsyncFd::new(EventedCANSocket(new))?))
         }
     }
@@ -249,7 +249,7 @@ mod tests {
 
     /// Write a test frame to the CANSocket
     async fn write_frame(socket: &CANSocket) -> Result<(), Error> {
-        let test_frame = socketcan_hal::CANFrame::new(0x1, &[0], false, false).unwrap();
+        let test_frame = socketcan::CANFrame::new(0x1, &[0], false, false).unwrap();
         socket.write_frame(test_frame)?.await?;
         Ok(())
     }
