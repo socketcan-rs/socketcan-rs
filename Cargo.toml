@@ -5,13 +5,13 @@ documentation = "https://docs.rs/socketcan"
 license = "MIT"
 name = "socketcan"
 repository = "https://github.com/mbr/socketcan-rs"
-version = "1.7.0"
+version = "1.7.1"
 
 [dependencies]
-hex = "^0.2"
-itertools = "^0.4"
-libc = "^0.2"
-nix = "^0.5"
+hex = "0.2"
+itertools = "0.4"
+libc = "0.2"
+nix = "0.26"
 try_from = "0.2.0"
 
 [features]
