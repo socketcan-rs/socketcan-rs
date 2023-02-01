@@ -45,7 +45,11 @@ extern crate hex;
 extern crate itertools;
 extern crate libc;
 extern crate nix;
+extern crate static_assertions as sa;
 extern crate try_from;
+
+sa::assert_eq_size!(libc::can_frame, CANFrame);
+sa::const_assert_eq!(std::mem::size_of::<libc::can_frame>(), 16);
 
 mod err;
 pub use err::{CANError, CANErrorDecodingFailure};
@@ -376,6 +380,8 @@ impl CANSocket {
             let frame_ptr = &mut frame as *mut CANFrame;
             read(self.fd, frame_ptr as *mut c_void, size_of::<CANFrame>())
         };
+
+        assert!(frame._data_len <= 8);
 
         if read_rv as usize != size_of::<CANFrame>() {
             return Err(io::Error::last_os_error());
