@@ -74,7 +74,7 @@ pub mod errors;
 pub use errors::{CanError, CanErrorDecodingFailure, CanSocketOpenError, ConstructionError};
 
 pub mod frame;
-pub use frame::{CanAnyFrame, CanFdFrame, CanFrame, Frame};
+pub use frame::{CanAnyFrame, CanFdFrame, CanFrame, CanDataFrame, CanRemoteFrame, CanErrorFrame, Frame};
 
 pub mod dump;
 

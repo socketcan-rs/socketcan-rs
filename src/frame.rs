@@ -187,13 +187,177 @@ impl From<CanFdFrame> for CanAnyFrame {
 // ===== CanFrame =====
 
 /// The classic CAN 2.0 frame with up to 8-bytes of data.
+#[derive(Clone, Copy, Debug)]
+pub enum CanFrame {
+    /// A data frame
+    Data(CanDataFrame),
+    /// A remote frame
+    Remote(CanRemoteFrame),
+    /// An error frame
+    Error(CanErrorFrame),
+}
+
+impl CanFrame {
+    /// Gets a pointer to the CAN frame structure that is compatible with
+    /// the Linux C API.
+    pub fn as_ptr(&self) -> *const can_frame {
+        use CanFrame::*;
+        match self {
+            Data(frame) => frame.as_ptr(),
+            Remote(frame) => frame.as_ptr(),
+            Error(frame) => frame.as_ptr(),
+        }
+    }
+
+    /// Gets a mutable pointer to the CAN frame structure that is compatible
+    /// with the Linux C API.
+    pub fn as_mut_ptr(&mut self) -> *mut can_frame {
+        use CanFrame::*;
+        match self {
+            Data(frame) => frame.as_mut_ptr(),
+            Remote(frame) => frame.as_mut_ptr(),
+            Error(frame) => frame.as_mut_ptr(),
+        }
+    }
+}
+
+impl EmbeddedFrame for CanFrame {
+    /// Create a new CAN 2.0 data frame
+    fn new(id: impl Into<Id>, data: &[u8]) -> Option<Self> {
+        let frame = CanDataFrame::new(id, data)?;
+        Some(Self::Data(frame))
+    }
+
+    /// Create a new remote transmission request frame.
+    fn new_remote(id: impl Into<Id>, dlc: usize) -> Option<Self> {
+        let frame = CanRemoteFrame::new_remote(id, dlc)?;
+        Some(Self::Remote(frame))
+    }
+
+    /// Check if frame uses 29-bit extended ID format.
+    fn is_extended(&self) -> bool {
+        use CanFrame::*;
+        match self {
+            Data(frame) => frame.is_extended(),
+            Remote(frame) => frame.is_extended(),
+            Error(frame) => frame.is_extended(),
+        }
+    }
+
+    /// Check if frame is a remote transmission request.
+    fn is_remote_frame(&self) -> bool {
+        use CanFrame::*;
+        match self {
+            Remote(_) => true,
+            _ => false
+        }
+    }
+
+    /// Return the frame identifier.
+    fn id(&self) -> Id {
+        use CanFrame::*;
+        match self {
+            Data(frame) => frame.id(),
+            Remote(frame) => frame.id(),
+            Error(frame) => frame.id(),
+        }
+    }
+
+    /// Data length
+    fn dlc(&self) -> usize {
+        use CanFrame::*;
+        match self {
+            Data(frame) => frame.dlc(),
+            Remote(frame) => frame.dlc(),
+            Error(frame) => frame.dlc(),
+        }
+    }
+
+    /// A slice into the actual data. Slice will always be <= 8 bytes in length
+    fn data(&self) -> &[u8] {
+        use CanFrame::*;
+        match self {
+            Data(frame) => frame.data(),
+            Remote(frame) => frame.data(),
+            Error(frame) => frame.data(),
+        }
+    }
+}
+
+impl Frame for CanFrame {
+    /// Get the composite SocketCAN ID word, with EFF/RTR/ERR flags
+    fn id_word(&self) -> u32 {
+        use CanFrame::*;
+        match self {
+            Data(frame) => frame.id_word(),
+            Remote(frame) => frame.id_word(),
+            Error(frame) => frame.id_word(),
+        }
+    }
+}
+
+impl Default for CanFrame {
+    /// The default frame is a default data frame - all fields and data set
+    /// to zero, and all flags off.
+    fn default() -> Self {
+        CanFrame::Data(CanDataFrame::default())
+    }
+}
+
+/*
+impl fmt::Debug for CanFrame {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use CanFrame::*;
+        match self {
+            Data(frame) => fmt::Debug::fmt(&frame, f),
+            Remote(frame) => fmt::Debug::fmt(&frame, f),
+            Error(frame) => fmt::Debug::fmt(&frame, f),
+        }
+    }
+}
+*/
+impl fmt::UpperHex for CanFrame {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        use CanFrame::*;
+        match self {
+            Data(frame) => fmt::UpperHex::fmt(&frame, f),
+            Remote(frame) => fmt::UpperHex::fmt(&frame, f),
+            Error(frame) => fmt::UpperHex::fmt(&frame, f),
+        }
+    }
+}
+
+impl TryFrom<CanFdFrame> for CanFrame {
+    type Error = ConstructionError;
+
+    fn try_from(frame: CanFdFrame) -> Result<Self, <Self as TryFrom<CanFdFrame>>::Error> {
+        let f = CanDataFrame::try_from(frame)?;
+        Ok(CanFrame::Data(f))
+    }
+}
+
+
+impl AsRef<can_frame> for CanFrame {
+    fn as_ref(&self) -> &can_frame {
+        use CanFrame::*;
+        match self {
+            Data(frame) => frame.as_ref(),
+            Remote(frame) => frame.as_ref(),
+            Error(frame) => frame.as_ref(),
+        }
+    }
+}
+
+// ===== CanDataFrame =====
+
+/// The classic CAN 2.0 frame with up to 8-bytes of data.
 ///
 /// This is highly compatible with the `can_frame` from libc.
 /// ([ref](https://docs.rs/libc/latest/libc/struct.can_frame.html))
 #[derive(Clone, Copy)]
-pub struct CanFrame(can_frame);
+pub struct CanDataFrame(can_frame);
 
-impl CanFrame {
+impl CanDataFrame {
     /// Initializes a CAN frame from raw parts.
     pub fn init(id: u32, data: &[u8], flags: IdFlags) -> Result<Self, ConstructionError> {
         let n = data.len();
@@ -223,7 +387,7 @@ impl CanFrame {
     }
 }
 
-impl EmbeddedFrame for CanFrame {
+impl EmbeddedFrame for CanDataFrame {
     /// Create a new CAN 2.0 data frame
     fn new(id: impl Into<Id>, data: &[u8]) -> Option<Self> {
         let id = id.into();
@@ -272,14 +436,14 @@ impl EmbeddedFrame for CanFrame {
     }
 }
 
-impl Frame for CanFrame {
+impl Frame for CanDataFrame {
     /// Get the composite SocketCAN ID word, with EFF/RTR/ERR flags
     fn id_word(&self) -> u32 {
         self.0.can_id
     }
 }
 
-impl Default for CanFrame {
+impl Default for CanDataFrame {
     /// The default FD frame has all fields and data set to zero, and all flags off.
     fn default() -> Self {
         let frame: can_frame = unsafe { mem::zeroed() };
@@ -287,7 +451,7 @@ impl Default for CanFrame {
     }
 }
 
-impl fmt::Debug for CanFrame {
+impl fmt::Debug for CanDataFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "CanFrame {{ ")?;
         fmt::UpperHex::fmt(self, f)?;
@@ -295,7 +459,275 @@ impl fmt::Debug for CanFrame {
     }
 }
 
-impl fmt::UpperHex for CanFrame {
+impl fmt::UpperHex for CanDataFrame {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{:X}#", self.0.can_id)?;
+        let mut parts = self.data().iter().map(|v| format!("{:02X}", v));
+        let sep = " ";
+        write!(f, "{}", parts.join(sep))
+    }
+}
+
+impl TryFrom<CanFdFrame> for CanDataFrame {
+    type Error = ConstructionError;
+
+    fn try_from(frame: CanFdFrame) -> Result<Self, Self::Error> {
+        if frame.0.len > CAN_MAX_DLEN as u8 {
+            return Err(ConstructionError::TooMuchData);
+        }
+
+        CanDataFrame::init(
+            frame.raw_id(),
+            &frame.data()[..(frame.0.len as usize)],
+            frame.id_flags(),
+        )
+    }
+}
+
+impl AsRef<can_frame> for CanDataFrame {
+    fn as_ref(&self) -> &can_frame {
+        &self.0
+    }
+}
+
+// ===== CanRemoteFrame =====
+
+/// The classic CAN 2.0 frame with up to 8-bytes of data.
+///
+/// This is highly compatible with the `can_frame` from libc.
+/// ([ref](https://docs.rs/libc/latest/libc/struct.can_frame.html))
+#[derive(Clone, Copy)]
+pub struct CanRemoteFrame(can_frame);
+
+impl CanRemoteFrame {
+    /// Initializes a CAN frame from raw parts.
+    pub fn init(id: u32, data: &[u8], flags: IdFlags) -> Result<Self, ConstructionError> {
+        let n = data.len();
+
+        if n > CAN_MAX_DLEN {
+            return Err(ConstructionError::TooMuchData);
+        }
+
+        let mut frame: can_frame = unsafe { mem::zeroed() };
+        frame.can_id = init_id_word(id, flags)?;
+        frame.can_dlc = n as u8;
+        frame.data[..n].copy_from_slice(data);
+
+        Ok(Self(frame))
+    }
+
+    /// Gets a pointer to the CAN frame structure that is compatible with
+    /// the Linux C API.
+    pub fn as_ptr(&self) -> *const can_frame {
+        &self.0
+    }
+
+    /// Gets a mutable pointer to the CAN frame structure that is compatible
+    /// with the Linux C API.
+    pub fn as_mut_ptr(&mut self) -> *mut can_frame {
+        &mut self.0
+    }
+}
+
+impl EmbeddedFrame for CanRemoteFrame {
+    /// Create a new CAN 2.0 data frame
+    fn new(id: impl Into<Id>, data: &[u8]) -> Option<Self> {
+        let id = id.into();
+        let mut flags = IdFlags::empty();
+        flags.set(IdFlags::EFF, is_extended(&id));
+
+        let raw_id = hal_id_to_raw(id);
+        Self::init(raw_id, data, flags).ok()
+    }
+
+    /// Create a new remote transmission request frame.
+    fn new_remote(id: impl Into<Id>, dlc: usize) -> Option<Self> {
+        let id = id.into();
+        let mut flags = IdFlags::RTR;
+        flags.set(IdFlags::EFF, is_extended(&id));
+
+        let raw_id = hal_id_to_raw(id);
+        let data = [0u8; 8];
+        Self::init(raw_id, &data[0..dlc], flags).ok()
+    }
+
+    /// Check if frame uses 29-bit extended ID format.
+    fn is_extended(&self) -> bool {
+        self.id_flags().contains(IdFlags::EFF)
+    }
+
+    /// Check if frame is a remote transmission request.
+    fn is_remote_frame(&self) -> bool {
+        self.id_flags().contains(IdFlags::RTR)
+    }
+
+    /// Return the frame identifier.
+    fn id(&self) -> Id {
+        self.hal_id()
+    }
+
+    /// Data length
+    /// TODO: Return the proper DLC code for remote frames?
+    fn dlc(&self) -> usize {
+        self.0.can_dlc as usize
+    }
+
+    /// A slice into the actual data. Slice will always be <= 8 bytes in length
+    fn data(&self) -> &[u8] {
+        &self.0.data[..(self.0.can_dlc as usize)]
+    }
+}
+
+impl Frame for CanRemoteFrame {
+    /// Get the composite SocketCAN ID word, with EFF/RTR/ERR flags
+    fn id_word(&self) -> u32 {
+        self.0.can_id
+    }
+}
+
+impl Default for CanRemoteFrame {
+    /// The default FD frame has all fields and data set to zero, and all flags off.
+    fn default() -> Self {
+        let frame: can_frame = unsafe { mem::zeroed() };
+        Self(frame)
+    }
+}
+
+impl fmt::Debug for CanRemoteFrame {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "CanFrame {{ ")?;
+        fmt::UpperHex::fmt(self, f)?;
+        write!(f, " }}")
+    }
+}
+
+impl fmt::UpperHex for CanRemoteFrame {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{:X}#", self.0.can_id)?;
+        let mut parts = self.data().iter().map(|v| format!("{:02X}", v));
+        let sep = " ";
+        write!(f, "{}", parts.join(sep))
+    }
+}
+
+impl AsRef<can_frame> for CanRemoteFrame {
+    fn as_ref(&self) -> &can_frame {
+        &self.0
+    }
+}
+
+// ===== CanErrorFrame =====
+
+/// The classic CAN 2.0 frame with up to 8-bytes of data.
+///
+/// This is highly compatible with the `can_frame` from libc.
+/// ([ref](https://docs.rs/libc/latest/libc/struct.can_frame.html))
+#[derive(Clone, Copy)]
+pub struct CanErrorFrame(can_frame);
+
+impl CanErrorFrame {
+    /// Initializes a CAN frame from raw parts.
+    pub fn init(id: u32, data: &[u8], flags: IdFlags) -> Result<Self, ConstructionError> {
+        let n = data.len();
+
+        if n > CAN_MAX_DLEN {
+            return Err(ConstructionError::TooMuchData);
+        }
+
+        let mut frame: can_frame = unsafe { mem::zeroed() };
+        frame.can_id = init_id_word(id, flags)?;
+        frame.can_dlc = n as u8;
+        frame.data[..n].copy_from_slice(data);
+
+        Ok(Self(frame))
+    }
+
+    /// Gets a pointer to the CAN frame structure that is compatible with
+    /// the Linux C API.
+    pub fn as_ptr(&self) -> *const can_frame {
+        &self.0
+    }
+
+    /// Gets a mutable pointer to the CAN frame structure that is compatible
+    /// with the Linux C API.
+    pub fn as_mut_ptr(&mut self) -> *mut can_frame {
+        &mut self.0
+    }
+}
+
+impl EmbeddedFrame for CanErrorFrame {
+    /// Create a new CAN 2.0 data frame
+    fn new(id: impl Into<Id>, data: &[u8]) -> Option<Self> {
+        let id = id.into();
+        let mut flags = IdFlags::empty();
+        flags.set(IdFlags::EFF, is_extended(&id));
+
+        let raw_id = hal_id_to_raw(id);
+        Self::init(raw_id, data, flags).ok()
+    }
+
+    /// Create a new remote transmission request frame.
+    fn new_remote(id: impl Into<Id>, dlc: usize) -> Option<Self> {
+        let id = id.into();
+        let mut flags = IdFlags::RTR;
+        flags.set(IdFlags::EFF, is_extended(&id));
+
+        let raw_id = hal_id_to_raw(id);
+        let data = [0u8; 8];
+        Self::init(raw_id, &data[0..dlc], flags).ok()
+    }
+
+    /// Check if frame uses 29-bit extended ID format.
+    fn is_extended(&self) -> bool {
+        self.id_flags().contains(IdFlags::EFF)
+    }
+
+    /// Check if frame is a remote transmission request.
+    fn is_remote_frame(&self) -> bool {
+        self.id_flags().contains(IdFlags::RTR)
+    }
+
+    /// Return the frame identifier.
+    fn id(&self) -> Id {
+        self.hal_id()
+    }
+
+    /// Data length
+    /// TODO: Return the proper DLC code for remote frames?
+    fn dlc(&self) -> usize {
+        self.0.can_dlc as usize
+    }
+
+    /// A slice into the actual data. Slice will always be <= 8 bytes in length
+    fn data(&self) -> &[u8] {
+        &self.0.data[..(self.0.can_dlc as usize)]
+    }
+}
+
+impl Frame for CanErrorFrame {
+    /// Get the composite SocketCAN ID word, with EFF/RTR/ERR flags
+    fn id_word(&self) -> u32 {
+        self.0.can_id
+    }
+}
+
+impl Default for CanErrorFrame {
+    /// The default FD frame has all fields and data set to zero, and all flags off.
+    fn default() -> Self {
+        let frame: can_frame = unsafe { mem::zeroed() };
+        Self(frame)
+    }
+}
+
+impl fmt::Debug for CanErrorFrame {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "CanFrame {{ ")?;
+        fmt::UpperHex::fmt(self, f)?;
+        write!(f, " }}")
+    }
+}
+
+impl fmt::UpperHex for CanErrorFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(f, "{:X}#", self.0.can_id)?;
         let mut parts = self.data().iter().map(|v| format!("{:02X}", v));
@@ -305,23 +737,7 @@ impl fmt::UpperHex for CanFrame {
     }
 }
 
-impl TryFrom<CanFdFrame> for CanFrame {
-    type Error = ConstructionError;
-
-    fn try_from(frame: CanFdFrame) -> Result<Self, Self::Error> {
-        if frame.0.len > CAN_MAX_DLEN as u8 {
-            return Err(ConstructionError::TooMuchData);
-        }
-
-        CanFrame::init(
-            frame.raw_id(),
-            &frame.data()[..(frame.0.len as usize)],
-            frame.id_flags(),
-        )
-    }
-}
-
-impl AsRef<can_frame> for CanFrame {
+impl AsRef<can_frame> for CanErrorFrame {
     fn as_ref(&self) -> &can_frame {
         &self.0
     }
@@ -489,15 +905,15 @@ impl fmt::UpperHex for CanFdFrame {
     }
 }
 
-impl From<CanFrame> for CanFdFrame {
-    fn from(frame: CanFrame) -> Self {
-        let n = frame.0.can_dlc as usize;
+impl From<CanDataFrame> for CanFdFrame {
+    fn from(frame: CanDataFrame) -> Self {
+        let n = frame.dlc();
 
         let mut fdframe = Self::default();
         // TODO: force rtr off?
-        fdframe.0.can_id = frame.0.can_id;
+        fdframe.0.can_id = frame.id_word();
         fdframe.0.len = n as u8;
-        fdframe.0.data[..n].copy_from_slice(&frame.0.data[..n]);
+        fdframe.0.data[..n].copy_from_slice(&frame.data()[..n]);
         fdframe
     }
 }
@@ -592,7 +1008,7 @@ mod tests {
 
     #[test]
     fn test_frame_to_fd() {
-        let frame = CanFrame::new(STD_ID, DATA).unwrap();
+        let frame = CanDataFrame::new(STD_ID, DATA).unwrap();
 
         let frame = CanFdFrame::from(frame);
         assert_eq!(STD_ID, frame.id());

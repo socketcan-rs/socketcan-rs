@@ -25,7 +25,7 @@
 
 use crate::{
     frame::{FdFlags, IdFlags},
-    CanFdFrame, CanFrame,
+    CanFdFrame, CanDataFrame,
 };
 use hex::FromHex;
 use std::{fs, io, path};
@@ -190,6 +190,7 @@ impl<R: io::BufRead> Reader<R> {
         } else {
             Vec::from_hex(can_data).map_err(|_| ParseError::InvalidCanFrame)?
         };
+        // TODO: IMPLEMENT THIS!!!
         let frame: super::CanAnyFrame = if is_fd_frame {
             CanFdFrame::init(
                 parse_raw(can_id, 16).ok_or(ParseError::InvalidCanFrame)? as u32,
@@ -199,11 +200,12 @@ impl<R: io::BufRead> Reader<R> {
             )
             .map(super::CanAnyFrame::Fd)
         } else {
-            CanFrame::init(
+            CanDataFrame::init(
                 parse_raw(can_id, 16).ok_or(ParseError::InvalidCanFrame)? as u32,
                 &data,
                 flags,
             )
+            .map(super::CanFrame::Data)
             .map(super::CanAnyFrame::Normal)
         }?;
 
