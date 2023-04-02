@@ -16,7 +16,7 @@ use bitflags::bitflags;
 use embedded_can::{ExtendedId, Frame as EmbeddedFrame, Id, StandardId};
 use itertools::Itertools;
 use libc::{can_frame, canfd_frame, canid_t};
-use std::{convert::TryFrom, fmt, mem};
+use std::{convert::TryFrom, fmt, matches, mem};
 
 pub use libc::{
     CANFD_BRS, CANFD_ESI, CANFD_MAX_DLEN, CAN_EFF_FLAG, CAN_EFF_MASK, CAN_ERR_FLAG, CAN_ERR_MASK,
@@ -72,11 +72,9 @@ pub fn hal_id_to_raw(id: Id) -> u32 {
     }
 }
 
-fn is_extended(id: &Id) -> bool {
-    match id {
-        Id::Standard(_) => false,
-        Id::Extended(_) => true,
-    }
+/// Determines if the ID is a 29-bit extended ID.
+pub fn is_extended(id: &Id) -> bool {
+    matches!(id, Id::Extended(_))
 }
 
 // ===== can_frame =====
@@ -214,15 +212,6 @@ impl CanFrame {
             Error(frame) => frame.as_mut_ptr(),
         }
     }
-
-    /// Check if frame is an error frame.
-    pub fn is_remote_frame(&self) -> bool {
-        use CanFrame::*;
-        match self {
-            Remote(_) => true,
-            _ => false,
-        }
-    }
 }
 
 impl EmbeddedFrame for CanFrame {
@@ -248,11 +237,7 @@ impl EmbeddedFrame for CanFrame {
 
     /// Check if frame is a remote transmission request.
     fn is_remote_frame(&self) -> bool {
-        use CanFrame::*;
-        match self {
-            Remote(_) => true,
-            _ => false,
-        }
+        matches!(self, CanFrame::Remote(_))
     }
 
     /// Return the frame identifier.
