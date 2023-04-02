@@ -13,10 +13,9 @@
 
 use crate::{frame::CAN_ERR_MASK, CanAnyFrame, CanFdFrame, CanFrame, CanSocketOpenError};
 use libc::{
-    can_frame, canid_t,
-    fcntl, read, sa_family_t, setsockopt, sockaddr, sockaddr_can, socklen_t, suseconds_t,
-    time_t, timeval, write, EINPROGRESS, F_GETFL, F_SETFL, O_NONBLOCK, SOCK_RAW, SOL_SOCKET,
-    SO_RCVTIMEO, SO_SNDTIMEO,
+    can_frame, canid_t, fcntl, read, sa_family_t, setsockopt, sockaddr, sockaddr_can, socklen_t,
+    suseconds_t, time_t, timeval, write, EINPROGRESS, F_GETFL, F_SETFL, O_NONBLOCK, SOCK_RAW,
+    SOL_SOCKET, SO_RCVTIMEO, SO_SNDTIMEO,
 };
 use nix::net::if_::if_nametoindex;
 use std::{
@@ -527,13 +526,7 @@ impl Socket for CanSocket {
         let mut frame: can_frame = unsafe { mem::zeroed() };
         let n = mem::size_of::<can_frame>();
 
-        let read_rv = unsafe {
-            read(
-                self.fd,
-                & mut frame as *mut _ as *mut c_void,
-                n
-            )
-        };
+        let read_rv = unsafe { read(self.fd, &mut frame as *mut _ as *mut c_void, n) };
 
         if read_rv as usize != n {
             return Err(io::Error::last_os_error());

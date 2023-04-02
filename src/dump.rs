@@ -25,7 +25,7 @@
 
 use crate::{
     frame::{FdFlags, IdFlags},
-    CanFdFrame, CanDataFrame,
+    CanDataFrame, CanFdFrame,
 };
 use hex::FromHex;
 use std::{fs, io, path};
@@ -252,7 +252,7 @@ mod test {
             if let CanAnyFrame::Normal(frame) = rec1.frame {
                 assert_eq!(frame.raw_id(), 0x080);
                 assert_eq!(frame.is_remote_frame(), false);
-                assert_eq!(frame.is_error(), false);
+                assert_eq!(frame.is_error_frame(), false);
                 assert_eq!(frame.is_extended(), false);
                 assert_eq!(frame.data(), &[]);
             } else {
@@ -268,7 +268,7 @@ mod test {
             if let CanAnyFrame::Normal(frame) = rec2.frame {
                 assert_eq!(frame.raw_id(), 0x701);
                 assert_eq!(frame.is_remote_frame(), false);
-                assert_eq!(frame.is_error(), false);
+                assert_eq!(frame.is_error_frame(), false);
                 assert_eq!(frame.is_extended(), false);
                 assert_eq!(frame.data(), &[0x7F]);
             } else {
@@ -294,7 +294,7 @@ mod test {
             if let CanAnyFrame::Fd(frame) = rec1.frame {
                 assert_eq!(frame.raw_id(), 0x080);
                 assert_eq!(frame.is_remote_frame(), false);
-                assert_eq!(frame.is_error(), false);
+                assert_eq!(frame.is_error_frame(), false);
                 assert_eq!(frame.is_extended(), false);
                 assert_eq!(frame.is_brs(), false);
                 assert_eq!(frame.is_esi(), false);
@@ -311,7 +311,7 @@ mod test {
             if let CanAnyFrame::Fd(frame) = rec2.frame {
                 assert_eq!(frame.raw_id(), 0x701);
                 assert_eq!(frame.is_remote_frame(), false);
-                assert_eq!(frame.is_error(), false);
+                assert_eq!(frame.is_error_frame(), false);
                 assert_eq!(frame.is_extended(), false);
                 assert_eq!(frame.is_brs(), true);
                 assert_eq!(frame.is_esi(), false);

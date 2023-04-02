@@ -74,8 +74,15 @@ pub mod errors;
 pub use errors::{CanError, CanErrorDecodingFailure, CanSocketOpenError, ConstructionError};
 
 pub mod frame;
-pub use frame::{CanAnyFrame, CanFdFrame, CanFrame, CanDataFrame, CanRemoteFrame, CanErrorFrame, Frame};
+pub use frame::{
+    CanAnyFrame, CanDataFrame, CanErrorFrame, CanFdFrame, CanFrame, CanRemoteFrame, Frame,
+};
 
+/// Re-export the embedded_can crate so that applications can rely on
+/// finding the same version we use.
+pub use embedded_can::{self, Frame as EmbeddedFrame};
+
+#[cfg(feature = "dump")]
 pub mod dump;
 
 pub mod socket;
@@ -98,7 +105,7 @@ impl embedded_can::blocking::Can for CanSocket {
         match self.read_frame() {
             Ok(Data(frame)) => Ok(Data(frame)),
             Ok(Remote(frame)) => Ok(Remote(frame)),
-            Ok(Error(frame)) => Err(frame.error().unwrap_or(CanError::Unknown(0))),
+            Ok(Error(frame)) => Err(frame.into_error()),
             Err(e) => {
                 let code = e.raw_os_error().unwrap_or(0);
                 Err(CanError::Unknown(code as u32))
@@ -127,7 +134,7 @@ impl embedded_can::nb::Can for CanSocket {
             Ok(Data(frame)) => Ok(Data(frame)),
             Ok(Remote(frame)) => Ok(Remote(frame)),
             Ok(Error(frame)) => {
-                let can_error = frame.error().unwrap_or(CanError::Unknown(0));
+                let can_error = frame.into_error();
                 Err(nb::Error::Other(can_error))
             }
             Err(e) => {

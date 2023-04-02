@@ -38,64 +38,20 @@
 //! [linux/can/error.h](https://raw.githubusercontent.com/torvalds/linux/master/include/uapi/linux/can/error.h)
 //!
 
-use crate::{CanErrorFrame, Frame};
+use crate::{CanErrorFrame, EmbeddedFrame, Frame};
 use std::{convert::TryFrom, error, fmt, io};
-
-#[inline]
-/// Helper function to retrieve a specific byte of frame data or returning an
-/// `Err(..)` otherwise.
-fn get_data(frame: &impl Frame, idx: u8) -> Result<u8, CanErrorDecodingFailure> {
-    Ok(*frame
-        .data()
-        .get(idx as usize)
-        .ok_or(CanErrorDecodingFailure::NotEnoughData(idx))?)
-}
-
-// ===== CanErrorDecodingFailure =====
-
-/// Error decoding a CanError from a CanFrame.
-#[derive(Copy, Clone, Debug)]
-pub enum CanErrorDecodingFailure {
-    /// The supplied CANFrame did not have the error bit set.
-    NotAnError,
-    /// The error type is not known and cannot be decoded.
-    UnknownErrorType(u32),
-    /// The error type indicated a need for additional information as `data`,
-    /// but the `data` field was not long enough.
-    NotEnoughData(u8),
-    /// The error type `ControllerProblem` was indicated and additional
-    /// information found, but not recognized.
-    InvalidControllerProblem,
-    /// The type of the ProtocolViolation was not valid
-    InvalidViolationType,
-    /// A location was specified for a ProtocolViolation, but the location
-    /// was not valid.
-    InvalidLocation,
-    /// The supplied transciever error was invalid.
-    InvalidTransceiverError,
-}
-
-impl error::Error for CanErrorDecodingFailure {}
-
-impl fmt::Display for CanErrorDecodingFailure {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use CanErrorDecodingFailure::*;
-        let msg = match *self {
-            NotAnError => "CAN frame is not an error",
-            UnknownErrorType(_) => "unknown error type",
-            NotEnoughData(_) => "not enough data",
-            InvalidControllerProblem => "not a valid controller problem",
-            InvalidViolationType => "not a valid violation type",
-            InvalidLocation => "not a valid location",
-            InvalidTransceiverError => "not a valid transceiver error",
-        };
-        write!(f, "{}", msg)
-    }
-}
 
 // ===== CanError ====
 
-/// The CAN bus error derived from an error frame.
+/// A CAN bus error derived from an error frame.
+///
+/// An CAN interface device driver can send detailed error information up
+/// to the application in an "error frame". This is not a frame that was
+/// receivd from the bus, but rather a proprietary way of packing error
+/// information to sent to the application for processing.
+///
+/// The error frame can then be converted into this `CanError` which is a
+/// proper Rust error type which implements std::error::Error.
 #[derive(Copy, Clone, Debug)]
 pub enum CanError {
     /// TX timeout (by netdevice driver)
@@ -122,36 +78,10 @@ pub enum CanError {
     BusError,
     /// The bus has been restarted
     Restarted,
+    /// There was an error deciding the error frame
+    DecodingFailure(CanErrorDecodingFailure),
     /// Unknown, possibly invalid, error
     Unknown(u32),
-}
-
-impl CanError {
-    /// Constructs a CAN error from an error frame.
-    /// TODO: This should be: impl TryFrom<Frame> for CanError
-    pub fn from_frame(frame: &CanErrorFrame) -> Result<Self, CanErrorDecodingFailure> {
-        //if !frame.is_error_frame() {
-        //    return Err(CanErrorDecodingFailure::NotAnError);
-        //}
-
-        match frame.err() {
-            0x00000001 => Ok(CanError::TransmitTimeout),
-            0x00000002 => Ok(CanError::LostArbitration(get_data(frame, 0)?)),
-            0x00000004 => Ok(CanError::ControllerProblem(ControllerProblem::try_from(
-                get_data(frame, 1)?,
-            )?)),
-            0x00000008 => Ok(CanError::ProtocolViolation {
-                vtype: ViolationType::try_from(get_data(frame, 2)?)?,
-                location: Location::try_from(get_data(frame, 3)?)?,
-            }),
-            0x00000010 => Ok(CanError::TransceiverError),
-            0x00000020 => Ok(CanError::NoAck),
-            0x00000040 => Ok(CanError::BusOff),
-            0x00000080 => Ok(CanError::BusError),
-            0x00000100 => Ok(CanError::Restarted),
-            e => Err(CanErrorDecodingFailure::UnknownErrorType(e)),
-        }
-    }
 }
 
 impl error::Error for CanError {}
@@ -171,7 +101,8 @@ impl fmt::Display for CanError {
             BusOff => write!(f, "bus off"),
             BusError => write!(f, "bus error"),
             Restarted => write!(f, "restarted"),
-            Unknown(errno) => write!(f, "unknown error ({})", errno),
+            DecodingFailure(err) => write!(f, "decoding failure: {}", err),
+            Unknown(err) => write!(f, "unknown error ({})", err),
         }
     }
 }
@@ -186,6 +117,38 @@ impl embedded_can::Error for CanError {
             },
             CanError::NoAck => embedded_can::ErrorKind::Acknowledge,
             _ => embedded_can::ErrorKind::Other,
+        }
+    }
+}
+
+impl From<CanErrorFrame> for CanError {
+    /// Constructs a CAN error from an error frame.
+    fn from(frame: CanErrorFrame) -> Self {
+        // Note that the CanErrorFrame from the OS is guaranteed to have
+        // the full 8-byte data payload.
+        match frame.err() {
+            0x00000001 => CanError::TransmitTimeout,
+            0x00000002 => CanError::LostArbitration(frame.data()[0]),
+            0x00000004 => match ControllerProblem::try_from(frame.data()[1]) {
+                Ok(err) => CanError::ControllerProblem(err),
+                Err(err) => CanError::DecodingFailure(err),
+            },
+            0x00000008 => {
+                match (
+                    ViolationType::try_from(frame.data()[2]),
+                    Location::try_from(frame.data()[3]),
+                ) {
+                    (Ok(vtype), Ok(location)) => CanError::ProtocolViolation { vtype, location },
+                    (Err(err), _) => CanError::DecodingFailure(err),
+                    (_, Err(err)) => CanError::DecodingFailure(err),
+                }
+            }
+            0x00000010 => CanError::TransceiverError,
+            0x00000020 => CanError::NoAck,
+            0x00000040 => CanError::BusOff,
+            0x00000080 => CanError::BusError,
+            0x00000100 => CanError::Restarted,
+            err => CanError::Unknown(err),
         }
     }
 }
@@ -498,6 +461,48 @@ impl<T: Frame> ControllerSpecificErrorInformation for T {
     }
 }
 
+// ===== CanErrorDecodingFailure =====
+
+/// Error decoding a CanError from a CanErrorFrame.
+#[derive(Copy, Clone, Debug)]
+pub enum CanErrorDecodingFailure {
+    /// The supplied CANFrame did not have the error bit set.
+    NotAnError,
+    /// The error type is not known and cannot be decoded.
+    UnknownErrorType(u32),
+    /// The error type indicated a need for additional information as `data`,
+    /// but the `data` field was not long enough.
+    NotEnoughData(u8),
+    /// The error type `ControllerProblem` was indicated and additional
+    /// information found, but not recognized.
+    InvalidControllerProblem,
+    /// The type of the ProtocolViolation was not valid
+    InvalidViolationType,
+    /// A location was specified for a ProtocolViolation, but the location
+    /// was not valid.
+    InvalidLocation,
+    /// The supplied transciever error was invalid.
+    InvalidTransceiverError,
+}
+
+impl error::Error for CanErrorDecodingFailure {}
+
+impl fmt::Display for CanErrorDecodingFailure {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use CanErrorDecodingFailure::*;
+        let msg = match *self {
+            NotAnError => "CAN frame is not an error",
+            UnknownErrorType(_) => "unknown error type",
+            NotEnoughData(_) => "not enough data",
+            InvalidControllerProblem => "not a valid controller problem",
+            InvalidViolationType => "not a valid violation type",
+            InvalidLocation => "not a valid location",
+            InvalidTransceiverError => "not a valid transceiver error",
+        };
+        write!(f, "{}", msg)
+    }
+}
+
 // ===== CanSocketOpenError =====
 
 #[derive(Debug)]
@@ -523,14 +528,14 @@ impl fmt::Display for CanSocketOpenError {
 }
 
 impl From<nix::Error> for CanSocketOpenError {
-    fn from(e: nix::Error) -> CanSocketOpenError {
-        CanSocketOpenError::LookupError(e)
+    fn from(e: nix::Error) -> Self {
+        Self::LookupError(e)
     }
 }
 
 impl From<io::Error> for CanSocketOpenError {
-    fn from(e: io::Error) -> CanSocketOpenError {
-        CanSocketOpenError::IOError(e)
+    fn from(e: io::Error) -> Self {
+        Self::IOError(e)
     }
 }
 
@@ -555,7 +560,7 @@ impl fmt::Display for ConstructionError {
         match *self {
             WrongFrameType => write!(f, "Incompatible frame type"),
             IDTooLarge => write!(f, "CAN ID too large"),
-            TooMuchData => write!(f, "Payload is too large")
+            TooMuchData => write!(f, "Payload is too large"),
         }
     }
 }

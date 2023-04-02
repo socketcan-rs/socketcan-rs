@@ -15,13 +15,16 @@ license = "MIT"
 # Features:
 #
 # "netlink" (default) - Whether to include CAN interface configuration 
-#        capabilities based on netlink kernel communications
+#       capabilities based on netlink kernel communications
+# "dump" (default) - Whether to include 'candump' output parsing 
+#	capabilities.
 # "utils" - Build command-line utilities
 #
 
 [features]
-default = ["netlink"]
+default = ["netlink", "dump"]
 netlink = ["neli"]
+dump = []
 netlink_tests = ["netlink"]
 vcan_tests = ["netlink"]
 utils = ["clap", "anyhow"]
