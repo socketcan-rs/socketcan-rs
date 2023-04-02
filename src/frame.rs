@@ -79,6 +79,24 @@ fn is_extended(id: &Id) -> bool {
     }
 }
 
+// ===== can_frame =====
+
+/// Initializes a libc can_frame frame from raw parts.
+fn new_can_frame(id: u32, data: &[u8], flags: IdFlags) -> Result<can_frame, ConstructionError> {
+    let n = data.len();
+
+    if n > CAN_MAX_DLEN {
+        return Err(ConstructionError::TooMuchData);
+    }
+
+    let mut frame: can_frame = unsafe { mem::zeroed() };
+    frame.can_id = init_id_word(id, flags)?;
+    frame.can_dlc = n as u8;
+    frame.data[..n].copy_from_slice(data);
+
+    Ok(frame)
+}
+
 // ===== Frame trait =====
 
 /// Shared trait for CAN frames
@@ -117,22 +135,9 @@ pub trait Frame: EmbeddedFrame {
         self.dlc()
     }
 
-    /// Return the error message
-    fn err(&self) -> u32 {
-        self.id_word() & CAN_ERR_MASK
-    }
-
     /// Check if frame is an error message
-    fn is_error(&self) -> bool {
+    fn is_error_frame(&self) -> bool {
         self.id_flags().contains(IdFlags::ERR)
-    }
-
-    /// Gets the frame error
-    fn error(&self) -> Result<CanError, CanErrorDecodingFailure>
-    where
-        Self: Sized,
-    {
-        CanError::from_frame(self)
     }
 }
 
@@ -146,22 +151,6 @@ pub enum CanAnyFrame {
     /// A flexible data rate frame, with up to 64-bytes of data
     Fd(CanFdFrame),
 }
-
-/*
-impl fmt::Debug for CanAnyFrame {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::Normal(frame) => {
-                write!(f, "CAN Frame {:?}", frame)
-            }
-
-            Self::Fd(frame) => {
-                write!(f, "CAN FD Frame {:?}", frame)
-            }
-        }
-    }
-}
-*/
 
 impl fmt::UpperHex for CanAnyFrame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -219,19 +208,29 @@ impl CanFrame {
             Error(frame) => frame.as_mut_ptr(),
         }
     }
+
+    /// Check if frame is an error frame.
+    pub fn is_remote_frame(&self) -> bool {
+        use CanFrame::*;
+        match self {
+            Remote(_) => true,
+            _ => false
+        }
+    }
+
 }
 
 impl EmbeddedFrame for CanFrame {
     /// Create a new CAN 2.0 data frame
     fn new(id: impl Into<Id>, data: &[u8]) -> Option<Self> {
-        let frame = CanDataFrame::new(id, data)?;
-        Some(Self::Data(frame))
+        CanDataFrame::new(id, data)
+            .map(CanFrame::Data)
     }
 
     /// Create a new remote transmission request frame.
     fn new_remote(id: impl Into<Id>, dlc: usize) -> Option<Self> {
-        let frame = CanRemoteFrame::new_remote(id, dlc)?;
-        Some(Self::Remote(frame))
+        CanRemoteFrame::new_remote(id, dlc)
+            .map(CanFrame::Remote)
     }
 
     /// Check if frame uses 29-bit extended ID format.
@@ -304,18 +303,6 @@ impl Default for CanFrame {
     }
 }
 
-/*
-impl fmt::Debug for CanFrame {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use CanFrame::*;
-        match self {
-            Data(frame) => fmt::Debug::fmt(&frame, f),
-            Remote(frame) => fmt::Debug::fmt(&frame, f),
-            Error(frame) => fmt::Debug::fmt(&frame, f),
-        }
-    }
-}
-*/
 impl fmt::UpperHex for CanFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         use CanFrame::*;
@@ -330,12 +317,28 @@ impl fmt::UpperHex for CanFrame {
 impl TryFrom<CanFdFrame> for CanFrame {
     type Error = ConstructionError;
 
+    /// Try to convert a CAN FD frame into a classic CAN 2.0 frame.
+    ///
+    /// This should work if it's a data frame with 8 or fewer data bytes.
     fn try_from(frame: CanFdFrame) -> Result<Self, <Self as TryFrom<CanFdFrame>>::Error> {
-        let f = CanDataFrame::try_from(frame)?;
-        Ok(CanFrame::Data(f))
+        CanDataFrame::try_from(frame)
+            .map(CanFrame::Data)
     }
 }
 
+impl From<can_frame> for CanFrame {
+     fn from(frame: can_frame) -> Self {
+         if frame.can_id & CAN_ERR_FLAG != 0 {
+             CanFrame::Error(CanErrorFrame(frame))
+         }
+         else if frame.can_id & CAN_RTR_FLAG != 0 {
+             CanFrame::Remote(CanRemoteFrame(frame))
+         }
+         else {
+             CanFrame::Data(CanDataFrame(frame))
+         }
+     }
+}
 
 impl AsRef<can_frame> for CanFrame {
     fn as_ref(&self) -> &can_frame {
@@ -360,17 +363,7 @@ pub struct CanDataFrame(can_frame);
 impl CanDataFrame {
     /// Initializes a CAN frame from raw parts.
     pub fn init(id: u32, data: &[u8], flags: IdFlags) -> Result<Self, ConstructionError> {
-        let n = data.len();
-
-        if n > CAN_MAX_DLEN {
-            return Err(ConstructionError::TooMuchData);
-        }
-
-        let mut frame: can_frame = unsafe { mem::zeroed() };
-        frame.can_id = init_id_word(id, flags)?;
-        frame.can_dlc = n as u8;
-        frame.data[..n].copy_from_slice(data);
-
+        let frame = new_can_frame(id, data, flags)?;
         Ok(Self(frame))
     }
 
@@ -416,7 +409,7 @@ impl EmbeddedFrame for CanDataFrame {
 
     /// Check if frame is a remote transmission request.
     fn is_remote_frame(&self) -> bool {
-        self.id_flags().contains(IdFlags::RTR)
+        fale
     }
 
     /// Return the frame identifier.
@@ -425,7 +418,6 @@ impl EmbeddedFrame for CanDataFrame {
     }
 
     /// Data length
-    /// TODO: Return the proper DLC code for remote frames?
     fn dlc(&self) -> usize {
         self.0.can_dlc as usize
     }
@@ -453,7 +445,7 @@ impl Default for CanDataFrame {
 
 impl fmt::Debug for CanDataFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "CanFrame {{ ")?;
+        write!(f, "CanDataFrame {{ ")?;
         fmt::UpperHex::fmt(self, f)?;
         write!(f, " }}")
     }
@@ -532,12 +524,7 @@ impl CanRemoteFrame {
 impl EmbeddedFrame for CanRemoteFrame {
     /// Create a new CAN 2.0 data frame
     fn new(id: impl Into<Id>, data: &[u8]) -> Option<Self> {
-        let id = id.into();
-        let mut flags = IdFlags::empty();
-        flags.set(IdFlags::EFF, is_extended(&id));
-
-        let raw_id = hal_id_to_raw(id);
-        Self::init(raw_id, data, flags).ok()
+        new_remote(id, data.len())
     }
 
     /// Create a new remote transmission request frame.
@@ -558,7 +545,7 @@ impl EmbeddedFrame for CanRemoteFrame {
 
     /// Check if frame is a remote transmission request.
     fn is_remote_frame(&self) -> bool {
-        self.id_flags().contains(IdFlags::RTR)
+        true
     }
 
     /// Return the frame identifier.
@@ -595,7 +582,7 @@ impl Default for CanRemoteFrame {
 
 impl fmt::Debug for CanRemoteFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "CanFrame {{ ")?;
+        write!(f, "CanRemoteFrame {{ ")?;
         fmt::UpperHex::fmt(self, f)?;
         write!(f, " }}")
     }
@@ -652,6 +639,19 @@ impl CanErrorFrame {
     /// with the Linux C API.
     pub fn as_mut_ptr(&mut self) -> *mut can_frame {
         &mut self.0
+    }
+
+    /// Return the error message
+    pub fn err(&self) -> u32 {
+        self.id_word() & CAN_ERR_MASK
+    }
+
+    /// Gets the frame error
+    pub fn error(&self) -> Result<CanError, CanErrorDecodingFailure> {
+    //where
+    //    Self: Sized,
+    //{
+        CanError::from_frame(self)
     }
 }
 
@@ -721,7 +721,7 @@ impl Default for CanErrorFrame {
 
 impl fmt::Debug for CanErrorFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "CanFrame {{ ")?;
+        write!(f, "CanErrorFrame {{ ")?;
         fmt::UpperHex::fmt(self, f)?;
         write!(f, " }}")
     }
@@ -731,7 +731,6 @@ impl fmt::UpperHex for CanErrorFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(f, "{:X}#", self.0.can_id)?;
         let mut parts = self.data().iter().map(|v| format!("{:02X}", v));
-        //let sep = if f.alternate() { " " } else { " " };
         let sep = " ";
         write!(f, "{}", parts.join(sep))
     }

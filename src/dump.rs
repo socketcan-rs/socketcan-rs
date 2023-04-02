@@ -190,7 +190,6 @@ impl<R: io::BufRead> Reader<R> {
         } else {
             Vec::from_hex(can_data).map_err(|_| ParseError::InvalidCanFrame)?
         };
-        // TODO: IMPLEMENT THIS!!!
         let frame: super::CanAnyFrame = if is_fd_frame {
             CanFdFrame::init(
                 parse_raw(can_id, 16).ok_or(ParseError::InvalidCanFrame)? as u32,
@@ -200,6 +199,7 @@ impl<R: io::BufRead> Reader<R> {
             )
             .map(super::CanAnyFrame::Fd)
         } else {
+            // TODO: Check for other frame types?
             CanDataFrame::init(
                 parse_raw(can_id, 16).ok_or(ParseError::InvalidCanFrame)? as u32,
                 &data,

@@ -94,14 +94,11 @@ impl embedded_can::blocking::Can for CanSocket {
     type Error = CanError;
 
     fn receive(&mut self) -> Result<Self::Frame, Self::Error> {
+        use CanFrame::*;
         match self.read_frame() {
-            Ok(frame) => {
-                if !frame.is_error() {
-                    Ok(frame)
-                } else {
-                    Err(frame.error().unwrap_or(CanError::Unknown(0)))
-                }
-            }
+            Ok(Data(frame)) => Ok(Data(frame)),
+            Ok(Remote(frame)) => Ok(Remote(frame)),
+            Ok(Error(frame)) => Err(frame.error().unwrap_or(CanError::Unknown(0))),
             Err(e) => {
                 let code = e.raw_os_error().unwrap_or(0);
                 Err(CanError::Unknown(code as u32))
@@ -125,14 +122,13 @@ impl embedded_can::nb::Can for CanSocket {
     type Error = CanError;
 
     fn receive(&mut self) -> nb::Result<Self::Frame, Self::Error> {
+        use CanFrame::*;
         match self.read_frame() {
-            Ok(frame) => {
-                if !frame.is_error() {
-                    Ok(frame)
-                } else {
-                    let can_error = frame.error().unwrap_or(CanError::Unknown(0));
-                    Err(nb::Error::Other(can_error))
-                }
+            Ok(Data(frame)) => Ok(Data(frame)),
+            Ok(Remote(frame)) => Ok(Remote(frame)),
+            Ok(Error(frame)) => {
+                let can_error = frame.error().unwrap_or(CanError::Unknown(0));
+                Err(nb::Error::Other(can_error))
             }
             Err(e) => {
                 let e = match e.kind() {

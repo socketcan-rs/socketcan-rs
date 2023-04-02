@@ -13,7 +13,8 @@
 
 use crate::{frame::CAN_ERR_MASK, CanAnyFrame, CanFdFrame, CanFrame, CanSocketOpenError};
 use libc::{
-    canid_t, fcntl, read, sa_family_t, setsockopt, sockaddr, sockaddr_can, socklen_t, suseconds_t,
+    can_frame, canid_t,
+    fcntl, read, sa_family_t, setsockopt, sockaddr, sockaddr_can, socklen_t, suseconds_t,
     time_t, timeval, write, EINPROGRESS, F_GETFL, F_SETFL, O_NONBLOCK, SOCK_RAW, SOL_SOCKET,
     SO_RCVTIMEO, SO_SNDTIMEO,
 };
@@ -264,9 +265,13 @@ pub fn set_socket_option_mult<T>(
 
 /// Common trait for SocketCAN sockets.
 ///
-/// Note that a socket it created by opening it, and then closed by dropping it.
+/// Note that a socket it created by opening it, and then closed by
+/// dropping it.
 pub trait Socket: AsRawFd {
     /// The type of CAN frame that can be read and written by the socket.
+    ///
+    /// This is typically distinguished by the size of the supported frame,
+    /// with the primary difference between a `CanFrame` and a `CanFdFrame`.
     type FrameType;
 
     /// Open a named CAN device.
@@ -519,22 +524,22 @@ impl Socket for CanSocket {
 
     /// Reads a normal CAN 2.0 frame from the socket.
     fn read_frame(&self) -> io::Result<CanFrame> {
-        let mut frame = Self::FrameType::default();
+        let mut frame: can_frame = unsafe { mem::zeroed() };
+        let n = mem::size_of::<can_frame>();
 
         let read_rv = unsafe {
-            let frame_ptr = frame.as_mut_ptr();
             read(
                 self.fd,
-                frame_ptr as *mut c_void,
-                mem::size_of::<CanFrame>(),
+                & mut frame as *mut _ as *mut c_void,
+                n
             )
         };
 
-        if read_rv as usize != mem::size_of::<CanFrame>() {
+        if read_rv as usize != n {
             return Err(io::Error::last_os_error());
         }
 
-        Ok(frame)
+        Ok(frame.into())
     }
 }
 

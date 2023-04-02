@@ -38,7 +38,7 @@
 //! [linux/can/error.h](https://raw.githubusercontent.com/torvalds/linux/master/include/uapi/linux/can/error.h)
 //!
 
-use crate::Frame;
+use crate::{CanErrorFrame, Frame};
 use std::{convert::TryFrom, error, fmt, io};
 
 #[inline]
@@ -129,10 +129,10 @@ pub enum CanError {
 impl CanError {
     /// Constructs a CAN error from an error frame.
     /// TODO: This should be: impl TryFrom<Frame> for CanError
-    pub fn from_frame(frame: &impl Frame) -> Result<Self, CanErrorDecodingFailure> {
-        if !frame.is_error() {
-            return Err(CanErrorDecodingFailure::NotAnError);
-        }
+    pub fn from_frame(frame: &CanErrorFrame) -> Result<Self, CanErrorDecodingFailure> {
+        //if !frame.is_error_frame() {
+        //    return Err(CanErrorDecodingFailure::NotAnError);
+        //}
 
         match frame.err() {
             0x00000001 => Ok(CanError::TransmitTimeout),
@@ -490,10 +490,10 @@ impl<T: Frame> ControllerSpecificErrorInformation for T {
     fn get_ctrl_err(&self) -> Option<&[u8]> {
         let data = self.data();
 
-        if data.len() != 8 {
-            None
-        } else {
+        if data.len() == 8 {
             Some(&data[5..])
+        } else {
+            None
         }
     }
 }
@@ -536,9 +536,11 @@ impl From<io::Error> for CanSocketOpenError {
 
 // ===== ConstructionError =====
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 /// Error that occurs when creating CAN packets
 pub enum ConstructionError {
+    /// Trying to create a specific frame type from an incompatible type
+    WrongFrameType,
     /// CAN ID was outside the range of valid IDs
     IDTooLarge,
     /// Larger payload reported than can be held in the frame.
@@ -551,10 +553,9 @@ impl fmt::Display for ConstructionError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use ConstructionError::*;
         match *self {
+            WrongFrameType => write!(f, "Incompatible frame type"),
             IDTooLarge => write!(f, "CAN ID too large"),
-            TooMuchData => {
-                write!(f, "Payload is larger than CAN maximum of 8 bytes")
-            }
+            TooMuchData => write!(f, "Payload is too large")
         }
     }
 }
