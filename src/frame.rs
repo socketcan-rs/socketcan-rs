@@ -157,7 +157,11 @@ pub trait Frame: EmbeddedFrame {
 #[derive(Clone, Copy, Debug)]
 pub enum CanAnyFrame {
     /// A classic CAN 2.0 frame, with up to 8-bytes of data
-    Normal(CanFrame),
+    Normal(CanDataFrame),
+    /// A CAN Remote Frame
+    Remote(CanRemoteFrame),
+    /// An error frame
+    Error(CanErrorFrame),
     /// A flexible data rate frame, with up to 64-bytes of data
     Fd(CanFdFrame),
 }
@@ -166,6 +170,8 @@ impl fmt::UpperHex for CanAnyFrame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Normal(frame) => frame.fmt(f),
+            Self::Remote(frame) => frame.fmt(f),
+            Self::Error(frame) => frame.fmt(f),
             Self::Fd(frame) => frame.fmt(f),
         }
     }
@@ -173,7 +179,12 @@ impl fmt::UpperHex for CanAnyFrame {
 
 impl From<CanFrame> for CanAnyFrame {
     fn from(frame: CanFrame) -> Self {
-        Self::Normal(frame)
+        use CanFrame::*;
+        match frame {
+            Data(frame) => Self::Normal(frame),
+            Remote(frame) => Self::Remote(frame),
+            Error(frame) => Self::Error(frame),
+        }
     }
 }
 

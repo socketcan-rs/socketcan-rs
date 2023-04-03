@@ -278,7 +278,7 @@ pub trait Socket: AsRawFd {
     /// Open a named CAN device.
     ///
     /// Usually the more common case, opens a socket can device by name, such
-    /// as "vcan0" or "socan0".
+    /// as "can0", "vcan0", or "socan0".
     fn open(ifname: &str) -> Result<Self, CanSocketOpenError>
     where
         Self: Sized,
@@ -589,6 +589,8 @@ impl Socket for CanFdSocket {
     fn write_frame(&self, frame: &CanAnyFrame) -> io::Result<()> {
         match frame {
             CanAnyFrame::Normal(frame) => raw_write_frame(self.fd, frame.as_ptr()),
+            CanAnyFrame::Remote(frame) => raw_write_frame(self.fd, frame.as_ptr()),
+            CanAnyFrame::Error(frame) => raw_write_frame(self.fd, frame.as_ptr()),
             CanAnyFrame::Fd(fd_frame) => raw_write_frame(self.fd, fd_frame.as_ptr()),
         }
     }

@@ -23,21 +23,19 @@ fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let can_interface = args.interface;
 
-    let mut socket = CanSocket::open(&can_interface)
+    let mut sock = CanSocket::open(&can_interface)
         .with_context(|| format!("Failed to open socket on interface {}", can_interface))?;
 
-    let frame = socket.receive();
+    let frame = sock.receive()
+        .context("Receiving frame")?;
 
-    if let Ok(frame) = frame {
-        println!("{}", frame_to_string(&frame));
-    }
+    println!("{}", frame_to_string(&frame));
 
     let write_frame = CanFrame::new(StandardId::new(0x1f1).unwrap(), &[1, 2, 3, 4])
-        .expect("Failed to create CAN frame");
+        .context("Creating CAN frame")?;
 
-    socket
-        .transmit(&write_frame)
-        .expect("Failed to transmit frame");
+    sock.transmit(&write_frame)
+        .context("Transmitting frame")?;
 
     Ok(())
 }

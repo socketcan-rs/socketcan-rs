@@ -206,7 +206,7 @@ impl<R: io::BufRead> Reader<R> {
                 flags,
             )
             .map(super::CanFrame::Data)
-            .map(super::CanAnyFrame::Normal)
+            .map(|f| f.into())
         }?;
 
         Ok(Some(CanDumpRecord {
