@@ -11,7 +11,10 @@
 
 //! Implementation of sockets for CANbus 2.0 and FD for SocketCAN on Linux.
 
-use crate::{frame::CAN_ERR_MASK, CanAnyFrame, CanFdFrame, CanFrame, CanSocketOpenError};
+use crate::{
+    frame::{can_frame_default, canfd_frame_default, CAN_ERR_MASK},
+    CanAnyFrame, CanFdFrame, CanFrame, CanSocketOpenError,
+};
 use libc::{
     can_frame, canid_t, fcntl, read, sa_family_t, setsockopt, sockaddr, sockaddr_can, socklen_t,
     suseconds_t, time_t, timeval, write, EINPROGRESS, F_GETFL, F_SETFL, O_NONBLOCK, SOCK_RAW,
@@ -19,7 +22,6 @@ use libc::{
 };
 use nix::net::if_::if_nametoindex;
 use std::{
-    convert::TryFrom,
     fmt, io, mem,
     os::{
         raw::{c_int, c_uint, c_void},
@@ -381,7 +383,7 @@ pub trait Socket: AsRawFd {
     /// Disable reception of CAN frames.
     ///
     /// Sets a completely empty filter; disabling all CAN frame reception.
-    fn filter_drop_all(&self) -> io::Result<()> {
+    fn set_filter_drop_all(&self) -> io::Result<()> {
         let filters: &[CanFilter] = &[];
         set_socket_option_mult(self.as_raw_fd(), SOL_CAN_RAW, CAN_RAW_FILTER, filters)
     }
@@ -390,7 +392,7 @@ pub trait Socket: AsRawFd {
     ///
     /// Replace the current filter with one containing a single rule that
     /// acceps all CAN frames.
-    fn filter_accept_all(&self) -> io::Result<()> {
+    fn set_filter_accept_all(&self) -> io::Result<()> {
         // safe unwrap: 0, 0 is a valid mask/id pair
         self.set_filters(&[(0, 0)])
     }
@@ -407,13 +409,13 @@ pub trait Socket: AsRawFd {
 
     /// Sets the error mask on the socket to reject all errors.
     #[inline(always)]
-    fn error_filter_drop_all(&self) -> io::Result<()> {
+    fn set_error_filter_drop_all(&self) -> io::Result<()> {
         self.set_error_filter(0)
     }
 
     /// Sets the error mask on the socket to accept all errors.
     #[inline(always)]
-    fn error_filter_accept_all(&self) -> io::Result<()> {
+    fn set_error_filter_accept_all(&self) -> io::Result<()> {
         self.set_error_filter(CAN_ERR_MASK)
     }
 
@@ -499,7 +501,7 @@ impl CanSocket {
 
 /// A socket for a CAN 2.0 device.
 ///
-/// Will be closed upon deallocation. To close manually, use std::drop::Drop.
+/// Will be closed when dropped. To close manually, use std::drop::Drop.
 /// Internally this is just a wrapped file-descriptor.
 #[allow(missing_copy_implementations)]
 #[derive(Debug)]
@@ -513,7 +515,7 @@ impl Socket for CanSocket {
 
     /// Opens the socket by interface index.
     fn open_iface(if_index: c_uint) -> Result<Self, CanSocketOpenError> {
-        raw_open_socket(if_index).map(|sock_fd| Self { fd: sock_fd })
+        raw_open_socket(if_index).map(|fd| Self { fd })
     }
 
     /// Writes a normal CAN 2.0 frame to the socket.
@@ -523,16 +525,16 @@ impl Socket for CanSocket {
 
     /// Reads a normal CAN 2.0 frame from the socket.
     fn read_frame(&self) -> io::Result<CanFrame> {
-        let mut frame: can_frame = unsafe { mem::zeroed() };
+        let mut frame = can_frame_default();
         let n = mem::size_of::<can_frame>();
 
-        let read_rv = unsafe { read(self.fd, &mut frame as *mut _ as *mut c_void, n) };
+        let rd = unsafe { read(self.fd, &mut frame as *mut _ as *mut c_void, n) };
 
-        if read_rv as usize != n {
-            return Err(io::Error::last_os_error());
+        if rd as usize == n {
+            Ok(frame.into())
+        } else {
+            Err(io::Error::last_os_error())
         }
-
-        Ok(frame.into())
     }
 }
 
@@ -579,8 +581,8 @@ impl Socket for CanFdSocket {
     /// Opens the FD socket by interface index.
     fn open_iface(if_index: c_uint) -> Result<Self, CanSocketOpenError> {
         raw_open_socket(if_index)
-            .and_then(|sock_fd| set_fd_mode(sock_fd, true).map_err(CanSocketOpenError::IOError))
-            .map(|sock_fd| Self { fd: sock_fd })
+            .and_then(|fd| set_fd_mode(fd, true).map_err(CanSocketOpenError::IOError))
+            .map(|fd| Self { fd })
     }
 
     /// Writes either type of CAN frame to the socket.
@@ -593,28 +595,23 @@ impl Socket for CanFdSocket {
 
     /// Reads either type of CAN frame from the socket.
     fn read_frame(&self) -> io::Result<CanAnyFrame> {
-        let mut frame = CanFdFrame::default();
+        let mut fdframe = canfd_frame_default();
 
-        let read_rv = unsafe {
-            let frame_ptr = frame.as_mut_ptr();
-            read(
-                self.fd,
-                frame_ptr as *mut c_void,
-                mem::size_of::<CanFdFrame>(),
-            )
-        };
-        match read_rv as usize {
-            CAN_MTU => CanFrame::try_from(frame)
-                .map(|frame| frame.into())
-                .map_err(|_| {
-                    io::Error::new(
-                        io::ErrorKind::Other,
-                        "BUG in read_frame: cannot convert to CanFrame",
-                    )
-                }),
-
-            CANFD_MTU => Ok(frame.into()), // Ok(CanAnyFrame::from(frame)),
-
+        let rd = unsafe { read(self.fd, &mut fdframe as *mut _ as *mut c_void, CANFD_MTU) };
+        match rd as usize {
+            // If we only get 'can_frame' number of bytes, then the return is,
+            // by definition, a can_frame, so we just copy the bytes into the
+            // proper type.
+            CAN_MTU => {
+                let mut frame = can_frame_default();
+                unsafe {
+                    let src = &fdframe as *const _ as *const u8;
+                    let dst = &mut frame as *mut _ as *mut u8;
+                    ptr::copy_nonoverlapping(src, dst, CAN_MTU);
+                }
+                Ok(CanFrame::from(frame).into())
+            }
+            CANFD_MTU => Ok(CanFdFrame::from(fdframe).into()),
             _ => Err(io::Error::last_os_error()),
         }
     }
@@ -648,8 +645,9 @@ impl Drop for CanFdSocket {
 
 /// The CAN filter defines which ID's can be accepted on a socket.
 ///
-/// Each filter contains an internal id and mask. Packets are considered to be matched
-/// by a filter if `received_id & mask == filter_id & mask` holds true.
+/// Each filter contains an internal id and mask. Packets are considered to
+/// be matched by a filter if `received_id & mask == filter_id & mask` holds
+/// true.
 ///
 /// A socket can be given multiple filters, and each one can be inverted
 /// ([ref](https://docs.kernel.org/networking/can.html#raw-protocol-sockets-with-can-filters-sock-raw))

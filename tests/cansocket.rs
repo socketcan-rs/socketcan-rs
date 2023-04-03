@@ -1,3 +1,14 @@
+// socketcan/tests/cansocket.rs
+//
+// Integration tests for CAN sockets.
+//
+// This file is part of the Rust 'socketcan-rs' library.
+//
+// Licensed under the MIT license:
+//   <LICENSE or http://opensource.org/licenses/MIT>
+// This file may not be copied, modified, or distributed except according
+// to those terms.
+
 #[cfg(feature = "vcan_tests")]
 use socketcan::{
     frame::{IdFlags, ERR_MASK_ALL, ERR_MASK_NONE},

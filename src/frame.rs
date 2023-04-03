@@ -65,7 +65,7 @@ fn init_id_word(id: canid_t, mut flags: IdFlags) -> Result<canid_t, Construction
 }
 
 /// Gets the raw ID value from an Id
-pub fn hal_id_to_raw(id: Id) -> u32 {
+pub fn id_to_raw(id: Id) -> u32 {
     match id {
         Id::Standard(id) => id.as_raw() as u32,
         Id::Extended(id) => id.as_raw(),
@@ -73,7 +73,7 @@ pub fn hal_id_to_raw(id: Id) -> u32 {
 }
 
 /// Determines if the ID is a 29-bit extended ID.
-pub fn is_extended(id: &Id) -> bool {
+pub fn id_is_extended(id: &Id) -> bool {
     matches!(id, Id::Extended(_))
 }
 
@@ -81,12 +81,12 @@ pub fn is_extended(id: &Id) -> bool {
 
 /// Creates a default C `can_frame`.
 #[inline(always)]
-fn can_frame_default() -> can_frame {
+pub fn can_frame_default() -> can_frame {
     unsafe { mem::zeroed() }
 }
 
 /// Initializes a libc can_frame frame from raw parts.
-fn can_frame_new(id: u32, data: &[u8], flags: IdFlags) -> Result<can_frame, ConstructionError> {
+pub fn can_frame_new(id: u32, data: &[u8], flags: IdFlags) -> Result<can_frame, ConstructionError> {
     let n = data.len();
 
     if n > CAN_MAX_DLEN {
@@ -99,6 +99,12 @@ fn can_frame_new(id: u32, data: &[u8], flags: IdFlags) -> Result<can_frame, Cons
     frame.data[..n].copy_from_slice(data);
 
     Ok(frame)
+}
+
+/// Creates a default C `can_frame`.
+#[inline(always)]
+pub fn canfd_frame_default() -> canfd_frame {
+    unsafe { mem::zeroed() }
 }
 
 // ===== Frame trait =====
@@ -302,19 +308,8 @@ impl fmt::UpperHex for CanFrame {
     }
 }
 
-impl TryFrom<CanFdFrame> for CanFrame {
-    type Error = ConstructionError;
-
-    /// Try to convert a CAN FD frame into a classic CAN 2.0 frame.
-    ///
-    /// This should work if it's a data frame with 8 or fewer data bytes.
-    fn try_from(frame: CanFdFrame) -> Result<Self, <Self as TryFrom<CanFdFrame>>::Error> {
-        CanDataFrame::try_from(frame).map(CanFrame::Data)
-    }
-}
-
 impl From<can_frame> for CanFrame {
-    /// Ccreate a `CanFrame` from a C `can_frame` struct.
+    /// Create a `CanFrame` from a C `can_frame` struct.
     fn from(frame: can_frame) -> Self {
         if frame.can_id & CAN_ERR_FLAG != 0 {
             CanFrame::Error(CanErrorFrame(frame))
@@ -326,6 +321,27 @@ impl From<can_frame> for CanFrame {
     }
 }
 
+impl From<CanDataFrame> for CanFrame {
+    /// Create a `CanFrame` from a data frame
+    fn from(frame: CanDataFrame) -> Self {
+        Self::Data(frame)
+    }
+}
+
+impl From<CanRemoteFrame> for CanFrame {
+    /// Create a `CanFrame` from a remote frame
+    fn from(frame: CanRemoteFrame) -> Self {
+        Self::Remote(frame)
+    }
+}
+
+impl From<CanErrorFrame> for CanFrame {
+    /// Create a `CanFrame` from an error frame
+    fn from(frame: CanErrorFrame) -> Self {
+        Self::Error(frame)
+    }
+}
+
 impl AsRef<can_frame> for CanFrame {
     fn as_ref(&self) -> &can_frame {
         use CanFrame::*;
@@ -334,6 +350,17 @@ impl AsRef<can_frame> for CanFrame {
             Remote(frame) => frame.as_ref(),
             Error(frame) => frame.as_ref(),
         }
+    }
+}
+
+impl TryFrom<CanFdFrame> for CanFrame {
+    type Error = ConstructionError;
+
+    /// Try to convert a CAN FD frame into a classic CAN 2.0 frame.
+    ///
+    /// This should work if it's a data frame with 8 or fewer data bytes.
+    fn try_from(frame: CanFdFrame) -> Result<Self, <Self as TryFrom<CanFdFrame>>::Error> {
+        CanDataFrame::try_from(frame).map(CanFrame::Data)
     }
 }
 
@@ -371,9 +398,9 @@ impl EmbeddedFrame for CanDataFrame {
     fn new(id: impl Into<Id>, data: &[u8]) -> Option<Self> {
         let id = id.into();
         let mut flags = IdFlags::empty();
-        flags.set(IdFlags::EFF, is_extended(&id));
+        flags.set(IdFlags::EFF, id_is_extended(&id));
 
-        let raw_id = hal_id_to_raw(id);
+        let raw_id = id_to_raw(id);
         Self::init(raw_id, data, flags).ok()
     }
 
@@ -381,9 +408,9 @@ impl EmbeddedFrame for CanDataFrame {
     fn new_remote(id: impl Into<Id>, dlc: usize) -> Option<Self> {
         let id = id.into();
         let mut flags = IdFlags::RTR;
-        flags.set(IdFlags::EFF, is_extended(&id));
+        flags.set(IdFlags::EFF, id_is_extended(&id));
 
-        let raw_id = hal_id_to_raw(id);
+        let raw_id = id_to_raw(id);
         let data = [0u8; 8];
         Self::init(raw_id, &data[0..dlc], flags).ok()
     }
@@ -532,12 +559,12 @@ impl EmbeddedFrame for CanRemoteFrame {
     fn new_remote(id: impl Into<Id>, dlc: usize) -> Option<Self> {
         let id = id.into();
         let mut flags = IdFlags::RTR;
-        flags.set(IdFlags::EFF, is_extended(&id));
+        flags.set(IdFlags::EFF, id_is_extended(&id));
 
         // TODO: Check for a valid DLC
 
         let mut frame = can_frame_default();
-        frame.can_id = hal_id_to_raw(id);
+        frame.can_id = id_to_raw(id);
         frame.can_dlc = dlc as u8;
         Some(Self(frame))
     }
@@ -637,22 +664,6 @@ impl AsRef<can_frame> for CanRemoteFrame {
 pub struct CanErrorFrame(can_frame);
 
 impl CanErrorFrame {
-    /// Initializes a CAN frame from raw parts.
-    pub fn init(id: u32, data: &[u8], flags: IdFlags) -> Result<Self, ConstructionError> {
-        let n = data.len();
-
-        if n > CAN_MAX_DLEN {
-            return Err(ConstructionError::TooMuchData);
-        }
-
-        let mut frame: can_frame = unsafe { mem::zeroed() };
-        frame.can_id = init_id_word(id, flags)?;
-        frame.can_dlc = n as u8;
-        frame.data[..n].copy_from_slice(data);
-
-        Ok(Self(frame))
-    }
-
     /// Gets a pointer to the CAN frame structure that is compatible with
     /// the Linux C API.
     pub fn as_ptr(&self) -> *const can_frame {
@@ -785,13 +796,13 @@ impl CanFdFrame {
 
         flags.remove(IdFlags::RTR);
 
-        let mut frame = Self::default();
-        frame.0.can_id = init_id_word(id, flags)?;
-        frame.0.len = n as u8;
-        frame.0.flags = fd_flags.bits();
-        frame.0.data[..n].copy_from_slice(data);
+        let mut frame = canfd_frame_default();
+        frame.can_id = init_id_word(id, flags)?;
+        frame.len = n as u8;
+        frame.flags = fd_flags.bits();
+        frame.data[..n].copy_from_slice(data);
 
-        Ok(frame)
+        Ok(Self(frame))
     }
 
     /// Gets the flags for the FD frame.
@@ -849,9 +860,9 @@ impl EmbeddedFrame for CanFdFrame {
     fn new(id: impl Into<Id>, data: &[u8]) -> Option<Self> {
         let id = id.into();
         let mut flags = IdFlags::empty();
-        flags.set(IdFlags::EFF, is_extended(&id));
+        flags.set(IdFlags::EFF, id_is_extended(&id));
 
-        let raw_id = hal_id_to_raw(id);
+        let raw_id = id_to_raw(id);
         Self::init(raw_id, data, flags, FdFlags::empty()).ok()
     }
 
@@ -898,8 +909,7 @@ impl Frame for CanFdFrame {
 impl Default for CanFdFrame {
     /// The default FD frame has all fields and data set to zero, and all flags off.
     fn default() -> Self {
-        let frame: canfd_frame = unsafe { mem::zeroed() };
-        Self(frame)
+        Self(canfd_frame_default())
     }
 }
 
@@ -926,12 +936,18 @@ impl From<CanDataFrame> for CanFdFrame {
     fn from(frame: CanDataFrame) -> Self {
         let n = frame.dlc();
 
-        let mut fdframe = Self::default();
+        let mut fdframe = canfd_frame_default();
         // TODO: force rtr off?
-        fdframe.0.can_id = frame.id_word();
-        fdframe.0.len = n as u8;
-        fdframe.0.data[..n].copy_from_slice(&frame.data()[..n]);
-        fdframe
+        fdframe.can_id = frame.id_word();
+        fdframe.len = n as u8;
+        fdframe.data[..n].copy_from_slice(&frame.data()[..n]);
+        Self(fdframe)
+    }
+}
+
+impl From<canfd_frame> for CanFdFrame {
+    fn from(frame: canfd_frame) -> Self {
+        Self(frame)
     }
 }
 
