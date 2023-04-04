@@ -503,8 +503,7 @@ impl fmt::UpperHex for CanDataFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(f, "{:X}#", self.0.can_id)?;
         let mut parts = self.data().iter().map(|v| format!("{:02X}", v));
-        let sep = " ";
-        write!(f, "{}", parts.join(sep))
+        write!(f, "{}", parts.join(" "))
     }
 }
 
@@ -790,8 +789,7 @@ impl fmt::UpperHex for CanErrorFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(f, "{:X}#", self.0.can_id)?;
         let mut parts = self.data().iter().map(|v| format!("{:02X}", v));
-        let sep = " ";
-        write!(f, "{}", parts.join(sep))
+        write!(f, "{}", parts.join(" "))
     }
 }
 
@@ -975,9 +973,7 @@ impl fmt::UpperHex for CanFdFrame {
         write!(f, "{:X}##", self.0.can_id)?;
         write!(f, "{} ", self.0.flags)?;
         let mut parts = self.data().iter().map(|v| format!("{:02X}", v));
-        //let sep = if f.alternate() { " " } else { " " };
-        let sep = " ";
-        write!(f, "{}", parts.join(sep))
+        write!(f, "{}", parts.join(" "))
     }
 }
 
