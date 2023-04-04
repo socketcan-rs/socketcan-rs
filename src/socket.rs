@@ -57,10 +57,9 @@ impl ShouldRetry for io::Error {
             // and EWOULDBLOCK os WouldBlock
             io::ErrorKind::WouldBlock => true,
             // however, EINPROGRESS is also valid
-            io::ErrorKind::Other => match self.raw_os_error() {
-                Some(errno) if errno == EINPROGRESS => true,
-                _ => false,
-            },
+            io::ErrorKind::Other => {
+                matches!(self.raw_os_error(), Some(errno) if errno == EINPROGRESS)
+            }
             _ => false,
         }
     }
