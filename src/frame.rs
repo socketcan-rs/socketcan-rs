@@ -835,7 +835,7 @@ impl CanFdFrame {
     ) -> Result<Self, ConstructionError> {
         let n = data.len();
 
-        if n > CAN_MAX_DLEN {
+        if n > CANFD_MAX_DLEN {
             return Err(ConstructionError::TooMuchData);
         }
 
