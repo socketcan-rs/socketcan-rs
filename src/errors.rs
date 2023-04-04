@@ -34,24 +34,66 @@
 //! ```
 //!
 //! All of this error information is not well documented, but can be extracted
-//! from the Linux kernel header file
+//! from the Linux kernel header file:
 //! [linux/can/error.h](https://raw.githubusercontent.com/torvalds/linux/master/include/uapi/linux/can/error.h)
 //!
 
 use crate::{CanErrorFrame, EmbeddedFrame, Frame};
 use std::{convert::TryFrom, error, fmt, io};
+use thiserror::Error;
+
+// ===== Composite Error for the crate =====
+
+/// Composite SocketCAN error.
+///
+/// This can be any of the underlying errors from this library.
+#[derive(Error, Debug)]
+pub enum Error {
+    /// A CANbus error, usually from an error frmae
+    #[error(transparent)]
+    Can(#[from] CanError),
+    /// A problem with the CAN controller
+    #[error(transparent)]
+    Controller(#[from] ControllerProblem),
+    /// An error opening the CAN socket
+    #[error(transparent)]
+    SocketOpen(#[from] CanSocketOpenError),
+    /// A lower-level error from the nix library
+    #[error(transparent)]
+    Nix(#[from] nix::Error),
+    /// A low-level I/O error
+    #[error(transparent)]
+    Io(#[from] io::Error),
+}
+
+impl embedded_can::Error for Error {
+    fn kind(&self) -> embedded_can::ErrorKind {
+        match *self {
+            Error::Can(err) => err.kind(),
+            _ => embedded_can::ErrorKind::Other,
+        }
+    }
+}
+
+/// A result that can derive from any of the CAN errors.
+pub type Result<T> = std::result::Result<T, Error>;
 
 // ===== CanError ====
 
 /// A CAN bus error derived from an error frame.
 ///
 /// An CAN interface device driver can send detailed error information up
-/// to the application in an "error frame". This is not a frame that was
-/// receivd from the bus, but rather a proprietary way of packing error
-/// information to sent to the application for processing.
+/// to the application in an "error frame". These are selectable by the
+/// application by applying an error bitmask to the socket to choose which
+/// types of errors to receive.
 ///
 /// The error frame can then be converted into this `CanError` which is a
 /// proper Rust error type which implements std::error::Error.
+///
+/// Most error types here corresponds to a bit in the error mask of a CAN ID
+/// word of an error frame - a frame in which the CAN error flag
+/// (`CAN_ERR_FLAG`) is set. But there are additional types to handle any
+/// problems decoding the error frame.
 #[derive(Copy, Clone, Debug)]
 pub enum CanError {
     /// TX timeout (by netdevice driver)
@@ -110,11 +152,15 @@ impl fmt::Display for CanError {
 impl embedded_can::Error for CanError {
     fn kind(&self) -> embedded_can::ErrorKind {
         match *self {
-            CanError::ControllerProblem(cp) => match cp {
-                ControllerProblem::ReceiveBufferOverflow
-                | ControllerProblem::TransmitBufferOverflow => embedded_can::ErrorKind::Overrun,
-                _ => embedded_can::ErrorKind::Other,
-            },
+            CanError::ControllerProblem(cp) => {
+                use ControllerProblem::*;
+                match cp {
+                    ReceiveBufferOverflow | TransmitBufferOverflow => {
+                        embedded_can::ErrorKind::Overrun
+                    }
+                    _ => embedded_can::ErrorKind::Other,
+                }
+            }
             CanError::NoAck => embedded_can::ErrorKind::Acknowledge,
             _ => embedded_can::ErrorKind::Other,
         }
@@ -124,30 +170,29 @@ impl embedded_can::Error for CanError {
 impl From<CanErrorFrame> for CanError {
     /// Constructs a CAN error from an error frame.
     fn from(frame: CanErrorFrame) -> Self {
-        // Note that the CanErrorFrame from the OS is guaranteed to have
-        // the full 8-byte data payload.
-        match frame.err() {
-            0x00000001 => CanError::TransmitTimeout,
-            0x00000002 => CanError::LostArbitration(frame.data()[0]),
-            0x00000004 => match ControllerProblem::try_from(frame.data()[1]) {
+        // Note that the CanErrorFrame is guaranteed to have the full 8-byte
+        // data payload.
+        match frame.error_bits() {
+            0x0001 => CanError::TransmitTimeout,
+            0x0002 => CanError::LostArbitration(frame.data()[0]),
+            0x0004 => match ControllerProblem::try_from(frame.data()[1]) {
                 Ok(err) => CanError::ControllerProblem(err),
                 Err(err) => CanError::DecodingFailure(err),
             },
-            0x00000008 => {
+            0x0008 => {
                 match (
                     ViolationType::try_from(frame.data()[2]),
                     Location::try_from(frame.data()[3]),
                 ) {
                     (Ok(vtype), Ok(location)) => CanError::ProtocolViolation { vtype, location },
-                    (Err(err), _) => CanError::DecodingFailure(err),
-                    (_, Err(err)) => CanError::DecodingFailure(err),
+                    (Err(err), _) | (_, Err(err)) => CanError::DecodingFailure(err),
                 }
             }
-            0x00000010 => CanError::TransceiverError,
-            0x00000020 => CanError::NoAck,
-            0x00000040 => CanError::BusOff,
-            0x00000080 => CanError::BusError,
-            0x00000100 => CanError::Restarted,
+            0x0010 => CanError::TransceiverError,
+            0x0020 => CanError::NoAck,
+            0x0040 => CanError::BusOff,
+            0x0080 => CanError::BusError,
+            0x0100 => CanError::Restarted,
             err => CanError::Unknown(err),
         }
     }
@@ -200,7 +245,7 @@ impl fmt::Display for ControllerProblem {
 impl TryFrom<u8> for ControllerProblem {
     type Error = CanErrorDecodingFailure;
 
-    fn try_from(val: u8) -> Result<Self, Self::Error> {
+    fn try_from(val: u8) -> std::result::Result<Self, Self::Error> {
         use ControllerProblem::*;
         Ok(match val {
             0x00 => Unspecified,
@@ -221,26 +266,27 @@ impl TryFrom<u8> for ControllerProblem {
 /// The type of protocol violation error.
 ///
 /// This is derived from `data[2]` of an error frame.
-#[derive(Copy, Clone, Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum ViolationType {
     /// Unspecified Violation
-    Unspecified,
+    Unspecified = 0x00,
     /// Single Bit Error
-    SingleBitError,
+    SingleBitError = 0x01,
     /// Frame formatting error
-    FrameFormatError,
+    FrameFormatError = 0x02,
     /// Bit stuffing error
-    BitStuffingError,
+    BitStuffingError = 0x04,
     /// A dominant bit was sent, but not received
-    UnableToSendDominantBit,
+    UnableToSendDominantBit = 0x08,
     /// A recessive bit was sent, but not received
-    UnableToSendRecessiveBit,
+    UnableToSendRecessiveBit = 0x10,
     /// Bus overloaded
-    BusOverload,
+    BusOverload = 0x20,
     /// Bus is active (again)
-    Active,
+    Active = 0x40,
     /// Transmission Error
-    TransmissionError,
+    TransmissionError = 0x80,
 }
 
 impl error::Error for ViolationType {}
@@ -266,7 +312,7 @@ impl fmt::Display for ViolationType {
 impl TryFrom<u8> for ViolationType {
     type Error = CanErrorDecodingFailure;
 
-    fn try_from(val: u8) -> Result<Self, Self::Error> {
+    fn try_from(val: u8) -> std::result::Result<Self, Self::Error> {
         use ViolationType::*;
         Ok(match val {
             0x00 => Unspecified,
@@ -285,8 +331,8 @@ impl TryFrom<u8> for ViolationType {
 
 /// The location of a CANbus protocol violation.
 ///
-/// This describes where inside a received frame (as in the field or bit)
-/// at which an error occured.
+/// This describes the position inside a received frame (as in the field
+/// or bit) at which an error occured.
 ///
 /// This is derived from `data[1]` of an error frame.
 #[derive(Copy, Clone, Debug)]
@@ -364,7 +410,7 @@ impl fmt::Display for Location {
 impl TryFrom<u8> for Location {
     type Error = CanErrorDecodingFailure;
 
-    fn try_from(val: u8) -> Result<Self, Self::Error> {
+    fn try_from(val: u8) -> std::result::Result<Self, Self::Error> {
         use Location::*;
         Ok(match val {
             0x00 => Unspecified,
@@ -424,7 +470,7 @@ pub enum TransceiverError {
 impl TryFrom<u8> for TransceiverError {
     type Error = CanErrorDecodingFailure;
 
-    fn try_from(val: u8) -> Result<Self, Self::Error> {
+    fn try_from(val: u8) -> std::result::Result<Self, Self::Error> {
         use TransceiverError::*;
         Ok(match val {
             0x00 => Unspecified,

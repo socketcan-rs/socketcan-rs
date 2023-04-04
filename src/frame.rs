@@ -107,6 +107,25 @@ pub fn canfd_frame_default() -> canfd_frame {
     unsafe { mem::zeroed() }
 }
 
+// ===== AsPtr trait =====
+
+/// Trait to get a pointer to an inner type
+pub trait AsPtr {
+    /// The inner type to which we resolve as a pointer
+    type Inner;
+
+    /// Gets a const pointer to the inner type
+    fn as_ptr(&self) -> *const Self::Inner;
+
+    /// Gets a mutable pointer to the inner type
+    fn as_mut_ptr(&mut self) -> *mut Self::Inner;
+
+    /// The size of the inner type
+    fn size() -> usize {
+        std::mem::size_of::<Self::Inner>()
+    }
+}
+
 // ===== Frame trait =====
 
 /// Shared trait for CAN frames
@@ -207,10 +226,12 @@ pub enum CanFrame {
     Error(CanErrorFrame),
 }
 
-impl CanFrame {
+impl AsPtr for CanFrame {
+    type Inner = can_frame;
+
     /// Gets a pointer to the CAN frame structure that is compatible with
     /// the Linux C API.
-    pub fn as_ptr(&self) -> *const can_frame {
+    fn as_ptr(&self) -> *const Self::Inner {
         use CanFrame::*;
         match self {
             Data(frame) => frame.as_ptr(),
@@ -221,7 +242,7 @@ impl CanFrame {
 
     /// Gets a mutable pointer to the CAN frame structure that is compatible
     /// with the Linux C API.
-    pub fn as_mut_ptr(&mut self) -> *mut can_frame {
+    fn as_mut_ptr(&mut self) -> *mut Self::Inner {
         use CanFrame::*;
         match self {
             Data(frame) => frame.as_mut_ptr(),
@@ -390,16 +411,20 @@ impl CanDataFrame {
         let frame = can_frame_new(id, data, flags)?;
         Ok(Self(frame))
     }
+}
+
+impl AsPtr for CanDataFrame {
+    type Inner = can_frame;
 
     /// Gets a pointer to the CAN frame structure that is compatible with
     /// the Linux C API.
-    pub fn as_ptr(&self) -> *const can_frame {
+    fn as_ptr(&self) -> *const Self::Inner {
         &self.0
     }
 
     /// Gets a mutable pointer to the CAN frame structure that is compatible
     /// with the Linux C API.
-    pub fn as_mut_ptr(&mut self) -> *mut can_frame {
+    fn as_mut_ptr(&mut self) -> *mut Self::Inner {
         &mut self.0
     }
 }
@@ -546,16 +571,20 @@ impl CanRemoteFrame {
 
         Ok(Self(frame))
     }
+}
+
+impl AsPtr for CanRemoteFrame {
+    type Inner = can_frame;
 
     /// Gets a pointer to the CAN frame structure that is compatible with
     /// the Linux C API.
-    pub fn as_ptr(&self) -> *const can_frame {
+    fn as_ptr(&self) -> *const Self::Inner {
         &self.0
     }
 
     /// Gets a mutable pointer to the CAN frame structure that is compatible
     /// with the Linux C API.
-    pub fn as_mut_ptr(&mut self) -> *mut can_frame {
+    fn as_mut_ptr(&mut self) -> *mut Self::Inner {
         &mut self.0
     }
 }
@@ -675,26 +704,30 @@ impl AsRef<can_frame> for CanRemoteFrame {
 pub struct CanErrorFrame(can_frame);
 
 impl CanErrorFrame {
+    /// Return the error bits from the ID word of the error frame.
+    pub fn error_bits(&self) -> u32 {
+        self.id_word() & CAN_ERR_MASK
+    }
+
+    /// Converts this error frame into a `CanError`
+    pub fn into_error(self) -> CanError {
+        CanError::from(self)
+    }
+}
+
+impl AsPtr for CanErrorFrame {
+    type Inner = can_frame;
+
     /// Gets a pointer to the CAN frame structure that is compatible with
     /// the Linux C API.
-    pub fn as_ptr(&self) -> *const can_frame {
+    fn as_ptr(&self) -> *const Self::Inner {
         &self.0
     }
 
     /// Gets a mutable pointer to the CAN frame structure that is compatible
     /// with the Linux C API.
-    pub fn as_mut_ptr(&mut self) -> *mut can_frame {
+    fn as_mut_ptr(&mut self) -> *mut Self::Inner {
         &mut self.0
-    }
-
-    /// Return the error message
-    pub fn err(&self) -> u32 {
-        self.id_word() & CAN_ERR_MASK
-    }
-
-    /// Gets the frame error
-    pub fn into_error(self) -> CanError {
-        CanError::from(self)
     }
 }
 
@@ -731,9 +764,10 @@ impl EmbeddedFrame for CanErrorFrame {
         self.0.can_dlc as usize
     }
 
-    /// A slice into the actual data. Slice will always be <= 8 bytes in length
+    /// A slice into the actual data.
+    /// An error frame can always acess the full 8-byte data payload.
     fn data(&self) -> &[u8] {
-        &self.0.data[..(self.0.can_dlc as usize)]
+        &self.0.data[..]
     }
 }
 
@@ -852,22 +886,26 @@ impl CanFdFrame {
             self.0.flags &= !CANFD_ESI as u8;
         }
     }
+}
+
+impl AsPtr for CanFdFrame {
+    type Inner = canfd_frame;
 
     /// Gets a pointer to the CAN frame structure that is compatible with
     /// the Linux C API.
-    pub fn as_ptr(&self) -> *const canfd_frame {
+    fn as_ptr(&self) -> *const Self::Inner {
         &self.0
     }
 
     /// Gets a mutable pointer to the CAN frame structure that is compatible
     /// with the Linux C API.
-    pub fn as_mut_ptr(&mut self) -> *mut canfd_frame {
+    fn as_mut_ptr(&mut self) -> *mut Self::Inner {
         &mut self.0
     }
 }
 
 impl EmbeddedFrame for CanFdFrame {
-    /// Create a new frame
+    /// Create a new FD frame
     fn new(id: impl Into<Id>, data: &[u8]) -> Option<Self> {
         let id = id.into();
         let mut flags = IdFlags::empty();

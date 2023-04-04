@@ -12,7 +12,7 @@
 //! Implementation of sockets for CANbus 2.0 and FD for SocketCAN on Linux.
 
 use crate::{
-    frame::{can_frame_default, canfd_frame_default, CAN_ERR_MASK},
+    frame::{can_frame_default, canfd_frame_default, AsPtr, CAN_ERR_MASK},
     CanAnyFrame, CanFdFrame, CanFrame, CanSocketOpenError,
 };
 use libc::{
@@ -57,13 +57,10 @@ impl ShouldRetry for io::Error {
             // and EWOULDBLOCK os WouldBlock
             io::ErrorKind::WouldBlock => true,
             // however, EINPROGRESS is also valid
-            io::ErrorKind::Other => {
-                if let Some(i) = self.raw_os_error() {
-                    i == EINPROGRESS
-                } else {
-                    false
-                }
-            }
+            io::ErrorKind::Other => match self.raw_os_error() {
+                Some(errno) if errno == EINPROGRESS => true,
+                _ => false,
+            },
             _ => false,
         }
     }
@@ -143,57 +140,62 @@ fn c_timeval_new(t: time::Duration) -> timeval {
 
 /// Tries to open the CAN socket by the interface number.
 fn raw_open_socket(ifindex: c_uint) -> Result<c_int, CanSocketOpenError> {
-    let sock_fd = unsafe { libc::socket(PF_CAN, SOCK_RAW, CAN_RAW) };
+    let fd = unsafe { libc::socket(PF_CAN, SOCK_RAW, CAN_RAW) };
 
-    if sock_fd == -1 {
-        return Err(CanSocketOpenError::from(io::Error::last_os_error()));
+    if fd == -1 {
+        let err = io::Error::last_os_error();
+        return Err(CanSocketOpenError::from(err));
     }
 
     let addr = CanAddr::new(ifindex);
 
-    let bind_rv = unsafe {
+    let ret = unsafe {
         libc::bind(
-            sock_fd,
+            fd,
             addr.as_ptr() as *const sockaddr,
             mem::size_of::<CanAddr>() as u32,
         )
     };
 
-    if bind_rv == -1 {
-        let e = io::Error::last_os_error();
-        unsafe { libc::close(sock_fd) };
-        return Err(CanSocketOpenError::from(e));
+    if ret == -1 {
+        let err = io::Error::last_os_error();
+        unsafe { libc::close(fd) };
+        Err(CanSocketOpenError::from(err))
+    } else {
+        Ok(fd)
     }
-
-    Ok(sock_fd)
 }
 
-fn set_fd_mode(socket_fd: c_int, fd_mode_enable: bool) -> io::Result<c_int> {
-    let fd_mode_enable = fd_mode_enable as c_int;
+// Enable or disable FD mode on the socket, fd.
+fn set_fd_mode(fd: c_int, enable: bool) -> io::Result<c_int> {
+    let enable = enable as c_int;
+
     let rv = unsafe {
         setsockopt(
-            socket_fd,
+            fd,
             SOL_CAN_RAW,
             CAN_RAW_FD_FRAMES,
-            &fd_mode_enable as *const _ as *const c_void,
+            &enable as *const _ as *const c_void,
             mem::size_of::<c_int>() as u32,
         )
     };
 
     if rv == -1 {
-        return Err(io::Error::last_os_error());
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(fd)
     }
-    Ok(socket_fd)
 }
 
-fn raw_write_frame<T>(socket_fd: c_int, frame_ptr: *const T) -> io::Result<()> {
-    let ret = unsafe { write(socket_fd, frame_ptr as *const c_void, mem::size_of::<T>()) };
+// Write a single frame of any type to the socket, fd.
+fn raw_write_frame<T>(fd: c_int, frame_ptr: *const T, n: usize) -> io::Result<()> {
+    let ret = unsafe { write(fd, frame_ptr as *const c_void, n) };
 
-    if ret as usize != mem::size_of::<T>() {
-        return Err(io::Error::last_os_error());
+    if ret as usize == n {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
     }
-
-    Ok(())
 }
 
 /// `setsockopt` wrapper
@@ -302,11 +304,19 @@ pub trait Socket: AsRawFd {
     /// Note that this function can fail with an `EAGAIN` error or similar.
     /// Use `write_frame_insist` if you need to be sure that the message got
     /// sent or failed.
-    fn write_frame(&self, frame: &Self::FrameType) -> io::Result<()>;
+    //fn write_frame(&self, frame: &Self::FrameType) -> io::Result<()>;
+
+    /// Writes a normal CAN 2.0 frame to the socket.
+    fn write_frame<F>(&self, frame: &F) -> io::Result<()>
+    where
+        F: Into<Self::FrameType> + AsPtr;
 
     /// Blocking write a single can frame, retrying until it gets sent
     /// successfully.
-    fn write_frame_insist(&self, frame: &Self::FrameType) -> io::Result<()> {
+    fn write_frame_insist<F>(&self, frame: &F) -> io::Result<()>
+    where
+        F: Into<Self::FrameType> + AsPtr,
+    {
         loop {
             match self.write_frame(frame) {
                 Ok(v) => return Ok(v),
@@ -499,10 +509,15 @@ impl CanSocket {
 
 // ===== CanSocket =====
 
-/// A socket for a CAN 2.0 device.
+/// A socket for a classic CAN 2.0 device.
 ///
-/// Will be closed when dropped. To close manually, use std::drop::Drop.
-/// Internally this is just a wrapped file-descriptor.
+/// This provides an interface to read and write classic CAN 2.0 frames to
+/// the bus, with up to 8 bytes of data per frame. It wraps a Linux socket
+/// descriptor to a Raw SocketCAN socket.
+///
+/// The socket is automatically closed when the object is dropped. To close
+/// manually, use std::drop::Drop. Internally this is just a wrapped socket
+/// (file) descriptor.
 #[allow(missing_copy_implementations)]
 #[derive(Debug)]
 pub struct CanSocket {
@@ -519,8 +534,11 @@ impl Socket for CanSocket {
     }
 
     /// Writes a normal CAN 2.0 frame to the socket.
-    fn write_frame(&self, frame: &CanFrame) -> io::Result<()> {
-        raw_write_frame(self.fd, frame.as_ptr())
+    fn write_frame<F>(&self, frame: &F) -> io::Result<()>
+    where
+        F: Into<CanFrame> + AsPtr,
+    {
+        raw_write_frame(self.fd, frame.as_ptr(), F::size())
     }
 
     /// Reads a normal CAN 2.0 frame from the socket.
@@ -585,14 +603,21 @@ impl Socket for CanFdSocket {
             .map(|fd| Self { fd })
     }
 
-    /// Writes either type of CAN frame to the socket.
-    fn write_frame(&self, frame: &CanAnyFrame) -> io::Result<()> {
+    /// Writes any type of CAN frame to the socket.
+    fn write_frame<F>(&self, frame: &F) -> io::Result<()>
+    where
+        F: Into<Self::FrameType> + AsPtr,
+    {
+        raw_write_frame(self.fd, frame.as_ptr(), F::size())
+        /*
+        use CanAnyFrame::*;
         match frame {
-            CanAnyFrame::Normal(frame) => raw_write_frame(self.fd, frame.as_ptr()),
-            CanAnyFrame::Remote(frame) => raw_write_frame(self.fd, frame.as_ptr()),
-            CanAnyFrame::Error(frame) => raw_write_frame(self.fd, frame.as_ptr()),
-            CanAnyFrame::Fd(fd_frame) => raw_write_frame(self.fd, fd_frame.as_ptr()),
+            Normal(frame) => raw_write_frame(self.fd, frame.as_ptr())
+            Remote(frame) => raw_write_frame(self.fd, frame.as_ptr()),
+            Error(frame) => raw_write_frame(self.fd, frame.as_ptr()),
+            Fd(fd_frame) => raw_write_frame(self.fd, fd_frame.as_ptr()),
         }
+        */
     }
 
     /// Reads either type of CAN frame from the socket.

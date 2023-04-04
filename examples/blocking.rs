@@ -21,21 +21,19 @@ struct Args {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    let can_interface = args.interface;
+    let iface = args.interface;
 
-    let mut sock = CanSocket::open(&can_interface)
-        .with_context(|| format!("Failed to open socket on interface {}", can_interface))?;
+    let mut sock = CanSocket::open(&iface)
+        .with_context(|| format!("Failed to open socket on interface {}", iface))?;
 
-    let frame = sock.receive()
-        .context("Receiving frame")?;
+    let frame = sock.receive().context("Receiving frame")?;
 
-    println!("{}", frame_to_string(&frame));
+    println!("{}  {}", iface, frame_to_string(&frame));
 
-    let write_frame = CanFrame::new(StandardId::new(0x1f1).unwrap(), &[1, 2, 3, 4])
+    let frame = CanFrame::new(StandardId::new(0x1f1).unwrap(), &[1, 2, 3, 4])
         .context("Creating CAN frame")?;
 
-    sock.transmit(&write_frame)
-        .context("Transmitting frame")?;
+    sock.transmit(&frame).context("Transmitting frame")?;
 
     Ok(())
 }
@@ -47,7 +45,7 @@ fn frame_to_string<F: Frame>(f: &F) -> String {
         .iter()
         .fold(String::from(""), |a, b| format!("{} {:02x}", a, b));
 
-    format!("{:08X}  [{}] {}", id, f.dlc(), data_string)
+    format!("{:X}  [{}] {}", id, f.dlc(), data_string)
 }
 
 fn get_raw_id(id: &Id) -> u32 {

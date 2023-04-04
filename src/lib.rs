@@ -71,7 +71,9 @@
 )]
 
 pub mod errors;
-pub use errors::{CanError, CanErrorDecodingFailure, CanSocketOpenError, ConstructionError};
+pub use errors::{
+    CanError, CanErrorDecodingFailure, CanSocketOpenError, ConstructionError, Error, Result,
+};
 
 pub mod frame;
 pub use frame::{
@@ -96,72 +98,69 @@ pub use nl::CanInterface;
 
 use std::io::ErrorKind;
 
+// ===== embedded_can I/O traits =====
+
 impl embedded_can::blocking::Can for CanSocket {
     type Frame = CanFrame;
-    type Error = CanError;
+    type Error = Error;
 
-    fn receive(&mut self) -> Result<Self::Frame, Self::Error> {
+    /// Blocking call to receive the next frame from the bus.
+    ///
+    /// This block and wait for the next frame to be received from the bus.
+    /// If an error frame is received, it will be converted to a `CanError`
+    /// and returned as an error.
+    fn receive(&mut self) -> Result<Self::Frame> {
         use CanFrame::*;
         match self.read_frame() {
+            /*
             Ok(Data(frame)) => Ok(Data(frame)),
             Ok(Remote(frame)) => Ok(Remote(frame)),
-            Ok(Error(frame)) => Err(frame.into_error()),
-            Err(e) => {
-                let code = e.raw_os_error().unwrap_or(0);
-                Err(CanError::Unknown(code as u32))
-            }
+            Ok(Error(frame)) => Err(frame.into_error().into()),
+            */
+            Ok(Error(frame)) => Err(frame.into_error().into()),
+            Ok(frame) => Ok(frame),
+            Err(e) => Err(e.into()),
         }
     }
 
-    fn transmit(&mut self, frame: &Self::Frame) -> Result<(), Self::Error> {
-        match self.write_frame_insist(frame) {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                let code = e.raw_os_error().unwrap_or(0);
-                Err(CanError::Unknown(code as u32))
-            }
-        }
+    /// Blocking transmit of a frame to the bus.
+    fn transmit(&mut self, frame: &Self::Frame) -> Result<()> {
+        self.write_frame_insist(frame).map_err(|err| err.into())
     }
 }
 
 impl embedded_can::nb::Can for CanSocket {
     type Frame = CanFrame;
-    type Error = CanError;
+    type Error = Error;
 
+    /// Non-blocking call to receive the next frame from the bus.
+    ///
+    /// If an error frame is received, it will be converted to a `CanError`
+    /// and returned as an error.
+    /// If no frame is available, it returns a `WouldBlck` error.
     fn receive(&mut self) -> nb::Result<Self::Frame, Self::Error> {
         use CanFrame::*;
         match self.read_frame() {
             Ok(Data(frame)) => Ok(Data(frame)),
             Ok(Remote(frame)) => Ok(Remote(frame)),
-            Ok(Error(frame)) => {
-                let can_error = frame.into_error();
-                Err(nb::Error::Other(can_error))
-            }
-            Err(e) => {
-                let e = match e.kind() {
-                    ErrorKind::WouldBlock => nb::Error::WouldBlock,
-                    _ => {
-                        let code = e.raw_os_error().unwrap_or(0);
-                        nb::Error::Other(CanError::Unknown(code as u32))
-                    }
-                };
-                Err(e)
-            }
+            Ok(Error(frame)) => Err(crate::Error::from(frame.into_error()).into()),
+            Err(err) => Err(match err.kind() {
+                ErrorKind::WouldBlock => nb::Error::WouldBlock,
+                _ => crate::Error::from(err).into(),
+            }),
         }
     }
 
+    /// Non-blocking transmit of a frame to the bus.
     fn transmit(&mut self, frame: &Self::Frame) -> nb::Result<Option<Self::Frame>, Self::Error> {
         match self.write_frame(frame) {
             Ok(_) => Ok(None),
-            Err(e) => {
-                match e.kind() {
+            Err(err) => {
+                match err.kind() {
                     ErrorKind::WouldBlock => Err(nb::Error::WouldBlock),
                     // TODO: How to indicate buffer is full?
                     // ErrorKind::StorageFull => Ok(frame),
-                    _ => {
-                        let code = e.raw_os_error().unwrap_or(0);
-                        Err(nb::Error::Other(CanError::Unknown(code as u32)))
-                    }
+                    _ => Err(crate::Error::from(err).into()),
                 }
             }
         }
