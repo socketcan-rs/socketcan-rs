@@ -13,7 +13,7 @@
 
 use crate::{
     frame::{can_frame_default, canfd_frame_default, AsPtr, CAN_ERR_MASK},
-    CanAnyFrame, CanFdFrame, CanFrame, CanSocketOpenError,
+    CanAnyFrame, CanFdFrame, CanFrame,
 };
 use libc::{
     can_frame, canid_t, fcntl, read, sa_family_t, setsockopt, sockaddr, sockaddr_can, socklen_t,
@@ -138,12 +138,11 @@ fn c_timeval_new(t: time::Duration) -> timeval {
 }
 
 /// Tries to open the CAN socket by the interface number.
-fn raw_open_socket(ifindex: c_uint) -> Result<c_int, CanSocketOpenError> {
+fn raw_open_socket(ifindex: c_uint) -> io::Result<c_int> {
     let fd = unsafe { libc::socket(PF_CAN, SOCK_RAW, CAN_RAW) };
 
     if fd == -1 {
-        let err = io::Error::last_os_error();
-        return Err(CanSocketOpenError::from(err));
+        return Err(io::Error::last_os_error());
     }
 
     let addr = CanAddr::new(ifindex);
@@ -159,7 +158,7 @@ fn raw_open_socket(ifindex: c_uint) -> Result<c_int, CanSocketOpenError> {
     if ret == -1 {
         let err = io::Error::last_os_error();
         unsafe { libc::close(fd) };
-        Err(CanSocketOpenError::from(err))
+        Err(err)
     } else {
         Ok(fd)
     }
@@ -169,7 +168,7 @@ fn raw_open_socket(ifindex: c_uint) -> Result<c_int, CanSocketOpenError> {
 fn set_fd_mode(fd: c_int, enable: bool) -> io::Result<c_int> {
     let enable = enable as c_int;
 
-    let rv = unsafe {
+    let ret = unsafe {
         setsockopt(
             fd,
             SOL_CAN_RAW,
@@ -179,7 +178,7 @@ fn set_fd_mode(fd: c_int, enable: bool) -> io::Result<c_int> {
         )
     };
 
-    if rv == -1 {
+    if ret == -1 {
         Err(io::Error::last_os_error())
     } else {
         Ok(fd)
@@ -217,7 +216,7 @@ fn raw_write_frame<T>(fd: c_int, frame_ptr: *const T, n: usize) -> io::Result<()
 /// of `i32`.
 #[inline]
 pub fn set_socket_option<T>(fd: c_int, level: c_int, name: c_int, val: &T) -> io::Result<()> {
-    let rv = unsafe {
+    let ret = unsafe {
         setsockopt(
             fd,
             level,
@@ -227,7 +226,7 @@ pub fn set_socket_option<T>(fd: c_int, level: c_int, name: c_int, val: &T) -> io
         )
     };
 
-    if rv != 0 {
+    if ret != 0 {
         return Err(io::Error::last_os_error());
     }
 
@@ -241,7 +240,7 @@ pub fn set_socket_option_mult<T>(
     name: c_int,
     values: &[T],
 ) -> io::Result<()> {
-    let rv = if values.is_empty() {
+    let ret = if values.is_empty() {
         // can't pass in a ptr to a 0-len slice, pass a null ptr instead
         unsafe { setsockopt(fd, level, name, ptr::null(), 0) }
     } else {
@@ -256,7 +255,7 @@ pub fn set_socket_option_mult<T>(
         }
     };
 
-    if rv != 0 {
+    if ret != 0 {
         return Err(io::Error::last_os_error());
     }
 
@@ -280,7 +279,7 @@ pub trait Socket: AsRawFd {
     ///
     /// Usually the more common case, opens a socket can device by name, such
     /// as "can0", "vcan0", or "socan0".
-    fn open(ifname: &str) -> Result<Self, CanSocketOpenError>
+    fn open(ifname: &str) -> io::Result<Self>
     where
         Self: Sized,
     {
@@ -291,7 +290,7 @@ pub trait Socket: AsRawFd {
     /// Open CAN device by interface number.
     ///
     /// Opens a CAN device by kernel interface number.
-    fn open_iface(if_index: c_uint) -> Result<Self, CanSocketOpenError>
+    fn open_iface(if_index: c_uint) -> io::Result<Self>
     where
         Self: Sized;
 
@@ -343,9 +342,9 @@ pub trait Socket: AsRawFd {
             oldfl & !O_NONBLOCK
         };
 
-        let rv = unsafe { fcntl(self.as_raw_fd(), F_SETFL, newfl) };
+        let ret = unsafe { fcntl(self.as_raw_fd(), F_SETFL, newfl) };
 
-        if rv != 0 {
+        if ret != 0 {
             return Err(io::Error::last_os_error());
         }
         Ok(())
@@ -492,11 +491,11 @@ impl CanSocket {
         let frame = self.read_frame()?;
 
         let mut ts = timespec { tv_sec: 0, tv_nsec: 0 };
-        let rval = unsafe {
+        let ret = unsafe {
             libc::ioctl(self.fd, SIOCGSTAMPNS as c_ulong, &mut ts as *mut timespec)
         };
 
-        if rval == -1 {
+        if ret == -1 {
             return Err(io::Error::last_os_error());
         }
 
@@ -528,7 +527,7 @@ impl Socket for CanSocket {
     type FrameType = CanFrame;
 
     /// Opens the socket by interface index.
-    fn open_iface(if_index: c_uint) -> Result<Self, CanSocketOpenError> {
+    fn open_iface(if_index: c_uint) -> io::Result<Self> {
         raw_open_socket(if_index).map(|fd| Self { fd })
     }
 
@@ -596,9 +595,9 @@ impl Socket for CanFdSocket {
     type FrameType = CanAnyFrame;
 
     /// Opens the FD socket by interface index.
-    fn open_iface(if_index: c_uint) -> Result<Self, CanSocketOpenError> {
+    fn open_iface(if_index: c_uint) -> io::Result<Self> {
         raw_open_socket(if_index)
-            .and_then(|fd| set_fd_mode(fd, true).map_err(CanSocketOpenError::IOError))
+            .and_then(|fd| set_fd_mode(fd, true))
             .map(|fd| Self { fd })
     }
 
@@ -608,15 +607,6 @@ impl Socket for CanFdSocket {
         F: Into<Self::FrameType> + AsPtr,
     {
         raw_write_frame(self.fd, frame.as_ptr(), F::size())
-        /*
-        use CanAnyFrame::*;
-        match frame {
-            Normal(frame) => raw_write_frame(self.fd, frame.as_ptr())
-            Remote(frame) => raw_write_frame(self.fd, frame.as_ptr()),
-            Error(frame) => raw_write_frame(self.fd, frame.as_ptr()),
-            Fd(fd_frame) => raw_write_frame(self.fd, fd_frame.as_ptr()),
-        }
-        */
     }
 
     /// Reads either type of CAN frame from the socket.

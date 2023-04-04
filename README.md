@@ -10,14 +10,19 @@ Please see the [documentation](https://docs.rs/socketcan) for details about the 
 
 ## Latest News
 
-After a period of some stagnation, this library is currently being upated for a v2.0 release to add the following features:
+The final set of features have been implemented for a v2.0 release!
+
+Now some final test and cleanup, and the version will be published to crates.io. Please report any issues ASAP.
+
+The v2.0 release is a fairly large rewrite of the library and adds the following features:
 
 - CAN Flexible Data Rate (FD) support
 - Proper handling of Extended CAN ID's
 - Integration with the Rust Embedded HAL APIs for CAN
-- Control of the CAN network interfaces via netlink with the [neli](https://crates.io/crates/neli) crate.
+- Some control of the CAN network interfaces via netlink with the [neli](https://crates.io/crates/neli) crate.
 - Tighter integration with [libc](https://crates.io/crates/libc) and [nix](https://crates.io/crates/nix) crates, including upstream
-- Updated documentation and dependencies
+- Update to Rust Edition 2021, with updates to the dependencies.
+- Standard errors conforming to `std::error::Error`
+- Updated documentation
 
-Note that the `master` branch will be in heavy flux over the next few weeks and should be assumed to be highly unstable.
-
+The `master` branch is currently a release candidate.

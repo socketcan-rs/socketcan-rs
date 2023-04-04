@@ -50,6 +50,9 @@
 //!   based on netlink kernel communications. This brings in the
 //!   [neli](https://docs.rs/neli/latest/neli/) library and its dependencies.
 //!
+//! * **dump** -
+//!   Whether to include candump parsing capabilities.
+//!
 //! ### Non-default
 //!
 //! * **utils** -
@@ -71,9 +74,7 @@
 )]
 
 pub mod errors;
-pub use errors::{
-    CanError, CanErrorDecodingFailure, CanSocketOpenError, ConstructionError, Error, Result,
-};
+pub use errors::{CanError, CanErrorDecodingFailure, ConstructionError, Error, Result};
 
 pub mod frame;
 pub use frame::{

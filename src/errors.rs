@@ -46,22 +46,15 @@ use thiserror::Error;
 
 /// Composite SocketCAN error.
 ///
-/// This can be any of the underlying errors from this library.
+/// This can be any of the underlying errors from this library. The two main
+/// error sources are either CAN errors coming in through received error
+/// frames or from typical system I/O errors.
 #[derive(Error, Debug)]
 pub enum Error {
     /// A CANbus error, usually from an error frmae
     #[error(transparent)]
     Can(#[from] CanError),
-    /// A problem with the CAN controller
-    #[error(transparent)]
-    Controller(#[from] ControllerProblem),
-    /// An error opening the CAN socket
-    #[error(transparent)]
-    SocketOpen(#[from] CanSocketOpenError),
-    /// A lower-level error from the nix library
-    #[error(transparent)]
-    Nix(#[from] nix::Error),
-    /// A low-level I/O error
+    /// An I/O Error
     #[error(transparent)]
     Io(#[from] io::Error),
 }
@@ -94,7 +87,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// word of an error frame - a frame in which the CAN error flag
 /// (`CAN_ERR_FLAG`) is set. But there are additional types to handle any
 /// problems decoding the error frame.
-#[derive(Copy, Clone, Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum CanError {
     /// TX timeout (by netdevice driver)
     TransmitTimeout,
@@ -203,24 +196,25 @@ impl From<CanErrorFrame> for CanError {
 /// Error status of the CAN conroller.
 ///
 /// This is derived from `data[1]` of an error frame
-#[derive(Copy, Clone, Debug)]
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
+#[repr(u8)]
 pub enum ControllerProblem {
     /// unspecified
-    Unspecified,
+    Unspecified = 0x00,
     /// RX buffer overflow
-    ReceiveBufferOverflow,
+    ReceiveBufferOverflow = 0x01,
     /// TX buffer overflow
-    TransmitBufferOverflow,
+    TransmitBufferOverflow = 0x02,
     /// reached warning level for RX errors
-    ReceiveErrorWarning,
+    ReceiveErrorWarning = 0x04,
     /// reached warning level for TX errors
-    TransmitErrorWarning,
+    TransmitErrorWarning = 0x08,
     /// reached error passive status RX
-    ReceiveErrorPassive,
+    ReceiveErrorPassive = 0x10,
     /// reached error passive status TX
-    TransmitErrorPassive,
+    TransmitErrorPassive = 0x20,
     /// recovered to error active state
-    Active,
+    Active = 0x40,
 }
 
 impl error::Error for ControllerProblem {}
@@ -334,49 +328,50 @@ impl TryFrom<u8> for ViolationType {
 /// This describes the position inside a received frame (as in the field
 /// or bit) at which an error occured.
 ///
-/// This is derived from `data[1]` of an error frame.
-#[derive(Copy, Clone, Debug)]
+/// This is derived from `data[3]` of an error frame.
+#[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
+#[repr(u8)]
 pub enum Location {
     /// Unspecified
-    Unspecified,
+    Unspecified = 0x00,
     /// Start of frame.
-    StartOfFrame,
+    StartOfFrame = 0x03,
     /// ID bits 28-21 (SFF: 10-3)
-    Id2821,
+    Id2821 = 0x02,
     /// ID bits 20-18 (SFF: 2-0)
-    Id2018,
+    Id2018 = 0x06,
     /// substitute RTR (SFF: RTR)
-    SubstituteRtr,
+    SubstituteRtr = 0x04,
     /// extension of identifier
-    IdentifierExtension,
+    IdentifierExtension = 0x05,
     /// ID bits 17-13
-    Id1713,
+    Id1713 = 0x07,
     /// ID bits 12-5
-    Id1205,
+    Id1205 = 0x0F,
     /// ID bits 4-0
-    Id0400,
+    Id0400 = 0x0E,
     /// RTR bit
-    Rtr,
+    Rtr = 0x0C,
     /// Reserved bit 1
-    Reserved1,
+    Reserved1 = 0x0D,
     /// Reserved bit 0
-    Reserved0,
+    Reserved0 = 0x09,
     /// Data length
-    DataLengthCode,
+    DataLengthCode = 0x0B,
     /// Data section
-    DataSection,
+    DataSection = 0x0A,
     /// CRC sequence
-    CrcSequence,
+    CrcSequence = 0x008,
     /// CRC delimiter
-    CrcDelimiter,
+    CrcDelimiter = 0x18,
     /// ACK slot
-    AckSlot,
+    AckSlot = 0x19,
     /// ACK delimiter
-    AckDelimiter,
+    AckDelimiter = 0x1B,
     /// End-of-frame
-    EndOfFrame,
+    EndOfFrame = 0x1A,
     /// Intermission (between frames)
-    Intermission,
+    Intermission = 0x12,
 }
 
 impl fmt::Display for Location {
@@ -443,28 +438,29 @@ impl TryFrom<u8> for Location {
 /// The error status of the CAN transceiver.
 ///
 /// This is derived from `data[4]` of an error frame.
-#[derive(Copy, Clone, Debug)]
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
+#[repr(u8)]
 pub enum TransceiverError {
     /// Unsecified
-    Unspecified,
+    Unspecified = 0x00,
     /// CAN High, no wire
-    CanHighNoWire,
+    CanHighNoWire = 0x04,
     /// CAN High, short to BAT
-    CanHighShortToBat,
+    CanHighShortToBat = 0x05,
     /// CAN High, short to VCC
-    CanHighShortToVcc,
+    CanHighShortToVcc = 0x06,
     /// CAN High, short to GND
-    CanHighShortToGnd,
+    CanHighShortToGnd = 0x07,
     /// CAN Low, no wire
-    CanLowNoWire,
+    CanLowNoWire = 0x40,
     /// CAN Low, short to BAT
-    CanLowShortToBat,
+    CanLowShortToBat = 0x50,
     /// CAN Low, short to VCC
-    CanLowShortToVcc,
+    CanLowShortToVcc = 0x60,
     /// CAN Low, short to GND
-    CanLowShortToGnd,
+    CanLowShortToGnd = 0x70,
     /// CAN Low short to  CAN High
-    CanLowShortToCanHigh,
+    CanLowShortToCanHigh = 0x80,
 }
 
 impl TryFrom<u8> for TransceiverError {
@@ -510,7 +506,7 @@ impl<T: Frame> ControllerSpecificErrorInformation for T {
 // ===== CanErrorDecodingFailure =====
 
 /// Error decoding a CanError from a CanErrorFrame.
-#[derive(Copy, Clone, Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum CanErrorDecodingFailure {
     /// The supplied CANFrame did not have the error bit set.
     NotAnError,
@@ -549,45 +545,9 @@ impl fmt::Display for CanErrorDecodingFailure {
     }
 }
 
-// ===== CanSocketOpenError =====
-
-#[derive(Debug)]
-/// Errors opening socket
-pub enum CanSocketOpenError {
-    /// Device could not be found
-    LookupError(nix::Error),
-
-    /// System error while trying to look up device name
-    IOError(io::Error),
-}
-
-impl error::Error for CanSocketOpenError {}
-
-impl fmt::Display for CanSocketOpenError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use CanSocketOpenError::*;
-        match *self {
-            LookupError(ref e) => write!(f, "CAN Device not found: {}", e),
-            IOError(ref e) => write!(f, "IO: {}", e),
-        }
-    }
-}
-
-impl From<nix::Error> for CanSocketOpenError {
-    fn from(e: nix::Error) -> Self {
-        Self::LookupError(e)
-    }
-}
-
-impl From<io::Error> for CanSocketOpenError {
-    fn from(e: io::Error) -> Self {
-        Self::IOError(e)
-    }
-}
-
 // ===== ConstructionError =====
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
 /// Error that occurs when creating CAN packets
 pub enum ConstructionError {
     /// Trying to create a specific frame type from an incompatible type
@@ -603,10 +563,11 @@ impl error::Error for ConstructionError {}
 impl fmt::Display for ConstructionError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use ConstructionError::*;
-        match *self {
-            WrongFrameType => write!(f, "Incompatible frame type"),
-            IDTooLarge => write!(f, "CAN ID too large"),
-            TooMuchData => write!(f, "Payload is too large"),
-        }
+        let msg = match *self {
+            WrongFrameType => "Incompatible frame type",
+            IDTooLarge => "CAN ID too large",
+            TooMuchData => "Payload is too large",
+        };
+        write!(f, "{}", msg)
     }
 }
