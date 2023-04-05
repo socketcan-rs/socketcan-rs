@@ -83,7 +83,7 @@ pub use frame::{
 
 /// Re-export the embedded_can crate so that applications can rely on
 /// finding the same version we use.
-pub use embedded_can::{self, Frame as EmbeddedFrame};
+pub use embedded_can::{self, Frame as EmbeddedFrame, Id, StandardId, ExtendedId};
 
 #[cfg(feature = "dump")]
 pub mod dump;

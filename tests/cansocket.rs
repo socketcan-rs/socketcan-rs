@@ -11,6 +11,7 @@
 
 #[cfg(feature = "vcan_tests")]
 use socketcan::{
+    EmbeddedFrame, StandardId,
     frame::{IdFlags, ERR_MASK_ALL, ERR_MASK_NONE},
     CanFrame, ShouldRetry,
 };
@@ -33,7 +34,7 @@ fn test_nonexistant_device() {
 fn vcan_timeout() {
     let sock = CanSocket::open(VCAN).unwrap();
     // Filter out _any_ traffic
-    sock.filter_drop_all().unwrap();
+    sock.set_filter_drop_all().unwrap();
     sock.set_read_timeout(time::Duration::from_millis(100))
         .unwrap();
 
@@ -55,7 +56,8 @@ fn vcan_enable_own_loopback() {
     sock.set_loopback(true).unwrap();
     sock.set_recv_own_msgs(true).unwrap();
 
-    let frame = CanFrame::init(0x123, &[], IdFlags::RTR).unwrap();
+    let id = StandardId::new(0x123).unwrap();
+    let frame = CanFrame::new_remote(id, 0).unwrap();
 
     sock.write_frame(&frame).unwrap();
     sock.read_frame().unwrap();
@@ -72,7 +74,7 @@ fn vcan_enable_own_loopback() {
 fn vcan_test_nonblocking() {
     let sock = CanSocket::open(VCAN).unwrap();
     // Filter out _any_ traffic
-    sock.filter_drop_all().unwrap();
+    sock.set_filter_drop_all().unwrap();
     sock.set_nonblocking(true).unwrap();
 
     // no timeout set, but should return immediately
