@@ -113,11 +113,6 @@ impl embedded_can::blocking::Can for CanSocket {
     fn receive(&mut self) -> Result<Self::Frame> {
         use CanFrame::*;
         match self.read_frame() {
-            /*
-            Ok(Data(frame)) => Ok(Data(frame)),
-            Ok(Remote(frame)) => Ok(Remote(frame)),
-            Ok(Error(frame)) => Err(frame.into_error().into()),
-            */
             Ok(Error(frame)) => Err(frame.into_error().into()),
             Ok(frame) => Ok(frame),
             Err(e) => Err(e.into()),

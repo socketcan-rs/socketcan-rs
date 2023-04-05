@@ -86,6 +86,7 @@ pub fn can_frame_default() -> can_frame {
 }
 
 /// Creates a default C `can_frame`.
+/// This initializes the entire structure to zeros.
 #[inline(always)]
 pub fn canfd_frame_default() -> canfd_frame {
     unsafe { mem::zeroed() }
@@ -120,7 +121,6 @@ pub trait Frame: EmbeddedFrame {
 
     /// Return the actual raw CAN ID (without EFF/RTR/ERR flags)
     fn raw_id(&self) -> canid_t {
-        // TODO: This probably isn't necessary. Just use EFF_MASK?
         let mask = if self.is_extended() {
             CAN_EFF_MASK
         } else {
@@ -137,9 +137,9 @@ pub trait Frame: EmbeddedFrame {
     /// Return the CAN ID as the embedded HAL Id type.
     fn hal_id(&self) -> Id {
         if self.is_extended() {
-            Id::Extended(ExtendedId::new(self.id_word() & CAN_EFF_MASK).unwrap())
+            ExtendedId::new(self.id_word() & CAN_EFF_MASK).unwrap().into()
         } else {
-            Id::Standard(StandardId::new((self.id_word() & CAN_SFF_MASK) as u16).unwrap())
+            StandardId::new((self.id_word() & CAN_SFF_MASK) as u16).unwrap().into()
         }
     }
 
@@ -152,6 +152,12 @@ pub trait Frame: EmbeddedFrame {
     fn is_error_frame(&self) -> bool {
         self.id_flags().contains(IdFlags::ERR)
     }
+
+    /// Sets the CAN ID for the frame
+    fn set_id(&mut self, id: impl Into<Id>);
+
+    /// Sets the data payload of the frame.
+    fn set_data(&mut self, data: &[u8]) -> Result<(), ConstructionError>;
 }
 
 // ===== CanAnyFrame =====
@@ -303,6 +309,26 @@ impl Frame for CanFrame {
             Error(frame) => frame.id_word(),
         }
     }
+
+    /// Sets the CAN ID for the frame
+    fn set_id(&mut self, id: impl Into<Id>) {
+        use CanFrame::*;
+        match self {
+            Data(frame) => frame.set_id(id),
+            Remote(frame) => frame.set_id(id),
+            Error(frame) => frame.set_id(id),
+        }
+    }
+
+    /// Sets the data payload of the frame.
+    fn set_data(&mut self, data: &[u8]) -> Result<(), ConstructionError> {
+        use CanFrame::*;
+        match self {
+            Data(frame) => frame.set_data(data),
+            Remote(frame) => frame.set_data(data),
+            Error(frame) => frame.set_data(data),
+        }
+    }
 }
 
 impl Default for CanFrame {
@@ -391,18 +417,20 @@ pub struct CanDataFrame(can_frame);
 
 impl CanDataFrame {
     /// Initializes a CAN frame from raw parts.
-    pub fn init(id: u32, data: &[u8], flags: IdFlags) -> Result<Self, ConstructionError> {
-        let n = data.len();
+    pub fn init(id: u32, data: &[u8], mut flags: IdFlags) -> Result<Self, ConstructionError> {
+        match data.len() {
+            n if n <= CAN_MAX_DLEN => {
+                // TODO: Should this be a 'Wrong Frame Type' error?
+                flags.remove(IdFlags::RTR | IdFlags::ERR);
 
-        if n > CAN_MAX_DLEN {
-            return Err(ConstructionError::TooMuchData);
+                let mut frame = can_frame_default();
+                frame.can_id = init_id_word(id, flags)?;
+                frame.can_dlc = n as u8;
+                frame.data[..n].copy_from_slice(data);
+                Ok(Self(frame))
+            }
+            _ => Err(ConstructionError::TooMuchData)
         }
-
-        let mut frame = can_frame_default();
-        frame.can_id = init_id_word(id, flags)?;
-        frame.can_dlc = n as u8;
-        frame.data[..n].copy_from_slice(data);
-        Ok(Self(frame))
     }
 }
 
@@ -468,6 +496,27 @@ impl Frame for CanDataFrame {
     /// Get the composite SocketCAN ID word, with EFF/RTR/ERR flags
     fn id_word(&self) -> u32 {
         self.0.can_id
+    }
+
+    /// Sets the CAN ID for the frame
+    fn set_id(&mut self, id: impl Into<Id>) {
+        let id = id.into();
+        let mut flags = IdFlags::empty();
+        flags.set(IdFlags::EFF, id_is_extended(&id));
+
+        self.0.can_id = id_to_raw(id) | flags.bits();
+    }
+
+    /// Sets the data payload of the frame.
+    fn set_data(&mut self, data: &[u8]) -> Result<(), ConstructionError> {
+        match data.len() {
+            n if n <= CAN_MAX_DLEN => {
+                self.0.can_dlc = n as u8;
+                self.0.data[..n].copy_from_slice(data);
+                Ok(())
+            }
+            _ => Err(ConstructionError::TooMuchData)
+        }
     }
 }
 
@@ -541,6 +590,19 @@ impl AsRef<can_frame> for CanDataFrame {
 #[derive(Clone, Copy)]
 pub struct CanRemoteFrame(can_frame);
 
+impl CanRemoteFrame {
+    /// Sets the data length code for the frame
+    pub fn set_dlc(&mut self, dlc: usize) -> Result<(), ConstructionError> {
+        if dlc <= CAN_MAX_DLEN {
+            self.0.can_dlc = dlc as u8;
+            Ok(())
+        }
+        else {
+            Err(ConstructionError::TooMuchData)
+        }
+    }
+}
+
 impl AsPtr for CanRemoteFrame {
     type Inner = can_frame;
 
@@ -610,6 +672,22 @@ impl Frame for CanRemoteFrame {
     /// Get the composite SocketCAN ID word, with EFF/RTR/ERR flags
     fn id_word(&self) -> u32 {
         self.0.can_id
+    }
+
+    /// Sets the CAN ID for the frame
+    fn set_id(&mut self, id: impl Into<Id>) {
+        let id = id.into();
+        let mut flags = IdFlags::RTR;
+        flags.set(IdFlags::EFF, id_is_extended(&id));
+
+        self.0.can_id = id_to_raw(id) | flags.bits();
+    }
+
+    /// Sets the data payload of the frame.
+    /// For the Remote frame, this just updates the DLC to the length of the
+    /// data slice.
+    fn set_data(&mut self, data: &[u8]) -> Result<(), ConstructionError> {
+        self.set_dlc(data.len())
     }
 }
 
@@ -746,6 +824,16 @@ impl Frame for CanErrorFrame {
     fn id_word(&self) -> u32 {
         self.0.can_id
     }
+
+    /// Sets the CAN ID for the frame
+    /// This does nothing on an error frame.
+    fn set_id(&mut self, _id: impl Into<Id>) {}
+
+    /// Sets the data payload of the frame.
+    /// This is an error on an error frame.
+    fn set_data(&mut self, _data: &[u8]) -> Result<(), ConstructionError> {
+        Err(ConstructionError::WrongFrameType)
+    }
 }
 
 impl fmt::Debug for CanErrorFrame {
@@ -802,21 +890,21 @@ impl CanFdFrame {
         mut flags: IdFlags,
         fd_flags: FdFlags,
     ) -> Result<Self, ConstructionError> {
-        let n = data.len();
+        match data.len() {
+            n if n > CANFD_MAX_DLEN => {
+                // TODO: Should this be a 'Wrong Frame Type' error?
+                flags.remove(IdFlags::RTR | IdFlags::ERR);
 
-        if n > CANFD_MAX_DLEN {
-            return Err(ConstructionError::TooMuchData);
+                let mut frame = canfd_frame_default();
+                frame.can_id = init_id_word(id, flags)?;
+                frame.len = n as u8;
+                frame.flags = fd_flags.bits();
+                frame.data[..n].copy_from_slice(data);
+                Ok(Self(frame))
+            }
+            _ => Err(ConstructionError::TooMuchData)
         }
 
-        flags.remove(IdFlags::RTR);
-
-        let mut frame = canfd_frame_default();
-        frame.can_id = init_id_word(id, flags)?;
-        frame.len = n as u8;
-        frame.flags = fd_flags.bits();
-        frame.data[..n].copy_from_slice(data);
-
-        Ok(Self(frame))
     }
 
     /// Gets the flags for the FD frame.
@@ -921,6 +1009,27 @@ impl Frame for CanFdFrame {
     /// Get the composite SocketCAN ID word, with EFF/RTR/ERR flags
     fn id_word(&self) -> u32 {
         self.0.can_id
+    }
+
+    /// Sets the CAN ID for the frame
+    fn set_id(&mut self, id: impl Into<Id>) {
+        let id = id.into();
+        let mut flags = IdFlags::empty();
+        flags.set(IdFlags::EFF, id_is_extended(&id));
+
+        self.0.can_id = id_to_raw(id) | flags.bits();
+    }
+
+    /// Sets the data payload of the frame.
+    fn set_data(&mut self, data: &[u8]) -> Result<(), ConstructionError> {
+        match data.len() {
+            n if n <= CANFD_MAX_DLEN => {
+                self.0.len = n as u8;
+                self.0.data[..n].copy_from_slice(data);
+                Ok(())
+            }
+            _ => Err(ConstructionError::TooMuchData)
+        }
     }
 }
 
