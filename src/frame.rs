@@ -137,9 +137,13 @@ pub trait Frame: EmbeddedFrame {
     /// Return the CAN ID as the embedded HAL Id type.
     fn hal_id(&self) -> Id {
         if self.is_extended() {
-            ExtendedId::new(self.id_word() & CAN_EFF_MASK).unwrap().into()
+            ExtendedId::new(self.id_word() & CAN_EFF_MASK)
+                .unwrap()
+                .into()
         } else {
-            StandardId::new((self.id_word() & CAN_SFF_MASK) as u16).unwrap().into()
+            StandardId::new((self.id_word() & CAN_SFF_MASK) as u16)
+                .unwrap()
+                .into()
         }
     }
 
@@ -429,7 +433,7 @@ impl CanDataFrame {
                 frame.data[..n].copy_from_slice(data);
                 Ok(Self(frame))
             }
-            _ => Err(ConstructionError::TooMuchData)
+            _ => Err(ConstructionError::TooMuchData),
         }
     }
 }
@@ -515,7 +519,7 @@ impl Frame for CanDataFrame {
                 self.0.data[..n].copy_from_slice(data);
                 Ok(())
             }
-            _ => Err(ConstructionError::TooMuchData)
+            _ => Err(ConstructionError::TooMuchData),
         }
     }
 }
@@ -596,8 +600,7 @@ impl CanRemoteFrame {
         if dlc <= CAN_MAX_DLEN {
             self.0.can_dlc = dlc as u8;
             Ok(())
-        }
-        else {
+        } else {
             Err(ConstructionError::TooMuchData)
         }
     }
@@ -891,7 +894,7 @@ impl CanFdFrame {
         fd_flags: FdFlags,
     ) -> Result<Self, ConstructionError> {
         match data.len() {
-            n if n > CANFD_MAX_DLEN => {
+            n if n <= CANFD_MAX_DLEN => {
                 // TODO: Should this be a 'Wrong Frame Type' error?
                 flags.remove(IdFlags::RTR | IdFlags::ERR);
 
@@ -902,9 +905,8 @@ impl CanFdFrame {
                 frame.data[..n].copy_from_slice(data);
                 Ok(Self(frame))
             }
-            _ => Err(ConstructionError::TooMuchData)
+            _ => Err(ConstructionError::TooMuchData),
         }
-
     }
 
     /// Gets the flags for the FD frame.
@@ -1028,7 +1030,7 @@ impl Frame for CanFdFrame {
                 self.0.data[..n].copy_from_slice(data);
                 Ok(())
             }
-            _ => Err(ConstructionError::TooMuchData)
+            _ => Err(ConstructionError::TooMuchData),
         }
     }
 }
