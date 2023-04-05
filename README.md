@@ -17,12 +17,16 @@ Now some final test and cleanup, and the version will be published to crates.io.
 The v2.0 release is a fairly large rewrite of the library and adds the following features:
 
 - CAN Flexible Data Rate (FD) support
-- Proper handling of Extended CAN ID's
+- Proper handling of Extended CAN IDs
 - Integration with the Rust Embedded HAL APIs for CAN
 - Some control of the CAN network interfaces via netlink with the [neli](https://crates.io/crates/neli) crate.
 - Tighter integration with [libc](https://crates.io/crates/libc) and [nix](https://crates.io/crates/nix) crates, including upstream
 - Update to Rust Edition 2021, with updates to the dependencies.
-- Standard errors conforming to `std::error::Error`
+- Update error types conforming to `std::error::Error`
+- Distinct separate frame types:
+    - `CanDataFrame`, `CanRemoteFrame`, `CanErrorFrame`, and `CanFdFrame`
+    - Enum wrapper types `CanFrame` for the classic 2.0 frames and `CanAnyFrame` for any type of frame including the larger FD frames
 - Updated documentation
+- Targeting Rust Edition 2021 w/ MSRV 1.64.0
 
 The `master` branch is currently a release candidate.
