@@ -28,6 +28,7 @@ use crate::{
     CanDataFrame, CanFdFrame,
 };
 use hex::FromHex;
+use libc::canid_t;
 use std::{fs, io, path};
 
 // cannot be generic, because from_str_radix is not part of any Trait
@@ -192,18 +193,16 @@ impl<R: io::BufRead> Reader<R> {
         };
         let frame: super::CanAnyFrame = if is_fd_frame {
             CanFdFrame::init(
-                parse_raw(can_id, 16).ok_or(ParseError::InvalidCanFrame)? as u32,
+                parse_raw(can_id, 16).ok_or(ParseError::InvalidCanFrame)? as canid_t | flags.bits(),
                 &data,
-                flags,
                 fd_flags,
             )
             .map(super::CanAnyFrame::Fd)
         } else {
             // TODO: Check for other frame types?
             CanDataFrame::init(
-                parse_raw(can_id, 16).ok_or(ParseError::InvalidCanFrame)? as u32,
+                parse_raw(can_id, 16).ok_or(ParseError::InvalidCanFrame)? as canid_t | flags.bits(),
                 &data,
-                flags,
             )
             .map(super::CanFrame::Data)
             .map(|f| f.into())
