@@ -27,7 +27,8 @@ use std::{
         raw::{c_int, c_uint, c_void},
         unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd},
     },
-    ptr, time,
+    ptr,
+    time::Duration,
 };
 
 pub use libc::{
@@ -130,7 +131,7 @@ impl AsRef<sockaddr_can> for CanAddr {
 
 // ===== Private local helper functions =====
 
-fn c_timeval_new(t: time::Duration) -> timeval {
+fn c_timeval_new(t: Duration) -> timeval {
     timeval {
         tv_sec: t.as_secs() as time_t,
         tv_usec: t.subsec_micros() as suseconds_t,
@@ -297,6 +298,17 @@ pub trait Socket: AsRawFd {
     /// Blocking read a single can frame.
     fn read_frame(&self) -> io::Result<Self::FrameType>;
 
+    /// Blocking read a single can frame with timeout.
+    fn read_frame_timeout(&self, timeout: Duration) -> io::Result<Self::FrameType> {
+        use nix::poll::{poll, PollFd, PollFlags};
+        let pollfd = PollFd::new(self.as_raw_fd(), PollFlags::POLLIN);
+
+        match poll(&mut [pollfd], timeout.as_millis() as c_int)? {
+            0 => Err(io::ErrorKind::TimedOut.into()),
+            _ => self.read_frame(),
+        }
+    }
+
     /// Write a single can frame.
     ///
     /// Note that this function can fail with an `EAGAIN` error or similar.
@@ -354,7 +366,7 @@ pub trait Socket: AsRawFd {
     ///
     /// For convenience, the result value can be checked using
     /// `ShouldRetry::should_retry` when a timeout is set.
-    fn set_read_timeout(&self, duration: time::Duration) -> io::Result<()> {
+    fn set_read_timeout(&self, duration: Duration) -> io::Result<()> {
         set_socket_option(
             self.as_raw_fd(),
             SOL_SOCKET,
@@ -364,7 +376,7 @@ pub trait Socket: AsRawFd {
     }
 
     /// Sets the write timeout on the socket
-    fn set_write_timeout(&self, duration: time::Duration) -> io::Result<()> {
+    fn set_write_timeout(&self, duration: Duration) -> io::Result<()> {
         set_socket_option(
             self.as_raw_fd(),
             SOL_SOCKET,
