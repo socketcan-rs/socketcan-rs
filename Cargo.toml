@@ -1,16 +1,18 @@
 [package]
 name = "socketcan"
-version = "2.0.0-rc.1"
+version = "2.0.0"
 edition = "2021"
 rust-version = "1.64"
 authors = [
     "Marc Brinkmann <git@marcbrinkmann.de>",
     "Frank Pagliughi <fpagliughi@mindspring.com>"
 ]
-description = "Linux SocketCAN library. Send and receive CAN frames via CAN bus on Linux."
 documentation = "https://docs.rs/socketcan"
 repository = "https://github.com/mbr/socketcan-rs"
 license = "MIT"
+description = """
+Linux SocketCAN library. Send and receive CAN frames via CANbus on Linux.
+"""
 
 # Features:
 #
@@ -18,7 +20,7 @@ license = "MIT"
 #       capabilities based on netlink kernel communications
 # "dump" (default) - Whether to include 'candump' output parsing 
 #	capabilities.
-# "utils" - Build command-line utilities
+# "utils" - Build the command-line utilities
 #
 
 [features]

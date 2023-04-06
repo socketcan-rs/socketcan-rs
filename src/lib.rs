@@ -1,3 +1,14 @@
+// socketcan/src/lib.rs
+//
+// The main lib file for the Rust SocketCAN library.
+//
+// This file is part of the Rust 'socketcan-rs' library.
+//
+// Licensed under the MIT license:
+//   <LICENSE or http://opensource.org/licenses/MIT>
+// This file may not be copied, modified, or distributed except according
+// to those terms.
+
 //! SocketCAN support.
 //!
 //! The Linux kernel supports using CAN-devices through a network-like API

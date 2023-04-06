@@ -1,3 +1,14 @@
+// socketcan/src/nl.rs
+//
+// Netlink access to the SocketCAN interfaces.
+//
+// This file is part of the Rust 'socketcan-rs' library.
+//
+// Licensed under the MIT license:
+//   <LICENSE or http://opensource.org/licenses/MIT>
+// This file may not be copied, modified, or distributed except according
+// to those terms.
+
 //! Netlink module
 //!
 //! The netlink module contains the netlink-based management capabilities of
