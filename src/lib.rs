@@ -84,6 +84,15 @@
     unused_qualifications
 )]
 
+use std::io::ErrorKind;
+
+// Re-export the embedded_can crate so that applications can rely on
+// finding the same version we use.
+pub use embedded_can::{
+    self, blocking::Can as BlockingCan, nb::Can as NonBlockingCan, ExtendedId,
+    Frame as EmbeddedFrame, Id, StandardId,
+};
+
 pub mod errors;
 pub use errors::{CanError, CanErrorDecodingFailure, ConstructionError, Error, Result};
 
@@ -92,26 +101,17 @@ pub use frame::{
     CanAnyFrame, CanDataFrame, CanErrorFrame, CanFdFrame, CanFrame, CanRemoteFrame, Frame,
 };
 
-/// Re-export the embedded_can crate so that applications can rely on
-/// finding the same version we use.
-pub use embedded_can::{
-    self, blocking::Can as BlockingCan, nb::Can as NonBlockingCan, ExtendedId,
-    Frame as EmbeddedFrame, Id, StandardId,
-};
-
 #[cfg(feature = "dump")]
 pub mod dump;
 
 pub mod socket;
-pub use socket::{CanFdSocket, CanFilter, CanSocket, ShouldRetry, Socket};
+pub use socket::{CanAddr, CanFdSocket, CanFilter, CanSocket, ShouldRetry, Socket};
 
 #[cfg(feature = "netlink")]
 mod nl;
 
 #[cfg(feature = "netlink")]
 pub use nl::CanInterface;
-
-use std::io::ErrorKind;
 
 // ===== embedded_can I/O traits =====
 

@@ -16,15 +16,15 @@ use crate::{
     CanAnyFrame, CanFdFrame, CanFrame,
 };
 use libc::{
-    can_frame, canid_t, fcntl, read, sa_family_t, setsockopt, sockaddr, sockaddr_can, socklen_t,
-    suseconds_t, time_t, timeval, write, EINPROGRESS, F_GETFL, F_SETFL, O_NONBLOCK, SOCK_RAW,
-    SOL_SOCKET, SO_RCVTIMEO, SO_SNDTIMEO,
+    can_frame, canid_t, fcntl, read, sa_family_t, setsockopt, sockaddr, sockaddr_can,
+    sockaddr_storage, socklen_t, suseconds_t, time_t, timeval, write, EINPROGRESS, F_GETFL,
+    F_SETFL, O_NONBLOCK, SOCK_RAW, SOL_SOCKET, SO_RCVTIMEO, SO_SNDTIMEO,
 };
 use nix::net::if_::if_nametoindex;
 use std::{
     fmt, io, mem,
     os::{
-        raw::{c_int, c_uint, c_void},
+        raw::{c_int, c_void},
         unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd},
     },
     ptr,
@@ -80,22 +80,62 @@ impl<E: fmt::Debug> ShouldRetry for io::Result<E> {
 
 /// CAN socket address.
 ///
-/// This is based on and compatible with the
+/// This is the address for use with CAN sockets. It is simply an addres to
+/// the SocketCAN host interface. It can be created by looking up the name
+/// of the interface, like "can0", "vcan0", etc, or an interface index can
+/// be specified directly, if known. An index of zero can be used to read
+/// frames from all interfaces.
+///
+/// This is based on, and compatible with, the `sockaddr_can` struct from
+/// libc.
 /// [ref](https://docs.rs/libc/latest/libc/struct.sockaddr_can.html)
 #[derive(Clone, Copy)]
-struct CanAddr(sockaddr_can);
+pub struct CanAddr(sockaddr_can);
 
 impl CanAddr {
     /// Creates a new CAN socket address for the specified interface by index.
-    pub fn new(ifindex: c_uint) -> Self {
+    /// An index of zero can be used to read from all interfaces.
+    pub fn new(ifindex: u32) -> Self {
         let mut addr = Self::default();
         addr.0.can_ifindex = ifindex as c_int;
         addr
     }
 
-    /// Gets the address of the structure as a sockaddr_can.
+    /// Try to create an address from an interface name.
+    pub fn from_iface(ifname: &str) -> io::Result<Self> {
+        let ifindex = if_nametoindex(ifname)?;
+        Ok(Self::new(ifindex))
+    }
+
+    /// Gets the address of the structure as a `sockaddr_can` pointer.
     pub fn as_ptr(&self) -> *const sockaddr_can {
         &self.0
+    }
+
+    /// Gets the address of the structure as a `sockaddr` pointer.
+    pub fn as_sockaddr_ptr(&self) -> *const sockaddr {
+        self.as_ptr().cast()
+    }
+
+    /// Gets the size of the address structure.
+    pub fn len() -> usize {
+        mem::size_of::<sockaddr_can>()
+    }
+
+    /// Converts the address into a `sockaddr_storage` type.
+    /// This is a generic socket address container with enough space to hold
+    /// any address type in the system.
+    pub fn into_storage(self) -> (sockaddr_storage, socklen_t) {
+        let len = Self::len();
+        let mut storage: sockaddr_storage = unsafe { mem::zeroed() };
+        unsafe {
+            ptr::copy_nonoverlapping(
+                &self.0 as *const _ as *const sockaddr_storage,
+                &mut storage,
+                len,
+            );
+        }
+        (storage, len as socklen_t)
     }
 }
 
@@ -139,22 +179,14 @@ fn c_timeval_new(t: Duration) -> timeval {
 }
 
 /// Tries to open the CAN socket by the interface number.
-fn raw_open_socket(ifindex: c_uint) -> io::Result<c_int> {
+fn raw_open_socket(addr: &CanAddr) -> io::Result<c_int> {
     let fd = unsafe { libc::socket(PF_CAN, SOCK_RAW, CAN_RAW) };
 
     if fd == -1 {
         return Err(io::Error::last_os_error());
     }
 
-    let addr = CanAddr::new(ifindex);
-
-    let ret = unsafe {
-        libc::bind(
-            fd,
-            addr.as_ptr() as *const sockaddr,
-            mem::size_of::<CanAddr>() as u32,
-        )
-    };
+    let ret = unsafe { libc::bind(fd, addr.as_sockaddr_ptr(), CanAddr::len() as u32) };
 
     if ret == -1 {
         let err = io::Error::last_os_error();
@@ -188,7 +220,7 @@ fn set_fd_mode(fd: c_int, enable: bool) -> io::Result<c_int> {
 
 // Write a single frame of any type to the socket, fd.
 fn raw_write_frame<T>(fd: c_int, frame_ptr: *const T, n: usize) -> io::Result<()> {
-    let ret = unsafe { write(fd, frame_ptr as *const c_void, n) };
+    let ret = unsafe { write(fd, frame_ptr.cast(), n) };
 
     if ret as usize == n {
         Ok(())
@@ -284,14 +316,26 @@ pub trait Socket: AsRawFd {
     where
         Self: Sized,
     {
-        let if_index = if_nametoindex(ifname)?;
-        Self::open_iface(if_index)
+        let addr = CanAddr::from_iface(ifname)?;
+        Self::open_addr(&addr)
     }
 
     /// Open CAN device by interface number.
     ///
     /// Opens a CAN device by kernel interface number.
-    fn open_iface(if_index: c_uint) -> io::Result<Self>
+    fn open_iface(ifindex: u32) -> io::Result<Self>
+    where
+        Self: Sized,
+    {
+        let addr = CanAddr::new(ifindex);
+        Self::open_addr(&addr)
+    }
+
+    /// Open a named CAN device.
+    ///
+    /// Usually the more common case, opens a socket can device by name, such
+    /// as "can0", "vcan0", or "socan0".
+    fn open_addr(addr: &CanAddr) -> io::Result<Self>
     where
         Self: Sized;
 
@@ -330,11 +374,8 @@ pub trait Socket: AsRawFd {
         loop {
             match self.write_frame(frame) {
                 Ok(v) => return Ok(v),
-                Err(e) => {
-                    if !e.should_retry() {
-                        return Err(e);
-                    }
-                }
+                Err(e) if e.should_retry() => (),
+                Err(e) => return Err(e),
             }
         }
     }
@@ -539,8 +580,8 @@ impl Socket for CanSocket {
     type FrameType = CanFrame;
 
     /// Opens the socket by interface index.
-    fn open_iface(if_index: c_uint) -> io::Result<Self> {
-        raw_open_socket(if_index).map(|fd| Self { fd })
+    fn open_addr(addr: &CanAddr) -> io::Result<Self> {
+        raw_open_socket(addr).map(|fd| Self { fd })
     }
 
     /// Writes a normal CAN 2.0 frame to the socket.
@@ -607,8 +648,8 @@ impl Socket for CanFdSocket {
     type FrameType = CanAnyFrame;
 
     /// Opens the FD socket by interface index.
-    fn open_iface(if_index: c_uint) -> io::Result<Self> {
-        raw_open_socket(if_index)
+    fn open_addr(addr: &CanAddr) -> io::Result<Self> {
+        raw_open_socket(addr)
             .and_then(|fd| set_fd_mode(fd, true))
             .map(|fd| Self { fd })
     }
@@ -633,9 +674,11 @@ impl Socket for CanFdSocket {
             CAN_MTU => {
                 let mut frame = can_frame_default();
                 unsafe {
-                    let src = &fdframe as *const _ as *const u8;
-                    let dst = &mut frame as *mut _ as *mut u8;
-                    ptr::copy_nonoverlapping(src, dst, CAN_MTU);
+                    ptr::copy_nonoverlapping(
+                        &fdframe as *const _ as *const can_frame,
+                        &mut frame,
+                        CAN_MTU,
+                    );
                 }
                 Ok(CanFrame::from(frame).into())
             }
