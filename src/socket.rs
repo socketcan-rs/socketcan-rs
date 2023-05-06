@@ -37,6 +37,9 @@ pub use libc::{
     SOL_CAN_RAW,
 };
 
+#[cfg(feature = "async-io")]
+pub(crate) mod async_io;
+
 /// Check an error return value for timeouts.
 ///
 /// Due to the fact that timeouts are reported as errors, calling `read_frame`

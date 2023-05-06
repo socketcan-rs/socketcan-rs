@@ -105,6 +105,12 @@ pub mod dump;
 pub mod socket;
 pub use socket::{CanFdSocket, CanFilter, CanSocket, ShouldRetry, Socket};
 
+#[cfg(feature = "async-io")]
+/// Bindings to use with async-io based async runtimes, like async-std and smol.
+pub mod async_io {
+    pub use crate::socket::async_io::{CanFdSocket, CanSocket};
+}
+
 #[cfg(feature = "netlink")]
 mod nl;
 

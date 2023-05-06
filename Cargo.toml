@@ -31,6 +31,7 @@ async-tokio = [ "tokio", "mio", "futures" ]
 netlink_tests = ["netlink"]
 vcan_tests = ["netlink"]
 utils = ["clap", "anyhow"]
+async-io = [ "dep:async-io" ]
 
 [dependencies]
 embedded-can = "0.4"
@@ -48,16 +49,19 @@ neli = { version = "0.6", optional = true }
 tokio = { version = "1", features = ["net"], optional = true }
 mio = { version = "0.8", features = ["os-ext"], optional = true }
 futures = { version = "0.3", optional = true }
-    
+async-io = { version = "1.13", optional = true }
+
 [dev-dependencies]
 anyhow = "1.0"
 ctrlc = "3.2.2"
 clap = { version = "4.0", features = ["derive"] }
 nb = "1.0"
-serial_test = "0.9"
 # TODO: Is it possible to only include these for async builds?
 futures-timer = "0.3"
 futures-util = "0.3"
+serial_test = { version = "2.0", features = ["async"]}
+async-std = { version = "1.12", features = ["attributes"]}
+futures = "0.3"
 
 [dev-dependencies.tokio]
 version = "1"
