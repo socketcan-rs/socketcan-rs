@@ -20,7 +20,7 @@ use std::{
 use async_io::Async;
 use libc::{can_frame, canfd_frame, read, ssize_t, write};
 
-use crate::{frame::AsPtr, CanAnyFrame, CanFdFrame, CanFrame};
+use crate::{frame::AsPtr, CanAnyFrame, CanFdFrame, CanFrame, Socket};
 
 macro_rules! write_frame {
     ($target:expr, $frame_type:ty, $frame:expr) => {
@@ -71,6 +71,14 @@ impl TryFrom<super::CanSocket> for CanSocket {
 }
 
 impl CanSocket {
+    /// Open a named CAN device.
+    ///
+    /// Usually the more common case, opens a socket can device by name, such
+    /// as "can0", "vcan0", or "socan0".
+    pub fn open(ifname: &str) -> io::Result<Self> {
+        super::CanSocket::open(ifname)?.try_into()
+    }
+
     /// Permits access to the inner synchronous socket, for example to perform settings.
     pub fn as_sync_socket(&self) -> &super::CanSocket {
         self.inner.as_ref()
@@ -136,6 +144,14 @@ impl TryFrom<super::CanFdSocket> for CanFdSocket {
 }
 
 impl CanFdSocket {
+    /// Open a named CAN device.
+    ///
+    /// Usually the more common case, opens a socket can device by name, such
+    /// as "can0", "vcan0", or "socan0".
+    pub fn open(ifname: &str) -> io::Result<Self> {
+        super::CanFdSocket::open(ifname)?.try_into()
+    }
+
     /// Permits access to the inner synchronous socket, for example to perform settings.
     pub fn as_sync_socket(&self) -> &super::CanFdSocket {
         self.inner.as_ref()

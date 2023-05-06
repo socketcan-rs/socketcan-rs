@@ -15,7 +15,7 @@ use serial_test::serial;
 #[cfg(all(feature = "vcan_tests", feature = "async-io"))]
 use socketcan::{
     async_io::CanFdSocket as AsyncCanFdSocket, async_io::CanSocket as AsyncCanSocket,
-    frame::FdFlags, CanAnyFrame, CanFdFrame, CanFdSocket, EmbeddedFrame, Id, Socket, StandardId,
+    frame::FdFlags, CanAnyFrame, CanFdFrame, EmbeddedFrame, Id, StandardId,
 };
 
 // The virtual CAN interface to use for tests.
@@ -26,14 +26,8 @@ const VCAN: &str = "vcan0";
 #[serial]
 #[async_std::test]
 async fn async_can_simple() {
-    let writer: AsyncCanSocket = socketcan::CanSocket::open(VCAN)
-        .unwrap()
-        .try_into()
-        .unwrap();
-    let reader: AsyncCanSocket = socketcan::CanSocket::open(VCAN)
-        .unwrap()
-        .try_into()
-        .unwrap();
+    let writer = AsyncCanSocket::open(VCAN).unwrap();
+    let reader = AsyncCanSocket::open(VCAN).unwrap();
 
     let frame =
         socketcan::CanFrame::new(Id::from(StandardId::new(0x14).unwrap()), &[1, 3, 3, 7]).unwrap();
@@ -49,8 +43,8 @@ async fn async_can_simple() {
 #[serial]
 #[async_std::test]
 async fn async_canfd_simple() {
-    let writer: AsyncCanFdSocket = CanFdSocket::open(VCAN).unwrap().try_into().unwrap();
-    let reader: AsyncCanFdSocket = CanFdSocket::open(VCAN).unwrap().try_into().unwrap();
+    let writer = AsyncCanFdSocket::open(VCAN).unwrap();
+    let reader = AsyncCanFdSocket::open(VCAN).unwrap();
 
     let frame = CanFdFrame::with_flags(
         StandardId::new(111).unwrap(),
