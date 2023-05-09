@@ -41,13 +41,13 @@ use mio::{event, unix::SourceFd, Interest, Registry, Token};
 
 use thiserror::Error as ThisError;
 
-pub use socketcan::{CanFilter, CanFrame, CanSocketOpenError, Socket};
+pub use socketcan::{CanFilter, CanFrame, CanError, Socket};
 use tokio::io::unix::AsyncFd;
 
 #[derive(Debug, ThisError)]
 pub enum Error {
     #[error("Failed to open CAN Socket")]
-    CANSocketOpen(#[from] socketcan::CanSocketOpenError),
+    CANSocketOpen(#[from] socketcan::CanError),
     #[error("IO error")]
     IO(#[from] io::Error),
 }
@@ -138,27 +138,27 @@ impl CANSocket {
         self.0.get_ref().0.set_filters(filters)
     }
 
-    // /// Disable reception of CAN frames by setting an empty filter
-    // pub fn filter_drop_all(&self) -> io::Result<()> {
-    //     self.0.get_ref().0.filter_drop_all()
-    // }
+    /// Disable reception of CAN frames by setting an empty filter
+    pub fn filter_drop_all(&self) -> io::Result<()> {
+        self.0.get_ref().0.set_filter_drop_all()
+    }
 
-    // /// Accept all frames, disabling any kind of filtering.
-    // pub fn filter_accept_all(&self) -> io::Result<()> {
-    //     self.0.get_ref().0.filter_accept_all()
-    // }
+    /// Accept all frames, disabling any kind of filtering.
+    pub fn filter_accept_all(&self) -> io::Result<()> {
+        self.0.get_ref().0.set_filter_accept_all()
+    }
 
-    // pub fn set_error_filter(&self, mask: u32) -> io::Result<()> {
-    //     self.0.get_ref().0.set_error_filter(mask)
-    // }
+    pub fn set_error_filter(&self, mask: u32) -> io::Result<()> {
+        self.0.get_ref().0.set_error_filter(mask)
+    }
 
-    // pub fn error_filter_drop_all(&self) -> io::Result<()> {
-    //     self.0.get_ref().0.error_filter_drop_all()
-    // }
+    pub fn error_filter_drop_all(&self) -> io::Result<()> {
+        self.0.get_ref().0.set_error_filter_drop_all()
+    }
 
-    // pub fn error_filter_accept_all(&self) -> io::Result<()> {
-    //     self.0.get_ref().0.error_filter_accept_all()
-    // }
+    pub fn error_filter_accept_all(&self) -> io::Result<()> {
+        self.0.get_ref().0.set_error_filter_accept_all()
+    }
 
     /// Write a CANFrame to the socket asynchronously
     ///
