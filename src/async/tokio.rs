@@ -39,7 +39,7 @@ use futures::task::Context;
 
 use mio::{event, unix::SourceFd, Interest, Registry, Token};
 
-pub use crate::{CanFilter, CanFrame, CanError, Error, Result, Socket};
+pub use crate::{CanError, CanFilter, CanFrame, Error, Result, Socket};
 use tokio::io::unix::AsyncFd;
 
 /*
@@ -139,37 +139,37 @@ impl CanSocket {
     /// Sets the filter mask on the socket
     pub fn set_filter(&self, filters: &[CanFilter]) -> Result<()> {
         self.0.get_ref().0.set_filters(filters)?;
-		Ok(())
+        Ok(())
     }
 
     /// Disable reception of CAN frames by setting an empty filter
     pub fn filter_drop_all(&self) -> Result<()> {
         self.0.get_ref().0.set_filter_drop_all()?;
-		Ok(())
+        Ok(())
     }
 
     /// Accept all frames, disabling any kind of filtering.
     pub fn filter_accept_all(&self) -> Result<()> {
         self.0.get_ref().0.set_filter_accept_all()?;
-		Ok(())
+        Ok(())
     }
 
-	/// Sets the error mask on the socket
+    /// Sets the error mask on the socket
     pub fn set_error_filter(&self, mask: u32) -> Result<()> {
         self.0.get_ref().0.set_error_filter(mask)?;
-		Ok(())
+        Ok(())
     }
 
-	/// Sets the error mask on the socket to reject all errors.
+    /// Sets the error mask on the socket to reject all errors.
     pub fn error_filter_drop_all(&self) -> Result<()> {
         self.0.get_ref().0.set_error_filter_drop_all()?;
-		Ok(())
+        Ok(())
     }
 
-	/// Sets the error mask on the socket to accept all errors.
+    /// Sets the error mask on the socket to accept all errors.
     pub fn error_filter_accept_all(&self) -> Result<()> {
         self.0.get_ref().0.set_error_filter_accept_all()?;
-		Ok(())
+        Ok(())
     }
 
     /// Write a CAN frame to the socket asynchronously

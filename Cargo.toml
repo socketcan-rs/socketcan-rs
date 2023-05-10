@@ -55,7 +55,23 @@ ctrlc = "3.2.2"
 clap = { version = "4.0", features = ["derive"] }
 nb = "1.0"
 serial_test = "0.9"
+# TODO: Is it possible to only include these for async builds?
+futures-timer = "0.3"
+futures-util = "0.3"
 
+[dev-dependencies.tokio]
+version = "1"
+# required for tokio::test
+features = ["macros", "rt-multi-thread"]
+    
 [[bin]]
 name = "rcan"
 required-features = ["utils"]
+
+[[example]]
+name = "tokio_send_frames"
+required-features = ["async-tokio"]
+
+[[example]]
+name = "tokio_print_frames"
+required-features = ["async-tokio"]
