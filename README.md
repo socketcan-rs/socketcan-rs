@@ -45,3 +45,38 @@ The current version of the crate targets Rust Edition 2021 with an MSRV of Rust 
 
 Note that, at this time, the MSRV is mostly diven by use of the `clap v4.0` crate for managing command-line parameters in the utilities and example applications. The core library could likely be built with an earlier version of the compiler if required.
 
+## Async Support
+
+### tokio
+
+The [tokio-socketcan]() crate was merged into this one to provide async support for CANbus using tokio.
+
+#### Example  echo server with _tokio_
+
+```rust
+use futures_util::stream::StreamExt;
+use tokio_socketcan::{CANSocket, Error};
+
+#[tokio::main]
+async fn main() -> Result<(), Error> {
+    let mut socket_rx = CANSocket::open("vcan0")?;
+    let socket_tx = CANSocket::open("vcan0")?;
+    while let Some(Ok(frame)) = socket_rx.next().await {
+        socket_tx.write_frame(frame)?.await?;
+    }
+    Ok(())
+}
+```
+
+#### Testing tokio
+
+Integrating the test into a CI system is non-trivial as it relies on a `vcan0` virtual can device existing. Adding one to most linux systems is pretty easy with root access but attaching a vcan device to a container for CI seems difficult to find support for.
+
+To run the tests locally, though, setup should be simple:
+
+```sh
+sudo modprobe vcan
+sudo ip link add vcan0 type vcan
+sudo ip link set vcan0 up
+cargo test
+```

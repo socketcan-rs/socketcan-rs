@@ -27,6 +27,7 @@ Linux SocketCAN library. Send and receive CAN frames via CANbus on Linux.
 default = ["netlink", "dump"]
 netlink = ["neli"]
 dump = []
+async-tokio = [ "tokio", "mio", "futures" ]
 netlink_tests = ["netlink"]
 vcan_tests = ["netlink"]
 utils = ["clap", "anyhow"]
@@ -44,7 +45,10 @@ thiserror = "1.0"
 clap = { version = "4.0", optional = true }
 anyhow = { version = "1.0", optional = true }
 neli = { version = "0.6", optional = true }
-
+tokio = { version = "1", features = ["net"], optional = true }
+mio = { version = "0.8", features = ["os-ext"], optional = true }
+futures = { version = "0.3", optional = true }
+    
 [dev-dependencies]
 anyhow = "1.0"
 ctrlc = "3.2.2"

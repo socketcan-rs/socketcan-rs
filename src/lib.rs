@@ -113,6 +113,11 @@ pub use nl::CanInterface;
 
 use std::io::ErrorKind;
 
+/// Async support
+#[cfg(any(feature = "async-tokio", feature = "async-io"))]
+pub mod r#async;
+
+
 // ===== embedded_can I/O traits =====
 
 impl embedded_can::blocking::Can for CanSocket {
