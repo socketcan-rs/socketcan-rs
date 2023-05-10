@@ -113,9 +113,9 @@ pub use nl::CanInterface;
 
 use std::io::ErrorKind;
 
-/// Async support
-#[cfg(any(feature = "async-tokio", feature = "async-io"))]
-pub mod r#async;
+/// Optional tokio support
+#[cfg(feature = "async-tokio")]
+pub mod tokio;
 
 // ===== embedded_can I/O traits =====
 

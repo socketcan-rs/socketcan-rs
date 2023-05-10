@@ -1,5 +1,5 @@
 use futures_util::StreamExt;
-use socketcan::{r#async::tokio::CanSocket, CanFrame};
+use socketcan::{tokio::CanSocket, CanFrame};
 use tokio;
 
 #[tokio::main]

@@ -1,6 +1,6 @@
 use embedded_can::{Frame, StandardId};
 use futures_timer::Delay;
-use socketcan::{r#async::tokio::CanSocket, CanFrame, Error};
+use socketcan::{tokio::CanSocket, CanFrame, Error};
 use std::time::Duration;
 use tokio;
 
