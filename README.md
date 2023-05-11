@@ -12,6 +12,14 @@ Please see the [documentation](https://docs.rs/socketcan) for details about the 
 
 Version 2.0 is finally released!
 
+...and the next version is already underway to add async/await with support for _tokio, async-std_, and _smol_.  To get started we have already merged the [tokio-socketcan](https://github.com/oefd/tokio-socketcan) crate into this one and started on `async-io`.
+
+## Unreleased Features in this Branch
+
+- All of [tokio-socketcan](https://github.com/oefd/tokio-socketcan) has been merged into this crate and will be available with an `async-tokio` build feature.
+- [#41](https://github.com/socketcan-rs/socketcan-rs/pull/41) Added initial support for `async-io` for use with `async-std` and `smol`
+- Made 'CanAddr' pulic and added functions to help interact with low-level sockaddr types. Sockets can now be opened with an address.
+
 ## What's New in v2.0
 
 The v2.0 release is a fairly large rewrite of the library and adds the following features:
