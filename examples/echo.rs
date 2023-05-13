@@ -8,7 +8,7 @@
 use anyhow::Context;
 use clap::Parser;
 
-use embedded_can::{blocking::Can, Frame as EmbeddedFrame, Id, StandardId};
+use embedded_can::{blocking::Can, Frame as EmbeddedFrame, StandardId};
 use socketcan::{CanFrame, CanSocket, Frame, Socket};
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -46,7 +46,7 @@ fn main() -> anyhow::Result<()> {
         if let Ok(frame) = socket.receive() {
             println!("{}", frame_to_string(&frame));
 
-            let new_id = get_raw_id(&frame.id()) + 0x01;
+            let new_id = frame.raw_id() + 0x01;
             let new_id = StandardId::new(new_id as u16).expect("Failed to create ID");
 
             if let Some(echo_frame) = CanFrame::new(new_id, frame.data()) {
@@ -60,20 +60,13 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn frame_to_string<F: Frame>(f: &F) -> String {
-    let id = get_raw_id(&f.id());
+fn frame_to_string<F: Frame>(frame: &F) -> String {
+    let id = frame.raw_id();
 
-    let data_string = f
+    let data_string = frame
         .data()
         .iter()
         .fold(String::from(""), |a, b| format!("{} {:02x}", a, b));
 
-    format!("{:08X}  [{}] {}", id, f.dlc(), data_string)
-}
-
-fn get_raw_id(id: &Id) -> u32 {
-    match id {
-        Id::Standard(id) => id.as_raw() as u32,
-        Id::Extended(id) => id.as_raw(),
-    }
+    format!("{:08X}  [{}] {}", id, frame.dlc(), data_string)
 }

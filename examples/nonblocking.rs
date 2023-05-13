@@ -8,7 +8,7 @@
 use anyhow::Context;
 use clap::Parser;
 
-use embedded_can::{nb::Can, Frame as EmbeddedFrame, Id, StandardId};
+use embedded_can::{nb::Can, Frame as EmbeddedFrame, StandardId};
 use nb::block;
 use socketcan::{CanFrame, CanSocket, Frame, Socket};
 
@@ -42,19 +42,12 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn frame_to_string<F: Frame>(f: &F) -> String {
-    let id = get_raw_id(&f.id());
-    let data_string = f
+fn frame_to_string<F: Frame>(frame: &F) -> String {
+    let id = frame.raw_id();
+    let data_string = frame
         .data()
         .iter()
         .fold(String::from(""), |a, b| format!("{} {:02x}", a, b));
 
-    format!("{:X}  [{}] {}", id, f.dlc(), data_string)
-}
-
-fn get_raw_id(id: &Id) -> u32 {
-    match id {
-        Id::Standard(id) => id.as_raw() as u32,
-        Id::Extended(id) => id.as_raw(),
-    }
+    format!("{:X}  [{}] {}", id, frame.dlc(), data_string)
 }

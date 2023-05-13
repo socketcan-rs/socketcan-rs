@@ -20,7 +20,10 @@ use std::{
 #[cfg(any(feature = "async-io", feature = "async-std"))]
 use async_io::Async;
 
-#[cfg(all(feature = "smol", not(any(feature = "async-io", feature = "async-std"))))]
+#[cfg(all(
+    feature = "smol",
+    not(any(feature = "async-io", feature = "async-std"))
+))]
 use smol::Async;
 
 /////////////////////////////////////////////////////////////////////////////
