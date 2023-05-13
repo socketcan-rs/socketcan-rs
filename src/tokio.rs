@@ -13,7 +13,7 @@
 //!
 //! ```no_run
 //! use futures_util::stream::StreamExt;
-//! use tokio_socketcan::{CanSocket, Error};
+//! use socketcan::{Error, tokio::CanSocket};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Error> {
@@ -26,36 +26,24 @@
 //!     Ok(())
 //! }
 //! ```
-use std::io;
-use std::os::raw::c_uint;
-use std::os::unix::io::{AsRawFd, FromRawFd};
-use std::pin::Pin;
-use std::task::Poll;
-use std::{future::Future, os::unix::prelude::RawFd};
-
-use futures::prelude::*;
-use futures::ready;
-use futures::task::Context;
+use futures::{prelude::*, ready, task::Context};
+use std::{
+    future::Future,
+    io,
+    os::unix::{
+        io::{AsRawFd, FromRawFd},
+        prelude::RawFd,
+    },
+    pin::Pin,
+    task::Poll,
+};
 
 use mio::{event, unix::SourceFd, Interest, Registry, Token};
 
-pub use crate::{CanError, CanFilter, CanFrame, Error, Result, Socket};
+use crate::{CanAddr, CanFrame, Error, Result, Socket, SocketOptions};
 use tokio::io::unix::AsyncFd;
 
-/*
-use thiserror::Error as ThisError;
-
-#[derive(Debug, ThisError)]
-pub enum Error {
-    #[error("Failed to open CAN Socket")]
-    CanSocketOpen(#[from] crate::CanError),
-    #[error("IO error")]
-    IO(#[from] io::Error),
-}
- */
-
-/// A Future representing the eventual
-/// writing of a CANFrame to the socket
+/// A Future representing the eventual writing of a CANFrame to the socket.
 ///
 /// Created by the CanSocket.write_frame() method
 #[derive(Debug)]
@@ -122,54 +110,25 @@ impl event::Source for EventedCanSocket {
 pub struct CanSocket(AsyncFd<EventedCanSocket>);
 
 impl CanSocket {
-    /// Open a named CAN device such as "vcan0"
-    pub fn open(ifname: &str) -> Result<Self> {
+    /// Open a named CAN device such as "can0, "vcan0", etc
+    pub fn open(ifname: &str) -> io::Result<Self> {
         let sock = crate::CanSocket::open(ifname)?;
         sock.set_nonblocking(true)?;
         Ok(Self(AsyncFd::new(EventedCanSocket(sock))?))
     }
 
     /// Open CAN device by kernel interface number
-    pub fn open_if(if_index: c_uint) -> Result<CanSocket> {
-        let sock = crate::CanSocket::open_iface(if_index)?;
+    pub fn open_if(ifindex: u32) -> io::Result<CanSocket> {
+        let sock = crate::CanSocket::open_iface(ifindex)?;
         sock.set_nonblocking(true)?;
         Ok(Self(AsyncFd::new(EventedCanSocket(sock))?))
     }
 
-    /// Sets the filter mask on the socket
-    pub fn set_filter(&self, filters: &[CanFilter]) -> Result<()> {
-        self.0.get_ref().0.set_filters(filters)?;
-        Ok(())
-    }
-
-    /// Disable reception of CAN frames by setting an empty filter
-    pub fn filter_drop_all(&self) -> Result<()> {
-        self.0.get_ref().0.set_filter_drop_all()?;
-        Ok(())
-    }
-
-    /// Accept all frames, disabling any kind of filtering.
-    pub fn filter_accept_all(&self) -> Result<()> {
-        self.0.get_ref().0.set_filter_accept_all()?;
-        Ok(())
-    }
-
-    /// Sets the error mask on the socket
-    pub fn set_error_filter(&self, mask: u32) -> Result<()> {
-        self.0.get_ref().0.set_error_filter(mask)?;
-        Ok(())
-    }
-
-    /// Sets the error mask on the socket to reject all errors.
-    pub fn error_filter_drop_all(&self) -> Result<()> {
-        self.0.get_ref().0.set_error_filter_drop_all()?;
-        Ok(())
-    }
-
-    /// Sets the error mask on the socket to accept all errors.
-    pub fn error_filter_accept_all(&self) -> Result<()> {
-        self.0.get_ref().0.set_error_filter_accept_all()?;
-        Ok(())
+    /// Open a CAN socket by address
+    pub fn open_addr(addr: &CanAddr) -> io::Result<Self> {
+        let sock = crate::CanSocket::open_addr(addr)?;
+        sock.set_nonblocking(true)?;
+        Ok(Self(AsyncFd::new(EventedCanSocket(sock))?))
     }
 
     /// Write a CAN frame to the socket asynchronously
@@ -187,7 +146,7 @@ impl CanSocket {
     /// file descriptor. This method makes clones fairly cheap and
     /// avoids complexity around ownership
     fn try_clone(&self) -> Result<Self> {
-        let fd = self.0.get_ref().0.as_raw_fd();
+        let fd = self.as_raw_fd();
         unsafe {
             // essentially we're cheating and making it cheaper/easier
             // to manage multiple references to the socket by relying
@@ -199,6 +158,14 @@ impl CanSocket {
             let new = crate::CanSocket::from_raw_fd(new_fd);
             Ok(Self(AsyncFd::new(EventedCanSocket(new))?))
         }
+    }
+}
+
+impl SocketOptions for CanSocket {}
+
+impl AsRawFd for CanSocket {
+    fn as_raw_fd(&self) -> RawFd {
+        self.0.get_ref().0.as_raw_fd()
     }
 }
 
@@ -240,28 +207,30 @@ impl Sink<CanFrame> for CanSocket {
     }
 }
 
+/////////////////////////////////////////////////////////////////////////////
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{CanFrame, Frame, StandardId};
+    use embedded_can::Frame as EmbeddedFrame;
     use futures::{select, try_join};
     use futures_timer::Delay;
-
-    use std::io;
-    use std::time::Duration;
+    use std::{io, time::Duration};
 
     /// Receive a frame from the CanSocket
-    async fn recv_frame(mut socket: CanSocket) -> io::Result<CanSocket> {
+    async fn recv_frame(mut socket: CanSocket) -> Result<CanSocket> {
         // let mut frame_stream = socket;
-
+        const TIMEOUT: Duration = Duration::from_millis(100);
         select!(
             frame = socket.next().fuse() => if let Some(_frame) = frame { Ok(socket) } else { panic!("unexpected") },
-            _timeout = Delay::new(Duration::from_millis(100)).fuse() => Err(io::Error::from(io::ErrorKind::TimedOut)),
+            _timeout = Delay::new(TIMEOUT).fuse() => Err(io::Error::from(io::ErrorKind::TimedOut).into()),
         )
     }
 
     /// Write a test frame to the CanSocket
-    async fn write_frame(socket: &CanSocket) -> Result<(), Error> {
-        let test_frame = crate::CanFrame::new(0x1, &[0], false, false).unwrap();
+    async fn write_frame(socket: &CanSocket) -> Result<()> {
+        let test_frame = CanFrame::new(StandardId::new(0x1).unwrap(), &[0]).unwrap();
         socket.write_frame(test_frame)?.await?;
         Ok(())
     }
@@ -270,7 +239,7 @@ mod tests {
     /// to prompt the second message in order to demonstrate that
     /// waiting for CAN reads is not blocking.
     #[tokio::test]
-    async fn test_receive() -> Result<(), Error> {
+    async fn test_receive() -> Result<()> {
         let socket1 = CanSocket::open("vcan0").unwrap();
         let socket2 = CanSocket::open("vcan0").unwrap();
 
@@ -288,20 +257,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_sink_stream() -> io::Result<()> {
+    async fn test_sink_stream() -> Result<()> {
         let socket1 = CanSocket::open("vcan0").unwrap();
         let socket2 = CanSocket::open("vcan0").unwrap();
 
-        let frame_id_1 = CanFrame::new(1, &[0u8], false, false).unwrap();
-        let frame_id_2 = CanFrame::new(2, &[0u8], false, false).unwrap();
-        let frame_id_3 = CanFrame::new(3, &[0u8], false, false).unwrap();
+        let frame_id_1 = CanFrame::new(StandardId::new(1).unwrap(), &[0u8]).unwrap();
+        let frame_id_2 = CanFrame::new(StandardId::new(2).unwrap(), &[0u8]).unwrap();
+        let frame_id_3 = CanFrame::new(StandardId::new(3).unwrap(), &[0u8]).unwrap();
 
         let (mut sink, _stream) = socket1.split();
         let (_sink, stream) = socket2.split();
 
         let count_ids_less_than_3 = stream
             .map(|x| x.unwrap())
-            .take_while(|frame| future::ready(frame.id() < 3))
+            .take_while(|frame| future::ready(frame.raw_id() < 3))
             .fold(0u8, |acc, _frame| async move { acc + 1 });
 
         let send_frames = async {
@@ -309,7 +278,7 @@ mod tests {
             let _frame_2 = sink.send(frame_id_2).await?;
             let _frame_3 = sink.send(frame_id_3).await?;
             println!("Sent 3 frames");
-            Ok::<(), io::Error>(())
+            Ok::<(), Error>(())
         };
 
         let (x, frame_send_r) = futures::future::join(count_ids_less_than_3, send_frames).await;

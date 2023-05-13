@@ -12,9 +12,8 @@
 #[cfg(feature = "vcan_tests")]
 use socketcan::{
     frame::{ERR_MASK_ALL, ERR_MASK_NONE},
-    CanFrame, EmbeddedFrame, ShouldRetry, StandardId,
+    CanFrame, CanSocket, EmbeddedFrame, ShouldRetry, Socket, SocketOptions, StandardId,
 };
-use socketcan::{CanSocket, Socket};
 
 #[cfg(feature = "vcan_tests")]
 use std::time;
@@ -23,6 +22,7 @@ use std::time;
 #[cfg(feature = "vcan_tests")]
 const VCAN: &str = "vcan0";
 
+#[cfg(feature = "vcan_tests")]
 #[test]
 fn test_nonexistant_device() {
     assert!(CanSocket::open("invalid").is_err());

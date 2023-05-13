@@ -37,9 +37,6 @@ pub use libc::{
     SOL_CAN_RAW,
 };
 
-#[cfg(feature = "async-io")]
-pub(crate) mod async_io;
-
 /// Check an error return value for timeouts.
 ///
 /// Due to the fact that timeouts are reported as errors, calling `read_frame`
@@ -305,12 +302,6 @@ pub fn set_socket_option_mult<T>(
 /// Note that a socket it created by opening it, and then closed by
 /// dropping it.
 pub trait Socket: AsRawFd {
-    /// The type of CAN frame that can be read and written by the socket.
-    ///
-    /// This is typically distinguished by the size of the supported frame,
-    /// with the primary difference between a `CanFrame` and a `CanFdFrame`.
-    type FrameType;
-
     /// Open a named CAN device.
     ///
     /// Usually the more common case, opens a socket can device by name, such
@@ -334,13 +325,62 @@ pub trait Socket: AsRawFd {
         Self::open_addr(&addr)
     }
 
-    /// Open a named CAN device.
-    ///
-    /// Usually the more common case, opens a socket can device by name, such
-    /// as "can0", "vcan0", or "socan0".
+    /// Open a CAN socket by address.
     fn open_addr(addr: &CanAddr) -> io::Result<Self>
     where
         Self: Sized;
+
+    /// Change socket to non-blocking mode or back to blocking mode.
+    fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
+        // retrieve current flags
+        let oldfl = unsafe { fcntl(self.as_raw_fd(), F_GETFL) };
+
+        if oldfl == -1 {
+            return Err(io::Error::last_os_error());
+        }
+
+        let newfl = if nonblocking {
+            oldfl | O_NONBLOCK
+        } else {
+            oldfl & !O_NONBLOCK
+        };
+
+        let ret = unsafe { fcntl(self.as_raw_fd(), F_SETFL, newfl) };
+
+        if ret != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
+    /// The type of CAN frame that can be read and written by the socket.
+    ///
+    /// This is typically distinguished by the size of the supported frame,
+    /// with the primary difference between a `CanFrame` and a `CanFdFrame`.
+    type FrameType;
+
+    /// Sets the read timeout on the socket
+    ///
+    /// For convenience, the result value can be checked using
+    /// `ShouldRetry::should_retry` when a timeout is set.
+    fn set_read_timeout(&self, duration: Duration) -> io::Result<()> {
+        set_socket_option(
+            self.as_raw_fd(),
+            SOL_SOCKET,
+            SO_RCVTIMEO,
+            &c_timeval_new(duration),
+        )
+    }
+
+    /// Sets the write timeout on the socket
+    fn set_write_timeout(&self, duration: Duration) -> io::Result<()> {
+        set_socket_option(
+            self.as_raw_fd(),
+            SOL_SOCKET,
+            SO_SNDTIMEO,
+            &c_timeval_new(duration),
+        )
+    }
 
     /// Blocking read a single can frame.
     fn read_frame(&self) -> io::Result<Self::FrameType>;
@@ -382,53 +422,10 @@ pub trait Socket: AsRawFd {
             }
         }
     }
+}
 
-    /// Change socket to non-blocking mode or back to blocking mode.
-    fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
-        // retrieve current flags
-        let oldfl = unsafe { fcntl(self.as_raw_fd(), F_GETFL) };
-
-        if oldfl == -1 {
-            return Err(io::Error::last_os_error());
-        }
-
-        let newfl = if nonblocking {
-            oldfl | O_NONBLOCK
-        } else {
-            oldfl & !O_NONBLOCK
-        };
-
-        let ret = unsafe { fcntl(self.as_raw_fd(), F_SETFL, newfl) };
-
-        if ret != 0 {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(())
-    }
-
-    /// Sets the read timeout on the socket
-    ///
-    /// For convenience, the result value can be checked using
-    /// `ShouldRetry::should_retry` when a timeout is set.
-    fn set_read_timeout(&self, duration: Duration) -> io::Result<()> {
-        set_socket_option(
-            self.as_raw_fd(),
-            SOL_SOCKET,
-            SO_RCVTIMEO,
-            &c_timeval_new(duration),
-        )
-    }
-
-    /// Sets the write timeout on the socket
-    fn set_write_timeout(&self, duration: Duration) -> io::Result<()> {
-        set_socket_option(
-            self.as_raw_fd(),
-            SOL_SOCKET,
-            SO_SNDTIMEO,
-            &c_timeval_new(duration),
-        )
-    }
-
+/// Traits for setting CAN socket options
+pub trait SocketOptions: AsRawFd {
     /// Sets CAN ID filters on the socket.
     ///
     /// CAN packages received by SocketCAN are matched against these filters,
@@ -580,6 +577,7 @@ pub struct CanSocket {
 }
 
 impl Socket for CanSocket {
+    /// CanSocket reads/writes classic CAN 2.0 frames.
     type FrameType = CanFrame;
 
     /// Opens the socket by interface index.
@@ -609,6 +607,8 @@ impl Socket for CanSocket {
         }
     }
 }
+
+impl SocketOptions for CanSocket {}
 
 impl AsRawFd for CanSocket {
     fn as_raw_fd(&self) -> RawFd {
@@ -648,6 +648,7 @@ pub struct CanFdSocket {
 }
 
 impl Socket for CanFdSocket {
+    /// CanFdSocket can read/write classic CAN 2.0 or FD frames.
     type FrameType = CanAnyFrame;
 
     /// Opens the FD socket by interface index.
@@ -690,6 +691,8 @@ impl Socket for CanFdSocket {
         }
     }
 }
+
+impl SocketOptions for CanFdSocket {}
 
 impl AsRawFd for CanFdSocket {
     fn as_raw_fd(&self) -> RawFd {

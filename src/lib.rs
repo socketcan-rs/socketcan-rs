@@ -71,6 +71,24 @@
 //!   dependencies like [anyhow](https://docs.rs/anyhow/latest/anyhow/) and
 //!   [clap](https://docs.rs/clap/latest/clap/)
 //!
+//! * **tokio** -
+//!   Include support for async/await using [tokio](https://crates.io/crates/tokio).
+//!
+//! * **async-io** -
+//!   Include support for async/await using [async-io](https://crates.io/crates/async-io)
+//!   This will work with any runtime that uses _async_io_, including
+//!   [async-std](https://crates.io/crates/async-std) and [smol](https://crates.io/crates/smol).
+//!
+//! * **async-std** -
+//!   Include support for async/await using [async-io](https://crates.io/crates/async-io)
+//!   with a submodule aliased for [async-std](https://crates.io/crates/async-std) and examples
+//!   for that runtime.
+//!
+//! * **smol** -
+//!   Include support for async/await using [async-io](https://crates.io/crates/async-io)
+//!   with a submodule aliased for [smol](https://crates.io/crates/smol) and examples
+//!   for that runtime.
+//!
 
 // clippy: do not warn about things like "SocketCAN" inside the docs
 #![allow(clippy::doc_markdown)]
@@ -105,13 +123,7 @@ pub use frame::{
 pub mod dump;
 
 pub mod socket;
-pub use socket::{CanAddr, CanFdSocket, CanFilter, CanSocket, ShouldRetry, Socket};
-
-#[cfg(feature = "async-io")]
-/// Bindings to use with async-io based async runtimes, like async-std and smol.
-pub mod async_io {
-    pub use crate::socket::async_io::{CanFdSocket, CanSocket};
-}
+pub use socket::{CanAddr, CanFdSocket, CanFilter, CanSocket, ShouldRetry, Socket, SocketOptions};
 
 #[cfg(feature = "netlink")]
 mod nl;
@@ -120,8 +132,25 @@ mod nl;
 pub use nl::CanInterface;
 
 /// Optional tokio support
-#[cfg(feature = "async-tokio")]
+//#[cfg(feature = "async-tokio")]
+#[cfg(feature = "tokio")]
 pub mod tokio;
+
+/// Optional support for async-io-based async runtimes, like async-std and smol.
+#[cfg(any(feature = "async-io", feature = "async-std", feature = "smol"))]
+pub mod async_io;
+
+/// Using the specific definition for 'smol', just re-export the async_io module.
+#[cfg(feature = "smol")]
+pub mod smol {
+    pub use crate::async_io::*;
+}
+
+/// Using the specific definition for 'async_std', just re-export the async_io module.
+#[cfg(feature = "async-std")]
+pub mod async_std {
+    pub use crate::async_io::*;
+}
 
 // ===== embedded_can I/O traits =====
 

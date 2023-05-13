@@ -28,9 +28,10 @@ fn main() -> anyhow::Result<()> {
 
     let mut socket = CanSocket::open(&can_interface)
         .with_context(|| format!("Failed to open socket on interface {}", can_interface))?;
+
     socket
         .set_nonblocking(true)
-        .with_context(|| format!("Failed to make socket non-blocking"))?;
+        .with_context(|| "Failed to make socket non-blocking")?;
 
     let shutdown = AtomicBool::new(false);
     let shutdown = Arc::new(shutdown);
@@ -42,20 +43,17 @@ fn main() -> anyhow::Result<()> {
     .expect("Failed to set signal handler");
 
     while !shutdown.load(Ordering::Relaxed) {
-        match socket.receive() {
-            Ok(frame) => {
-                println!("{}", frame_to_string(&frame));
+        if let Ok(frame) = socket.receive() {
+            println!("{}", frame_to_string(&frame));
 
-                let new_id = get_raw_id(&frame.id()) + 0x01;
-                let new_id = StandardId::new(new_id as u16).expect("Failed to create ID");
+            let new_id = get_raw_id(&frame.id()) + 0x01;
+            let new_id = StandardId::new(new_id as u16).expect("Failed to create ID");
 
-                if let Some(echo_frame) = CanFrame::new(new_id, frame.data()) {
-                    socket
-                        .transmit(&echo_frame)
-                        .expect("Failed to echo recieved frame");
-                }
+            if let Some(echo_frame) = CanFrame::new(new_id, frame.data()) {
+                socket
+                    .transmit(&echo_frame)
+                    .expect("Failed to echo recieved frame");
             }
-            Err(_) => {}
         }
     }
 

@@ -63,7 +63,7 @@ The [tokio-socketcan]() crate was merged into this one to provide async support 
 
 ```rust
 use futures_util::stream::StreamExt;
-use tokio_socketcan::{CANSocket, Error};
+use socketcan::{Error, tokio:CanSocket};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
