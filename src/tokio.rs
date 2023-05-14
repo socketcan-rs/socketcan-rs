@@ -224,7 +224,7 @@ mod tests {
         const TIMEOUT: Duration = Duration::from_millis(100);
         select!(
             frame = socket.next().fuse() => if let Some(_frame) = frame { Ok(socket) } else { panic!("unexpected") },
-            _timeout = Delay::new(TIMEOUT).fuse() => Err(io::Error::from(io::ErrorKind::TimedOut).into()),
+            _timeout = Delay::new(TIMEOUT).fuse() => Err(io::ErrorKind::TimedOut.into()),
         )
     }
 
