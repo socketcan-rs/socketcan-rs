@@ -1,28 +1,24 @@
+// socketcan/examples/nonblocking.rs
 //
-// echo.rs
+// This file is part of the Rust 'socketcan-rs' library.
+//
+// Licensed under the MIT license:
+//   <LICENSE or http://opensource.org/licenses/MIT>
+// This file may not be copied, modified, or distributed except according
+// to those terms.
 //
 // @author Natesh Narain <nnaraindev@gmail.com>
 // @date Jul 05 2022
 //
 
 use anyhow::Context;
-use clap::Parser;
-
 use embedded_can::{nb::Can, Frame as EmbeddedFrame, StandardId};
 use nb::block;
 use socketcan::{CanFrame, CanSocket, Frame, Socket};
-
-#[derive(Parser)]
-#[clap(author, version, about, long_about = None)]
-struct Args {
-    /// CAN interface
-    #[clap(value_parser)]
-    interface: String,
-}
+use std::env;
 
 fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
-    let iface = args.interface;
+    let iface = env::args().nth(1).unwrap_or_else(|| "vcan0".into());
 
     let mut sock = CanSocket::open(&iface)
         .with_context(|| format!("Failed to open socket on interface {}", iface))?;

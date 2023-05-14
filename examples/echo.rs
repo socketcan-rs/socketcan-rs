@@ -1,57 +1,49 @@
+// socketcan/examples/echo.rs
 //
-// echo.rs
+// This file is part of the Rust 'socketcan-rs' library.
+//
+// Licensed under the MIT license:
+//   <LICENSE or http://opensource.org/licenses/MIT>
+// This file may not be copied, modified, or distributed except according
+// to those terms.
 //
 // @author Natesh Narain <nnaraindev@gmail.com>
 // @date Jul 05 2022
 //
 
 use anyhow::Context;
-use clap::Parser;
-
 use embedded_can::{blocking::Can, Frame as EmbeddedFrame, StandardId};
 use socketcan::{CanFrame, CanSocket, Frame, Socket};
-
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-
-#[derive(Parser)]
-#[clap(author, version, about, long_about = None)]
-struct Args {
-    /// CAN interface
-    #[clap(value_parser)]
-    interface: String,
-}
+use std::{
+    env,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
-    let can_interface = args.interface;
+    let iface = env::args().nth(1).unwrap_or_else(|| "vcan0".into());
 
-    let mut socket = CanSocket::open(&can_interface)
-        .with_context(|| format!("Failed to open socket on interface {}", can_interface))?;
+    let mut sock = CanSocket::open(&iface)
+        .with_context(|| format!("Failed to open socket on interface {}", iface))?;
 
-    socket
-        .set_nonblocking(true)
+    sock.set_nonblocking(true)
         .with_context(|| "Failed to make socket non-blocking")?;
 
-    let shutdown = AtomicBool::new(false);
-    let shutdown = Arc::new(shutdown);
-    let signal_shutdown = shutdown.clone();
+    static QUIT: AtomicBool = AtomicBool::new(false);
 
-    ctrlc::set_handler(move || {
-        signal_shutdown.store(true, Ordering::Relaxed);
+    ctrlc::set_handler(|| {
+        QUIT.store(true, Ordering::Relaxed);
     })
     .expect("Failed to set signal handler");
 
-    while !shutdown.load(Ordering::Relaxed) {
-        if let Ok(frame) = socket.receive() {
+    while !QUIT.load(Ordering::Relaxed) {
+        if let Ok(frame) = sock.receive() {
             println!("{}", frame_to_string(&frame));
 
             let new_id = frame.raw_id() + 0x01;
             let new_id = StandardId::new(new_id as u16).expect("Failed to create ID");
 
             if let Some(echo_frame) = CanFrame::new(new_id, frame.data()) {
-                socket
-                    .transmit(&echo_frame)
+                sock.transmit(&echo_frame)
                     .expect("Failed to echo recieved frame");
             }
         }

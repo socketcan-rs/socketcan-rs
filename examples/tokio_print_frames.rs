@@ -1,14 +1,25 @@
+// socketcan/examples/tokio_print_frames.rs
+//
+// This file is part of the Rust 'socketcan-rs' library.
+//
+// Licensed under the MIT license:
+//   <LICENSE or http://opensource.org/licenses/MIT>
+// This file may not be copied, modified, or distributed except according
+// to those terms.
+//
+
 use futures_util::StreamExt;
 use socketcan::{tokio::CanSocket, CanFrame};
-use tokio;
+use std::env;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    let mut socket_rx = CanSocket::open("vcan0").unwrap();
+    let iface = env::args().nth(1).unwrap_or_else(|| "vcan0".into());
+    let mut sock = CanSocket::open(&iface).unwrap();
 
-    println!("Reading on vcan0");
+    println!("Reading on {}", iface);
 
-    while let Some(res) = socket_rx.next().await {
+    while let Some(res) = sock.next().await {
         match res {
             Ok(CanFrame::Data(frame)) => println!("{:?}", frame),
             Ok(CanFrame::Remote(frame)) => println!("{:?}", frame),

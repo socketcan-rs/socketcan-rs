@@ -1,4 +1,12 @@
 // socketcan/examples/smol_print_frames.rs
+//
+// This file is part of the Rust 'socketcan-rs' library.
+//
+// Licensed under the MIT license:
+//   <LICENSE or http://opensource.org/licenses/MIT>
+// This file may not be copied, modified, or distributed except according
+// to those terms.
+//
 
 use socketcan::{smol::CanSocket, CanFrame, Error, Result};
 use std::env;
