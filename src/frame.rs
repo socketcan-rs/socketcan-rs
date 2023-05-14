@@ -1077,6 +1077,7 @@ impl AsRef<canfd_frame> for CanFdFrame {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Error;
 
     const STD_ID: Id = Id::Standard(StandardId::MAX);
     const EXT_ID: Id = Id::Extended(ExtendedId::MAX);
@@ -1231,6 +1232,18 @@ mod tests {
 
         let frame = CanRemoteFrame::new_remote(STD_ID, CAN_MAX_DLEN + 1);
         assert!(frame.is_none());
+    }
+
+    #[test]
+    fn test_err_frame() {
+        // Create an error frame indicating transciever error
+        let mut frame = can_frame_default();
+        frame.can_id = CAN_ERR_FLAG | 0x10;
+
+        let err = Error::from(CanErrorFrame(frame));
+        if !matches!(err, Error::Can(CanError::TransceiverError)) {
+            panic!("Bad Error Conversion");
+        }
     }
 
     #[test]
