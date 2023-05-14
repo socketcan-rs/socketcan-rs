@@ -68,6 +68,13 @@ impl embedded_can::Error for Error {
     }
 }
 
+impl From<io::ErrorKind> for Error {
+    /// Creates an Io error straight from an io::ErrorKind
+    fn from(ek: io::ErrorKind) -> Self {
+        Self::from(io::Error::from(ek))
+    }
+}
+
 /// A result that can derive from any of the CAN errors.
 pub type Result<T> = std::result::Result<T, Error>;
 
