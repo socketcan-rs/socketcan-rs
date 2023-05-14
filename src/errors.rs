@@ -600,8 +600,7 @@ mod tests {
         let err = Error::from(io::Error::from(KIND));
         if let Error::Io(ioerr) = err {
             assert_eq!(ioerr.kind(), KIND);
-        }
-        else {
+        } else {
             panic!("Wrong error conversion");
         }
 
@@ -609,8 +608,7 @@ mod tests {
         let err = Error::from(KIND);
         if let Error::Io(ioerr) = err {
             assert_eq!(ioerr.kind(), KIND);
-        }
-        else {
+        } else {
             panic!("Wrong error conversion");
         }
     }
