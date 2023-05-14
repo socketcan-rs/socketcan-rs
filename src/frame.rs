@@ -64,6 +64,19 @@ pub fn id_is_extended(id: &Id) -> bool {
     matches!(id, Id::Extended(_))
 }
 
+/// Creates a CAN ID from a raw integer value.
+///
+/// If the `id` is <= 0x7FF, it's assumed to be a standard ID, otherwise
+/// it is created as an Extened ID. If you require an Extended ID <= 0x7FF,
+/// create it explicitly.
+pub fn id_from_raw(id: u32) -> Option<Id> {
+    let id = match id {
+        n if n <= CAN_SFF_MASK => StandardId::new(n as u16)?.into(),
+        n => ExtendedId::new(n)?.into(),
+    };
+    Some(id)
+}
+
 // ===== can_frame =====
 
 /// Creates a default C `can_frame`.
@@ -104,6 +117,24 @@ pub trait AsPtr {
 /// Shared trait for CAN frames
 #[allow(clippy::len_without_is_empty)]
 pub trait Frame: EmbeddedFrame {
+    /// Creates a frame using a raw, integer CAN ID.
+    ///
+    /// If the `id` is <= 0x7FF, it's assumed to be a standard ID, otherwise
+    /// it is created as an Extened ID. If you require an Etended ID <= 0x7FF,
+    /// use `new()`.
+    fn from_raw_id(id: u32, data: &[u8]) -> Option<Self> {
+        Self::new(id_from_raw(id)?, data)
+    }
+
+    /// Creates a remote frame using a raw, integer CAN ID.
+    ///
+    /// If the `id` is <= 0x7FF, it's assumed to be a standard ID, otherwise
+    /// it is created as an Extened ID. If you require an Etended ID <= 0x7FF,
+    /// use `new_remote()`.
+    fn remote_from_raw_id(id: u32, dlc: usize) -> Option<Self> {
+        Self::new_remote(id_from_raw(id)?, dlc)
+    }
+
     /// Get the composite SocketCAN ID word, with EFF/RTR/ERR flags
     fn id_word(&self) -> canid_t;
 
@@ -1189,17 +1220,17 @@ mod tests {
         assert!(!frame.is_remote_frame());
         assert!(!frame.is_error_frame());
         assert_eq!(DATA, frame.data());
-        /*
-                let frame = CanDataFrame::from_raw_id(StandardId::MAX.as_raw() as u32, DATA).unwrap();
-                assert_eq!(STD_ID, frame.id());
-                assert_eq!(id_to_raw(STD_ID), frame.raw_id());
-                assert!(frame.is_standard());
-                assert!(!frame.is_extended());
-                assert!(frame.is_data_frame());
-                assert!(!frame.is_remote_frame());
-                assert!(!frame.is_error_frame());
-                assert_eq!(DATA, frame.data());
-        */
+
+        let frame = CanDataFrame::from_raw_id(StandardId::MAX.as_raw() as u32, DATA).unwrap();
+        assert_eq!(STD_ID, frame.id());
+        assert_eq!(id_to_raw(STD_ID), frame.raw_id());
+        assert!(frame.is_standard());
+        assert!(!frame.is_extended());
+        assert!(frame.is_data_frame());
+        assert!(!frame.is_remote_frame());
+        assert!(!frame.is_error_frame());
+        assert_eq!(DATA, frame.data());
+
         let frame = CanFrame::new(EXT_ID, DATA).unwrap();
         assert_eq!(EXT_ID, frame.id());
         assert_eq!(id_to_raw(EXT_ID), frame.raw_id());
@@ -1209,17 +1240,17 @@ mod tests {
         assert!(!frame.is_remote_frame());
         assert!(!frame.is_error_frame());
         assert_eq!(DATA, frame.data());
-        /*
-                let frame = CanFrame::from_raw_id(ExtendedId::MAX.as_raw(), DATA).unwrap();
-                assert_eq!(EXT_ID, frame.id());
-                assert_eq!(id_to_raw(EXT_ID), frame.raw_id());
-                assert!(!frame.is_standard());
-                assert!(frame.is_extended());
-                assert!(frame.is_data_frame());
-                assert!(!frame.is_remote_frame());
-                assert!(!frame.is_error_frame());
-                assert_eq!(DATA, frame.data());
-        */
+
+        let frame = CanFrame::from_raw_id(ExtendedId::MAX.as_raw(), DATA).unwrap();
+        assert_eq!(EXT_ID, frame.id());
+        assert_eq!(id_to_raw(EXT_ID), frame.raw_id());
+        assert!(!frame.is_standard());
+        assert!(frame.is_extended());
+        assert!(frame.is_data_frame());
+        assert!(!frame.is_remote_frame());
+        assert!(!frame.is_error_frame());
+        assert_eq!(DATA, frame.data());
+
         // Should keep Extended flag even if ID <= 0x7FF (standard range)
         let frame = CanFrame::new(EXT_LOW_ID, DATA).unwrap();
         assert_eq!(EXT_LOW_ID, frame.id());
