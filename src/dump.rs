@@ -30,6 +30,7 @@ use crate::{
 use hex::FromHex;
 use libc::canid_t;
 use std::{fs, io, path};
+use embedded_can::StandardId;
 
 // cannot be generic, because from_str_radix is not part of any Trait
 fn parse_raw(bytes: &[u8], radix: u32) -> Option<u64> {
@@ -183,7 +184,6 @@ impl<R: io::BufRead> Reader<R> {
 
         let mut flags = IdFlags::empty();
         flags.set(IdFlags::RTR, b"R" == can_data);
-        // TODO: is extended?
         // TODO: How are error frames saved?
 
         let data = if flags.contains(IdFlags::RTR) {
@@ -200,12 +200,14 @@ impl<R: io::BufRead> Reader<R> {
             .map(super::CanAnyFrame::Fd)
         } else {
             // TODO: Check for other frame types?
-            CanDataFrame::init(
-                parse_raw(can_id, 16).ok_or(ParseError::InvalidCanFrame)? as canid_t | flags.bits(),
-                &data,
-            )
-            .map(super::CanFrame::Data)
-            .map(|f| f.into())
+            // is extended?
+            let can_id = parse_raw(can_id, 16).ok_or(ParseError::InvalidCanFrame)?;
+            if can_id >= StandardId::MAX.as_raw() as u64 {
+                flags.set(IdFlags::EFF, true);
+            }
+            CanDataFrame::init(can_id as canid_t | flags.bits(), &data)
+                .map(super::CanFrame::Data)
+                .map(|f| f.into())
         }?;
 
         Ok(Some(CanDumpRecord {
@@ -269,6 +271,49 @@ mod test {
                 assert_eq!(frame.is_remote_frame(), false);
                 assert_eq!(frame.is_error_frame(), false);
                 assert_eq!(frame.is_extended(), false);
+                assert_eq!(frame.data(), &[0x7F]);
+            } else {
+                panic!("Expected Normal frame, got FD");
+            }
+        }
+
+        assert!(reader.next_record().unwrap().is_none());
+    }
+
+    #[test]
+    fn test_extended_example() {
+        let input: &[u8] = b"(1469439874.299591) can1 080080#\n\
+                             (1469439874.299654) can1 053701#7F";
+
+        let mut reader = Reader::from_reader(input);
+
+        {
+            let rec1 = reader.next_record().unwrap().unwrap();
+
+            assert_eq!(rec1.t_us, 1469439874299591);
+            assert_eq!(rec1.device, "can1");
+
+            if let CanAnyFrame::Normal(frame) = rec1.frame {
+                assert_eq!(frame.raw_id(), 0x080080);
+                assert_eq!(frame.is_remote_frame(), false);
+                assert_eq!(frame.is_error_frame(), false);
+                assert_eq!(frame.is_extended(), true);
+                assert_eq!(frame.data(), &[]);
+            } else {
+                panic!("Expected Normal frame, got FD");
+            }
+        }
+
+        {
+            let rec2 = reader.next_record().unwrap().unwrap();
+            assert_eq!(rec2.t_us, 1469439874299654);
+            assert_eq!(rec2.device, "can1");
+
+            if let CanAnyFrame::Normal(frame) = rec2.frame {
+                assert_eq!(frame.raw_id(), 0x053701);
+                assert_eq!(frame.is_remote_frame(), false);
+                assert_eq!(frame.is_error_frame(), false);
+                assert_eq!(frame.is_extended(), true);
                 assert_eq!(frame.data(), &[0x7F]);
             } else {
                 panic!("Expected Normal frame, got FD");
