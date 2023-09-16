@@ -59,19 +59,28 @@ Note that, at this time, the MSRV is mostly diven by use of the `clap v4.0` crat
 
 The [tokio-socketcan]() crate was merged into this one to provide async support for CANbus using tokio.
 
-#### Example  echo server with _tokio_
+#### Example bridge with _tokio_
+
+This is a simple example of sending data frames from one CAN interface to another. It is included in
+the example applications as
+[tokio_bridge.rs](https://github.com/socketcan-rs/socketcan-rs/blob/master/examples/tokio_print_frames.rs).
 
 ```rust
-use futures_util::stream::StreamExt;
-use socketcan::{Error, tokio:CanSocket};
+use futures_util::StreamExt;
+use socketcan::{tokio::CanSocket, CanFrame, Result};
+use tokio;
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
-    let mut socket_rx = CANSocket::open("vcan0")?;
-    let socket_tx = CANSocket::open("vcan0")?;
-    while let Some(Ok(frame)) = socket_rx.next().await {
-        socket_tx.write_frame(frame)?.await?;
+async fn main() -> Result<()> {
+    let mut sock_rx = CanSocket::open("vcan0")?;
+    let sock_tx = CanSocket::open("can0")?;
+
+    while let Some(Ok(frame)) = sock_rx.next().await {
+        if matches!(frame, CanFrame::Data(_)) {
+            sock_tx.write_frame(frame)?.await?;
+        }
     }
+
     Ok(())
 }
 ```

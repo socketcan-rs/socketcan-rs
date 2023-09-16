@@ -83,6 +83,10 @@ name = "tokio_print_frames"
 required-features = ["tokio"]
 
 [[example]]
+name = "tokio_bridge"
+required-features = ["tokio"]
+
+[[example]]
 name = "smol_send_frames"
 required-features = ["smol"]
 
