@@ -283,7 +283,7 @@ pub fn set_socket_option_mult<T>(
                 level,
                 name,
                 values.as_ptr().cast(),
-                (mem::size_of::<T>() * values.len()) as socklen_t,
+                mem::size_of_val(values) as socklen_t,
             )
         }
     };
