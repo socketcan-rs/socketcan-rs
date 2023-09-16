@@ -1,4 +1,4 @@
-// socketcan/examples/async_std_print_frames.rs
+// socketcan/examples/async_std_send.rs
 //
 // Example application for using async-std with socketcan-rs.
 //
@@ -12,28 +12,28 @@
 
 //! A SocketCAN example using async-std.
 //!
-//! This receives CAN frames and prints them to the console.
+//! This sends data frames to the CANbus.
 //!
 
+use embedded_can::{Frame, StandardId};
+use futures_timer::Delay;
 use socketcan::{async_std::CanSocket, CanFrame, Result};
-use std::env;
+use std::{env, time::Duration};
 
 #[async_std::main]
 async fn main() -> Result<()> {
     let iface = env::args().nth(1).unwrap_or_else(|| "vcan0".into());
+
     let sock = CanSocket::open(&iface)?;
 
-    println!("Reading on {}", iface);
-
     loop {
-        match sock.read_frame().await {
-            Ok(CanFrame::Data(frame)) => println!("{:?}", frame),
-            Ok(CanFrame::Remote(frame)) => println!("{:?}", frame),
-            Ok(CanFrame::Error(frame)) => println!("{:?}", frame),
-            Err(err) => eprintln!("{}", err),
-        }
-    }
+        let id = StandardId::new(0x100).unwrap();
+        let frame = CanFrame::new(id, &[0]).unwrap();
 
-    #[allow(unreachable_code)]
-    Ok(())
+        println!("Writing on {}", iface);
+        sock.write_frame(&frame).await?;
+
+        println!("Waiting 3 seconds");
+        Delay::new(Duration::from_secs(3)).await?;
+    }
 }

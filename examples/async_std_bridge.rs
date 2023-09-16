@@ -1,6 +1,6 @@
-// socketcan/examples/tokio_bridge.rs
+// socketcan/examples/async_std_bridge.rs
 //
-// Example application for using Tokio with socketcan-rs.
+// Example application for using async-std with socketcan-rs.
 //
 // This file is part of the Rust 'socketcan-rs' library.
 //
@@ -9,25 +9,22 @@
 // This file may not be copied, modified, or distributed except according
 // to those terms.
 
-//! A SocketCAN example using Tokio.
+//! A SocketCAN example using async-std.
 //!
 //! This sends CAN data frames received on one interface to another.
 //!
 
-use futures_util::StreamExt;
-use socketcan::{tokio::CanSocket, CanFrame, Result};
-use tokio;
+use socketcan::{async_std::CanSocket, CanFrame, Result};
 
-#[tokio::main]
+#[async_std::main]
 async fn main() -> Result<()> {
-    let mut sock_rx = CanSocket::open("vcan0")?;
+    let sock_rx = CanSocket::open("vcan0")?;
     let sock_tx = CanSocket::open("can0")?;
 
-    while let Some(Ok(frame)) = sock_rx.next().await {
+    loop {
+        let frame = sock_rx.read_frame().await?;
         if matches!(frame, CanFrame::Data(_)) {
-            sock_tx.write_frame(frame)?.await?;
+            sock_tx.write_frame(&frame).await?;
         }
     }
-
-    Ok(())
 }

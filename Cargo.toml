@@ -74,11 +74,7 @@ name = "rcan"
 required-features = ["utils"]
 
 [[example]]
-name = "tokio_send_frames"
-required-features = ["tokio"]
-
-[[example]]
-name = "tokio_print_frames"
+name = "tokio_send"
 required-features = ["tokio"]
 
 [[example]]
@@ -86,7 +82,15 @@ name = "tokio_bridge"
 required-features = ["tokio"]
 
 [[example]]
-name = "smol_send_frames"
+name = "tokio_print_frames"
+required-features = ["tokio"]
+
+[[example]]
+name = "smol_send"
+required-features = ["smol"]
+
+[[example]]
+name = "smol_bridge"
 required-features = ["smol"]
 
 [[example]]
@@ -94,7 +98,11 @@ name = "smol_print_frames"
 required-features = ["smol"]
 
 [[example]]
-name = "async_std_send_frames"
+name = "async_std_send"
+required-features = ["async-std"]
+
+[[example]]
+name = "async_std_bridge"
 required-features = ["async-std"]
 
 [[example]]

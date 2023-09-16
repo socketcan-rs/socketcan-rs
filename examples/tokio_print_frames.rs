@@ -1,5 +1,7 @@
 // socketcan/examples/tokio_print_frames.rs
 //
+// Example application for using Tokio with socketcan-rs.
+//
 // This file is part of the Rust 'socketcan-rs' library.
 //
 // Licensed under the MIT license:
@@ -7,6 +9,11 @@
 // This file may not be copied, modified, or distributed except according
 // to those terms.
 //
+
+//! A SocketCAN example using Tokio.
+//!
+//! This receives CAN frames and prints them to the console.
+//!
 
 use futures_util::StreamExt;
 use socketcan::{tokio::CanSocket, CanFrame};

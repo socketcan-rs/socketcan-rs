@@ -1,5 +1,7 @@
 // socketcan/examples/smol_send_frames.rs
 //
+// Example application for using smol with socketcan-rs.
+//
 // This file is part of the Rust 'socketcan-rs' library.
 //
 // Licensed under the MIT license:
@@ -7,6 +9,11 @@
 // This file may not be copied, modified, or distributed except according
 // to those terms.
 //
+
+//! A SocketCAN example using smol.
+//!
+//! This sends data frames to the CANbus.
+//!
 
 use embedded_can::{Frame, StandardId};
 use futures_timer::Delay;
