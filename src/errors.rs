@@ -68,6 +68,19 @@ impl embedded_can::Error for Error {
     }
 }
 
+impl From<CanErrorFrame> for Error {
+    fn from(frame: CanErrorFrame) -> Self {
+        Error::Can(CanError::from(frame))
+    }
+}
+
+impl From<io::ErrorKind> for Error {
+    /// Creates an Io error straight from an io::ErrorKind
+    fn from(ek: io::ErrorKind) -> Self {
+        Self::from(io::Error::from(ek))
+    }
+}
+
 /// A result that can derive from any of the CAN errors.
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -569,5 +582,34 @@ impl fmt::Display for ConstructionError {
             TooMuchData => "Payload is too large",
         };
         write!(f, "{}", msg)
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////
+
+#[cfg(test)]
+mod tests {
+    use crate::Error;
+    use std::io;
+
+    #[test]
+    fn test_errors() {
+        const KIND: io::ErrorKind = io::ErrorKind::TimedOut;
+
+        // From an IO error.
+        let err = Error::from(io::Error::from(KIND));
+        if let Error::Io(ioerr) = err {
+            assert_eq!(ioerr.kind(), KIND);
+        } else {
+            panic!("Wrong error conversion");
+        }
+
+        // Straight from an ErrorKind
+        let err = Error::from(KIND);
+        if let Error::Io(ioerr) = err {
+            assert_eq!(ioerr.kind(), KIND);
+        } else {
+            panic!("Wrong error conversion");
+        }
     }
 }

@@ -1,4 +1,12 @@
 // socketcan/examples/async_std_print_frames.rs
+//
+// This file is part of the Rust 'socketcan-rs' library.
+//
+// Licensed under the MIT license:
+//   <LICENSE or http://opensource.org/licenses/MIT>
+// This file may not be copied, modified, or distributed except according
+// to those terms.
+//
 
 use async_std::task;
 use socketcan::{async_std::CanSocket, CanFrame, Error, Result};

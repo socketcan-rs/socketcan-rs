@@ -224,7 +224,7 @@ mod tests {
         const TIMEOUT: Duration = Duration::from_millis(100);
         select!(
             frame = socket.next().fuse() => if let Some(_frame) = frame { Ok(socket) } else { panic!("unexpected") },
-            _timeout = Delay::new(TIMEOUT).fuse() => Err(io::Error::from(io::ErrorKind::TimedOut).into()),
+            _timeout = Delay::new(TIMEOUT).fuse() => Err(io::ErrorKind::TimedOut.into()),
         )
     }
 
@@ -261,9 +261,9 @@ mod tests {
         let socket1 = CanSocket::open("vcan0").unwrap();
         let socket2 = CanSocket::open("vcan0").unwrap();
 
-        let frame_id_1 = CanFrame::new(StandardId::new(1).unwrap(), &[0u8]).unwrap();
-        let frame_id_2 = CanFrame::new(StandardId::new(2).unwrap(), &[0u8]).unwrap();
-        let frame_id_3 = CanFrame::new(StandardId::new(3).unwrap(), &[0u8]).unwrap();
+        let frame_id_1 = CanFrame::from_raw_id(0x01, &[0u8]).unwrap();
+        let frame_id_2 = CanFrame::from_raw_id(0x02, &[0u8]).unwrap();
+        let frame_id_3 = CanFrame::from_raw_id(0x03, &[0u8]).unwrap();
 
         let (mut sink, _stream) = socket1.split();
         let (_sink, stream) = socket2.split();

@@ -1,8 +1,17 @@
+// socketcan/examples/tokio_send_frames.rs
+//
+// This file is part of the Rust 'socketcan-rs' library.
+//
+// Licensed under the MIT license:
+//   <LICENSE or http://opensource.org/licenses/MIT>
+// This file may not be copied, modified, or distributed except according
+// to those terms.
+//
+
 use embedded_can::{Frame, StandardId};
 use futures_timer::Delay;
 use socketcan::{tokio::CanSocket, CanFrame, Error};
 use std::time::Duration;
-use tokio;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {

@@ -56,7 +56,6 @@ async-std = { version = "1.12", optional = true }
 [dev-dependencies]
 anyhow = "1.0"
 ctrlc = "3.2.2"
-clap = { version = "4.0", features = ["derive"] }
 nb = "1.0"
 # TODO: Is it possible to only include these for async builds?
 futures-timer = "0.3"
