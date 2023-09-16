@@ -250,8 +250,8 @@ pub fn set_socket_option_mult<T>(
                 fd,
                 level,
                 name,
-                values.as_ptr() as *const c_void,
-                (mem::size_of::<T>() * values.len()) as socklen_t,
+                values.as_ptr().cast(),
+                mem::size_of_val(values) as socklen_t,
             )
         }
     };
