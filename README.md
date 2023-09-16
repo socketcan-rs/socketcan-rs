@@ -96,7 +96,7 @@ async fn main() -> Result<()> {
 
 ### async-io
 
-The [tokio-socketcan](https://crates.io/crates/tokio-socketcan) crate was merged into this one to provide async support for CANbus using tokio.
+New support was added for the [async-io](https://crates.io/crates/async-io) runtime, supporting _async-std_ and _smol_.
 
 This is enabled with the optional feature, `async-io`. It can also be enabled with either feature, `async-std` or `smol`. These latter two are particularly useful when building manually, as they will also build the examples for each those specific runtimes, respectively.
 
