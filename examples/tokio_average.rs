@@ -22,9 +22,12 @@
 //!
 
 use futures_util::StreamExt;
-use socketcan::{tokio::CanSocket, CanFilter, CanFrame, EmbeddedFrame, Frame, Result, SocketOptions, StandardId};
+use socketcan::{
+    tokio::CanSocket, CanFilter, CanFrame, EmbeddedFrame, Error, Frame, Result, SocketOptions,
+    StandardId,
+};
 use std::collections::VecDeque;
-use tokio;
+use tokio::sync::mpsc;
 
 struct MovingAverage {
     sum: i32,
@@ -54,20 +57,28 @@ async fn main() -> Result<()> {
 
     sock_rx.set_filters(&[CanFilter::new(0x100, 0x7FF)])?;
 
-    let mut data = MovingAverage::new(5);
+    let (tx, mut rx) = mpsc::channel::<CanFrame>(3);
 
-    while let Some(Ok(mut frame)) = sock_rx.next().await {
-        if !matches!(frame, CanFrame::Data(_)) {
-            continue;
+    tokio::spawn(async move {
+        let mut data = MovingAverage::new(5);
+
+        while let Some(mut frame) = rx.recv().await {
+            let n = i32::from_le_bytes(frame.data()[0..4].try_into().unwrap());
+            let avg = data.avg(n);
+
+            frame.set_id(StandardId::new(0x101).unwrap());
+            frame.set_data(&avg.to_le_bytes()).unwrap();
+
+            sock_tx.write_frame(frame)?.await?;
         }
 
-        let n = i32::from_le_bytes(frame.data()[0..4].try_into().unwrap());
-        let avg = data.avg(n);
+        Ok::<(), Error>(())
+    });
 
-        frame.set_id(StandardId::new(0x101).unwrap());
-        frame.set_data(&avg.to_le_bytes()).unwrap();
-
-        sock_tx.write_frame(frame)?.await?;
+    while let Some(Ok(frame)) = sock_rx.next().await {
+        if matches!(frame, CanFrame::Data(_)) {
+            tx.send(frame).await.unwrap();
+        }
     }
 
     Ok(())
