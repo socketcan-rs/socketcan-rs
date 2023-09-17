@@ -43,7 +43,7 @@ use mio::{event, unix::SourceFd, Interest, Registry, Token};
 use crate::{CanAddr, CanFrame, Error, Result, Socket, SocketOptions};
 use tokio::io::unix::AsyncFd;
 
-/// A Future representing the eventual writing of a CANFrame to the socket.
+/// A Future representing the eventual writing of a CanFrame to the socket.
 ///
 /// Created by the CanSocket.write_frame() method
 #[derive(Debug)]
