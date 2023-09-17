@@ -22,9 +22,15 @@ Version 2.0 is a major rewrite of the library to modernize it for the latest Rus
 
 ## Unreleased Features in this Branch
 
-- All of [tokio-socketcan](https://github.com/oefd/tokio-socketcan) has been merged into this crate and will be available with an `async-tokio` build feature.
-- [#41](https://github.com/socketcan-rs/socketcan-rs/pull/41) Added initial support for `async-io` for use with `async-std` and `smol`
-- Made 'CanAddr' pulic and added functions to help interact with low-level sockaddr types. Sockets can now be opened with an address.
+- Support for Rust async/await
+    - All of [tokio-socketcan](https://github.com/oefd/tokio-socketcan) has been merged into this crate and will be available with an `async-tokio` build feature.
+    - [#41](https://github.com/socketcan-rs/socketcan-rs/pull/41) Added initial support for `async-io` for use with `async-std` and `smol`
+    - Split `SocketOptions` trait out of `Socket` trait for use with async (breaking)
+    - Added cargo build features for `tokio` or `async-io`.
+    - Also created specific build features for `async-std` and `smol` which just bring in the `async-io` module and alias the module name to `async-std` or `smol`, respectively, and build examples for each.
+- Made `CanAddr` pulic and added functions to help interact with low-level sockaddr types. Sockets can now be opened with an address.
+- Can create an `Error` directly from a `CanErrorFrame` or `std::io::ErrorKind`.
+- Added `Frame::from_raw_id()` and `Frame::remote_from_raw_id()`
 - Bumped MSRV to 1.65.0
 
 ## What's New in v2.0
@@ -94,11 +100,13 @@ async fn main() -> Result<()> {
 }
 ```
 
-### async-io
+### async-io  (_async-std_ & _smol_)
 
-New support was added for the [async-io](https://crates.io/crates/async-io) runtime, supporting _async-std_ and _smol_.
+New support was added for the [async-io](https://crates.io/crates/async-io) runtime, supporting the [async-std](https://crates.io/crates/async-std) and [smol](https://crates.io/crates/smol) runtimes.
 
-This is enabled with the optional feature, `async-io`. It can also be enabled with either feature, `async-std` or `smol`. These latter two are particularly useful when building manually, as they will also build the examples for each those specific runtimes, respectively.
+This is enabled with the optional feature, `async-io`. It can also be enabled with either feature, `async-std` or `smol`. Either of those specific runtime flags will simply build the `async-io` support but then also alias the `async-io` submodule with the specific feature/runtime name. This is simply for convenience.
+
+Additionally, when building examples, the specific examples for the runtime will be built if specifying the `async-std` or `smol` feature(s).
 
 #### Example bridge with _async-std_
 
