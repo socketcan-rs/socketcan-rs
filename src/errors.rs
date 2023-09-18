@@ -113,7 +113,7 @@ pub enum CanError {
     BusError,
     /// The bus has been restarted
     Restarted,
-    /// There was an error deciding the error frame
+    /// There was an error decoding the error frame
     DecodingFailure(CanErrorDecodingFailure),
     /// Unknown, possibly invalid, error
     Unknown(u32),
