@@ -9,6 +9,10 @@ printf "Updating the crate...\n"
 cargo clean && cargo update
 [ "$?" -ne 0 ] && exit 1
 
+printf "Format check...\n"
+cargo fmt --all --check
+[ "$?" -ne 0 ] && exit 1
+
 printf "\n\nBuilding with default features...\n"
 cargo clean && cargo build && cargo doc && cargo test && cargo clippy
 [ "$?" -ne 0 ] && exit 1

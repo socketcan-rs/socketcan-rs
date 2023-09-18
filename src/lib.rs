@@ -132,7 +132,6 @@ mod nl;
 pub use nl::CanInterface;
 
 /// Optional tokio support
-//#[cfg(feature = "async-tokio")]
 #[cfg(feature = "tokio")]
 pub mod tokio;
 
