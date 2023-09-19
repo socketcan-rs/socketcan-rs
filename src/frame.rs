@@ -769,6 +769,11 @@ impl EmbeddedFrame for CanErrorFrame {
         false
     }
 
+    /// Check if frame is a data frame.
+    fn is_data_frame(&self) -> bool {
+        false
+    }
+
     /// Return the frame identifier.
     fn id(&self) -> Id {
         self.hal_id()
@@ -1101,6 +1106,7 @@ mod tests {
         assert!(!frame.is_extended());
         assert!(frame.is_data_frame());
         assert!(!frame.is_remote_frame());
+        assert!(!frame.is_error_frame());
         assert_eq!(DATA, frame.data());
 
         let frame = CanFrame::from(frame);
@@ -1110,8 +1116,19 @@ mod tests {
         assert!(!frame.is_extended());
         assert!(frame.is_data_frame());
         assert!(!frame.is_remote_frame());
+        assert!(!frame.is_error_frame());
         assert_eq!(DATA, frame.data());
-
+/*
+        let frame = CanDataFrame::from_raw_id(StandardId::MAX.as_raw() as u32, DATA).unwrap();
+        assert_eq!(STD_ID, frame.id());
+        assert_eq!(id_to_raw(STD_ID), frame.raw_id());
+        assert!(frame.is_standard());
+        assert!(!frame.is_extended());
+        assert!(frame.is_data_frame());
+        assert!(!frame.is_remote_frame());
+        assert!(!frame.is_error_frame());
+        assert_eq!(DATA, frame.data());
+*/
         let frame = CanFrame::new(EXT_ID, DATA).unwrap();
         assert_eq!(EXT_ID, frame.id());
         assert_eq!(id_to_raw(EXT_ID), frame.raw_id());
@@ -1119,8 +1136,19 @@ mod tests {
         assert!(frame.is_extended());
         assert!(frame.is_data_frame());
         assert!(!frame.is_remote_frame());
+        assert!(!frame.is_error_frame());
         assert_eq!(DATA, frame.data());
-
+/*
+        let frame = CanFrame::from_raw_id(ExtendedId::MAX.as_raw(), DATA).unwrap();
+        assert_eq!(EXT_ID, frame.id());
+        assert_eq!(id_to_raw(EXT_ID), frame.raw_id());
+        assert!(!frame.is_standard());
+        assert!(frame.is_extended());
+        assert!(frame.is_data_frame());
+        assert!(!frame.is_remote_frame());
+        assert!(!frame.is_error_frame());
+        assert_eq!(DATA, frame.data());
+*/
         // Should keep Extended flag even if ID <= 0x7FF (standard range)
         let frame = CanFrame::new(EXT_LOW_ID, DATA).unwrap();
         assert_eq!(EXT_LOW_ID, frame.id());
@@ -1147,6 +1175,7 @@ mod tests {
         assert!(!frame.is_extended());
         assert!(!frame.is_data_frame());
         assert!(frame.is_remote_frame());
+        assert!(!frame.is_error_frame());
         assert_eq!(DATA_LEN, frame.dlc());
         assert_eq!(DATA_LEN, frame.len());
         assert_eq!(ZERO_DATA, frame.data());
@@ -1161,6 +1190,7 @@ mod tests {
         assert!(!frame.is_extended());
         assert!(!frame.is_data_frame());
         assert!(frame.is_remote_frame());
+        assert!(!frame.is_error_frame());
         assert_eq!(ZERO_DATA, frame.data());
 
         assert!(matches!(frame, CanFrame::Remote(_)));
@@ -1174,6 +1204,7 @@ mod tests {
         assert!(!frame.is_extended());
         assert!(!frame.is_data_frame());
         assert!(frame.is_remote_frame());
+        assert!(!frame.is_error_frame());
         assert_eq!(ZERO_DATA, frame.data());
 
         assert!(matches!(frame, CanFrame::Remote(_)));
@@ -1185,6 +1216,66 @@ mod tests {
     }
 
     #[test]
+    fn test_error_frame() {
+        // Create an error frame indicating transciever error
+        // from a C frame.
+        let mut frame = can_frame_default();
+        frame.can_id = CAN_ERR_FLAG | 0x0010;
+
+        let err = CanError::from(CanErrorFrame(frame));
+        assert!(matches!(err, CanError::TransceiverError));
+/*
+        let id = StandardId::new(0x0010).unwrap();
+        let frame = CanErrorFrame::new(id, &[]).unwrap();
+        assert!(!frame.is_data_frame());
+        assert!(!frame.is_remote_frame());
+        assert!(frame.is_error_frame());
+
+        let err = CanError::from(frame);
+        assert!(matches!(err, CanError::TransceiverError));
+
+        let id = ExtendedId::new(0x0020).unwrap();
+        let frame = CanErrorFrame::new(id, &[]).unwrap();
+        assert!(!frame.is_data_frame());
+        assert!(!frame.is_remote_frame());
+        assert!(frame.is_error_frame());
+
+        let err = CanError::from(frame);
+        assert!(matches!(err, CanError::NoAck));
+
+        // From CanErrors
+
+        let frame = CanErrorFrame::from(CanError::TransmitTimeout);
+        assert!(!frame.is_data_frame());
+        assert!(!frame.is_remote_frame());
+        assert!(frame.is_error_frame());
+
+        let err = frame.into_error();
+        assert!(matches!(err, CanError::TransmitTimeout));
+
+        let err = CanError::ProtocolViolation {
+            vtype: errors::ViolationType::BitStuffingError,
+            location: errors::Location::Id0400,
+        };
+        let frame = CanErrorFrame::from(err);
+        assert!(!frame.is_data_frame());
+        assert!(!frame.is_remote_frame());
+        assert!(frame.is_error_frame());
+
+        let err = frame.into_error();
+        match err {
+            CanError::ProtocolViolation { vtype, location } => {
+                assert_eq!(vtype, errors::ViolationType::BitStuffingError);
+                assert_eq!(location, errors::Location::Id0400);
+            }
+            _ => {
+                assert!(false);
+            }
+        }
+*/
+    }
+
+    #[test]
     fn test_fd_frame() {
         let frame = CanFdFrame::new(STD_ID, DATA).unwrap();
         assert_eq!(STD_ID, frame.id());
@@ -1193,6 +1284,7 @@ mod tests {
         assert!(!frame.is_extended());
         assert!(frame.is_data_frame());
         assert!(!frame.is_remote_frame());
+        assert!(!frame.is_error_frame());
         assert_eq!(DATA, frame.data());
 
         let frame = CanFdFrame::new(EXT_ID, DATA).unwrap();
@@ -1202,6 +1294,7 @@ mod tests {
         assert!(frame.is_extended());
         assert!(frame.is_data_frame());
         assert!(!frame.is_remote_frame());
+        assert!(!frame.is_error_frame());
         assert_eq!(DATA, frame.data());
 
         // Should keep Extended flag even if ID <= 0x7FF (standard range)
@@ -1219,6 +1312,8 @@ mod tests {
         assert_eq!(STD_ID, frame.id());
         assert!(frame.is_standard());
         assert!(frame.is_data_frame());
+        assert!(!frame.is_remote_frame());
+        assert!(!frame.is_error_frame());
         assert_eq!(DATA, frame.data());
     }
 }
