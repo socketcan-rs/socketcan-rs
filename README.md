@@ -41,7 +41,7 @@ We will also start looking into support of Rust async/await, prefereably in a po
 
 ## Minimum Supported Rust Version (MSRV)
 
-The current version of the crate targets Rust Edition 2021 with an MSRV of Rust v1.64.0.
+The current version of the crate targets Rust Edition 2021 with an MSRV of Rust v1.65.
 
 Note that, at this time, the MSRV is mostly diven by use of the `clap v4.0` crate for managing command-line parameters in the utilities and example applications. The core library could likely be built with an earlier version of the compiler if required.
 
