@@ -10,7 +10,19 @@ Please see the [documentation](https://docs.rs/socketcan) for details about the 
 
 ## Latest News
 
-Version 2.0 is finally released!
+Version 2.x is finally released!
+
+## What's New in v2.1
+
+- Made `CanAddr` pulic and added functions to help interact with low-level sockaddr types. Sockets can now be opened with an address.
+- Can create an `Error` directly from a `CanErrorFrame` or `std::io::ErrorKind`.
+- [#46](https://github.com/socketcan-rs/socketcan-rs/issues/46)  Applications can create error frames:
+    - `CanErrorFrame::new()` now works.
+    - `CanErrorFrame::new_error()` is similar but more intuitive using a raw ID word.
+    - `From<CanError> for CanErrorFrame` to create an error frame from a `CanError`.
+- Added `Frame::from_raw_id()` and `Frame::remote_from_raw_id()`
+- Bumped MSRV to 1.65.0
+
 
 ## What's New in v2.0
 
