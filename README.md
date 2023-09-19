@@ -12,9 +12,9 @@ Please see the [documentation](https://docs.rs/socketcan) for details about the 
 
 ### Version 3.x adds integrated async/await!
 
-Version 3.0 adds integrated support for async/await, with the most popular runtimes, _tokio, async-std_, and _smol_.  To get started we have already merged the [tokio-socketcan](https://github.com/oefd/tokio-socketcan) crate into this one and started on `async-io`.
+Version 3.0 adds integrated support for async/await, with the most popular runtimes, _tokio, async-std_, and _smol_.  To get started we have already merged the [tokio-socketcan](https://github.com/oefd/tokio-socketcan) crate into this one and implemented `async-io`.
 
-Unfortunaly this required a minor breaking change to the existing API, so we will bump the version to 3.0.
+Unfortunaly this required a minor breaking change to the existing API, so we bumped the version to 3.0.
 
 The async support is optional, and can be enabled with a feature for the target runtime: `tokio`, `async-std`, or `smol`.
 
