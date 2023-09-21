@@ -99,7 +99,8 @@
     missing_debug_implementations,
     unstable_features,
     unused_import_braces,
-    unused_qualifications
+    unused_qualifications,
+    unsafe_op_in_unsafe_fn
 )]
 
 use std::io::ErrorKind;

@@ -27,10 +27,10 @@ use crate::{
     frame::{FdFlags, IdFlags},
     CanDataFrame, CanFdFrame,
 };
+use embedded_can::StandardId;
 use hex::FromHex;
 use libc::canid_t;
 use std::{fs, io, path};
-use embedded_can::StandardId;
 
 // cannot be generic, because from_str_radix is not part of any Trait
 fn parse_raw(bytes: &[u8], radix: u32) -> Option<u64> {
