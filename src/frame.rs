@@ -16,7 +16,10 @@ use bitflags::bitflags;
 use embedded_can::{ExtendedId, Frame as EmbeddedFrame, Id, StandardId};
 use itertools::Itertools;
 use libc::{can_frame, canfd_frame, canid_t};
-use std::{convert::TryFrom, fmt, matches, mem};
+use std::{
+    ffi::c_void,
+    {convert::TryFrom, fmt, matches, mem},
+};
 
 pub use libc::{
     CANFD_BRS, CANFD_ESI, CANFD_MAX_DLEN, CAN_EFF_FLAG, CAN_EFF_MASK, CAN_ERR_FLAG, CAN_ERR_MASK,
@@ -107,7 +110,7 @@ pub trait AsPtr {
     fn as_mut_ptr(&mut self) -> *mut Self::Inner;
 
     /// The size of the inner type
-    fn size() -> usize {
+    fn size(&self) -> usize {
         std::mem::size_of::<Self::Inner>()
     }
 }
@@ -223,6 +226,37 @@ impl From<CanFrame> for CanAnyFrame {
 impl From<CanFdFrame> for CanAnyFrame {
     fn from(frame: CanFdFrame) -> Self {
         Self::Fd(frame)
+    }
+}
+
+impl AsPtr for CanAnyFrame {
+    type Inner = c_void;
+
+    fn as_ptr(&self) -> *const Self::Inner {
+        match self {
+            CanAnyFrame::Normal(frame) => frame.as_ptr() as *const Self::Inner,
+            CanAnyFrame::Remote(frame) => frame.as_ptr() as *const Self::Inner,
+            CanAnyFrame::Error(frame) => frame.as_ptr() as *const Self::Inner,
+            CanAnyFrame::Fd(frame) => frame.as_ptr() as *const Self::Inner,
+        }
+    }
+
+    fn as_mut_ptr(&mut self) -> *mut Self::Inner {
+        match self {
+            CanAnyFrame::Normal(frame) => frame.as_mut_ptr() as *mut Self::Inner,
+            CanAnyFrame::Remote(frame) => frame.as_mut_ptr() as *mut Self::Inner,
+            CanAnyFrame::Error(frame) => frame.as_mut_ptr() as *mut Self::Inner,
+            CanAnyFrame::Fd(frame) => frame.as_mut_ptr() as *mut Self::Inner,
+        }
+    }
+
+    fn size(&self) -> usize {
+        match self {
+            CanAnyFrame::Normal(frame) => frame.size(),
+            CanAnyFrame::Remote(frame) => frame.size(),
+            CanAnyFrame::Error(frame) => frame.size(),
+            CanAnyFrame::Fd(frame) => frame.size(),
+        }
     }
 }
 

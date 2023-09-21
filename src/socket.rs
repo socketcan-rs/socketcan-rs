@@ -594,7 +594,7 @@ impl Socket for CanSocket {
     where
         F: Into<CanFrame> + AsPtr,
     {
-        raw_write_frame(self.fd.as_raw_fd(), frame.as_ptr(), F::size())
+        raw_write_frame(self.fd.as_raw_fd(), frame.as_ptr(), frame.size())
     }
 
     /// Reads a normal CAN 2.0 frame from the socket.
@@ -676,7 +676,7 @@ impl Socket for CanFdSocket {
     where
         F: Into<Self::FrameType> + AsPtr,
     {
-        raw_write_frame(self.fd.as_raw_fd(), frame.as_ptr(), F::size())
+        raw_write_frame(self.fd.as_raw_fd(), frame.as_ptr(), frame.size())
     }
 
     /// Reads either type of CAN frame from the socket.
