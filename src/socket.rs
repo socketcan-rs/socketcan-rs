@@ -614,7 +614,7 @@ impl Socket for CanSocket {
 
 impl SocketOptions for CanSocket {}
 
-// Has no effect: #[deprecated(since = "2.1", note = "Use AsFd::as_fd() instead.")]
+// Has no effect: #[deprecated(since = "3.1", note = "Use AsFd::as_fd() instead.")]
 impl AsRawFd for CanSocket {
     fn as_raw_fd(&self) -> RawFd {
         self.fd.as_raw_fd()
@@ -713,7 +713,7 @@ impl Socket for CanFdSocket {
 
 impl SocketOptions for CanFdSocket {}
 
-// Has no effect: #[deprecated(since = "2.1", note = "Use AsFd::as_fd() instead.")]
+// Has no effect: #[deprecated(since = "3.1", note = "Use AsFd::as_fd() instead.")]
 impl AsRawFd for CanFdSocket {
     fn as_raw_fd(&self) -> RawFd {
         self.fd.as_raw_fd()
