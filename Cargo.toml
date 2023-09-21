@@ -1,8 +1,8 @@
 [package]
 name = "socketcan"
-version = "2.0.0"
+version = "3.0.0"
 edition = "2021"
-rust-version = "1.64"
+rust-version = "1.65"
 authors = [
     "Marc Brinkmann <git@marcbrinkmann.de>",
     "Frank Pagliughi <fpagliughi@mindspring.com>"
@@ -62,19 +62,20 @@ futures-timer = "0.3"
 futures-util = "0.3"
 serial_test = { version = "2.0", features = ["async"]}
 async-std = { version = "1.12", features = ["attributes"]}
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
 futures = "0.3"
 
-[dev-dependencies.tokio]
-version = "1"
-# required for tokio::test
-features = ["macros", "rt-multi-thread"]
-    
+
 [[bin]]
 name = "rcan"
 required-features = ["utils"]
 
 [[example]]
-name = "tokio_send_frames"
+name = "tokio_send"
+required-features = ["tokio"]
+
+[[example]]
+name = "tokio_bridge"
 required-features = ["tokio"]
 
 [[example]]
@@ -82,7 +83,15 @@ name = "tokio_print_frames"
 required-features = ["tokio"]
 
 [[example]]
-name = "smol_send_frames"
+name = "tokio_average"
+required-features = ["tokio"]
+
+[[example]]
+name = "smol_send"
+required-features = ["smol"]
+
+[[example]]
+name = "smol_bridge"
 required-features = ["smol"]
 
 [[example]]
@@ -90,7 +99,11 @@ name = "smol_print_frames"
 required-features = ["smol"]
 
 [[example]]
-name = "async_std_send_frames"
+name = "async_std_send"
+required-features = ["async-std"]
+
+[[example]]
+name = "async_std_bridge"
 required-features = ["async-std"]
 
 [[example]]

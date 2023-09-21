@@ -8,6 +8,11 @@
 // to those terms.
 //
 
+//! A SocketCAN example using smol.
+//!
+//! This receives CAN frames and prints them to the console.
+//!
+
 use socketcan::{smol::CanSocket, CanFrame, Error, Result};
 use std::env;
 

@@ -99,7 +99,8 @@
     missing_debug_implementations,
     unstable_features,
     unused_import_braces,
-    unused_qualifications
+    unused_qualifications,
+    unsafe_op_in_unsafe_fn
 )]
 
 use std::io::ErrorKind;
@@ -132,7 +133,6 @@ mod nl;
 pub use nl::CanInterface;
 
 /// Optional tokio support
-//#[cfg(feature = "async-tokio")]
 #[cfg(feature = "tokio")]
 pub mod tokio;
 

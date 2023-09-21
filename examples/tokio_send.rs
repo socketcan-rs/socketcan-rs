@@ -1,4 +1,6 @@
-// socketcan/examples/tokio_send_frames.rs
+// socketcan/examples/tokio_send.rs
+//
+// Example application for using Tokio with socketcan-rs.
 //
 // This file is part of the Rust 'socketcan-rs' library.
 //
@@ -8,13 +10,18 @@
 // to those terms.
 //
 
+//! A SocketCAN example using tokio.
+//!
+//! This sends data frames to the CANbus.
+//!
+
 use embedded_can::{Frame, StandardId};
 use futures_timer::Delay;
-use socketcan::{tokio::CanSocket, CanFrame, Error};
+use socketcan::{tokio::CanSocket, CanFrame, Result};
 use std::time::Duration;
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() -> Result<()> {
     let socket_tx = CanSocket::open("vcan0").unwrap();
 
     loop {
