@@ -25,7 +25,7 @@ use std::{
     fmt, io, mem,
     os::{
         raw::{c_int, c_void},
-        unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd},
+        unix::io::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd},
     },
     ptr,
     time::Duration,
@@ -573,7 +573,7 @@ impl CanSocket {
 #[derive(Debug)]
 pub struct CanSocket {
     /// The raw file descriptor
-    fd: c_int,
+    fd: OwnedFd,
 }
 
 impl Socket for CanSocket {
@@ -582,7 +582,11 @@ impl Socket for CanSocket {
 
     /// Opens the socket by interface index.
     fn open_addr(addr: &CanAddr) -> io::Result<Self> {
-        raw_open_socket(addr).map(|fd| Self { fd })
+        raw_open_socket(addr).map(|fd| Self {
+            /// SAFETY: We just obtained this FD and no else has seen it.
+            /// Hence, it is fine to take exclusive ownership.
+            fd: unsafe { OwnedFd::from_raw_fd(fd) },
+        })
     }
 
     /// Writes a normal CAN 2.0 frame to the socket.
@@ -590,7 +594,7 @@ impl Socket for CanSocket {
     where
         F: Into<CanFrame> + AsPtr,
     {
-        raw_write_frame(self.fd, frame.as_ptr(), F::size())
+        raw_write_frame(self.fd.as_raw_fd(), frame.as_ptr(), F::size())
     }
 
     /// Reads a normal CAN 2.0 frame from the socket.
@@ -598,7 +602,7 @@ impl Socket for CanSocket {
         let mut frame = can_frame_default();
         let n = mem::size_of::<can_frame>();
 
-        let rd = unsafe { read(self.fd, &mut frame as *mut _ as *mut c_void, n) };
+        let rd = unsafe { read(self.fd.as_raw_fd(), &mut frame as *mut _ as *mut c_void, n) };
 
         if rd as usize == n {
             Ok(frame.into())
@@ -610,27 +614,32 @@ impl Socket for CanSocket {
 
 impl SocketOptions for CanSocket {}
 
+// Has no effect: #[deprecated(since = "2.1", note = "Use AsFd::as_fd() instead.")]
 impl AsRawFd for CanSocket {
     fn as_raw_fd(&self) -> RawFd {
-        self.fd
+        self.fd.as_raw_fd()
     }
 }
 
 impl FromRawFd for CanSocket {
     unsafe fn from_raw_fd(fd: RawFd) -> CanSocket {
-        CanSocket { fd }
+        CanSocket {
+            /// Safety: The caller asserts that we may take ownership of this FD by passing it into
+            /// from_raw_fd().
+            fd: unsafe { OwnedFd::from_raw_fd(fd) },
+        }
     }
 }
 
 impl IntoRawFd for CanSocket {
     fn into_raw_fd(self) -> RawFd {
-        self.fd
+        self.fd.into_raw_fd()
     }
 }
 
-impl Drop for CanSocket {
-    fn drop(&mut self) {
-        unsafe { libc::close(self.as_raw_fd()) };
+impl AsFd for CanSocket {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.fd.as_fd()
     }
 }
 
@@ -644,7 +653,7 @@ impl Drop for CanSocket {
 #[derive(Debug)]
 pub struct CanFdSocket {
     /// The raw file descriptor
-    fd: c_int,
+    fd: OwnedFd,
 }
 
 impl Socket for CanFdSocket {
@@ -655,7 +664,11 @@ impl Socket for CanFdSocket {
     fn open_addr(addr: &CanAddr) -> io::Result<Self> {
         raw_open_socket(addr)
             .and_then(|fd| set_fd_mode(fd, true))
-            .map(|fd| Self { fd })
+            .map(|fd| Self {
+                /// SAFETY: We just obtained this FD and no else has seen it.
+                /// Hence, it is fine to take exclusive ownership.
+                fd: unsafe { OwnedFd::from_raw_fd(fd) },
+            })
     }
 
     /// Writes any type of CAN frame to the socket.
@@ -663,14 +676,20 @@ impl Socket for CanFdSocket {
     where
         F: Into<Self::FrameType> + AsPtr,
     {
-        raw_write_frame(self.fd, frame.as_ptr(), F::size())
+        raw_write_frame(self.fd.as_raw_fd(), frame.as_ptr(), F::size())
     }
 
     /// Reads either type of CAN frame from the socket.
     fn read_frame(&self) -> io::Result<CanAnyFrame> {
         let mut fdframe = canfd_frame_default();
 
-        let rd = unsafe { read(self.fd, &mut fdframe as *mut _ as *mut c_void, CANFD_MTU) };
+        let rd = unsafe {
+            read(
+                self.fd.as_raw_fd(),
+                &mut fdframe as *mut _ as *mut c_void,
+                CANFD_MTU,
+            )
+        };
         match rd as usize {
             // If we only get 'can_frame' number of bytes, then the return is,
             // by definition, a can_frame, so we just copy the bytes into the
@@ -694,27 +713,32 @@ impl Socket for CanFdSocket {
 
 impl SocketOptions for CanFdSocket {}
 
+// Has no effect: #[deprecated(since = "2.1", note = "Use AsFd::as_fd() instead.")]
 impl AsRawFd for CanFdSocket {
     fn as_raw_fd(&self) -> RawFd {
-        self.fd
+        self.fd.as_raw_fd()
     }
 }
 
 impl FromRawFd for CanFdSocket {
     unsafe fn from_raw_fd(fd: RawFd) -> CanFdSocket {
-        CanFdSocket { fd }
+        CanFdSocket {
+            /// Safety: The caller asserts that we may take ownership of this FD by passing it into
+            /// from_raw_fd().
+            fd: unsafe { OwnedFd::from_raw_fd(fd) },
+        }
     }
 }
 
 impl IntoRawFd for CanFdSocket {
     fn into_raw_fd(self) -> RawFd {
-        self.fd
+        self.fd.as_raw_fd()
     }
 }
 
-impl Drop for CanFdSocket {
-    fn drop(&mut self) {
-        unsafe { libc::close(self.as_raw_fd()) };
+impl AsFd for CanFdSocket {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.fd.as_fd()
     }
 }
 
