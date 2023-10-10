@@ -85,9 +85,8 @@ fn main() {
                         .arg(
                             arg!(<bitrate> "The bit rate (in Hz)")
                                 .required(true)
-                                .value_parser(value_parser!(u32)
+                                .value_parser(value_parser!(u32)),
                         ),
-                    )
                 )
                 .subcommand(
                     Command::new("add")
