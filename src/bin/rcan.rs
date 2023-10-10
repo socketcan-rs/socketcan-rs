@@ -24,8 +24,10 @@ fn iface_cmd(iface_name: &str, opts: &ArgMatches) -> Result<()> {
     } else if let Some(_sub_opts) = opts.subcommand_matches("down") {
         let iface = CanInterface::open(iface_name)?;
         iface.bring_down()?;
-    } else if let Some(_sub_opts) = opts.subcommand_matches("bitrate") {
-        return Err(anyhow!("Unimplemented"));
+    } else if let Some(sub_opts) = opts.subcommand_matches("bitrate") {
+        let bitrate = *sub_opts.get_one::<u32>("bitrate").unwrap();
+        let iface = CanInterface::open(iface_name)?;
+        iface.set_bitrate(bitrate, None)?;
     } else if let Some(sub_opts) = opts.subcommand_matches("add") {
         let idx = sub_opts.get_one::<u32>("num").copied();
         let typ = sub_opts.get_one::<String>("type").unwrap();
@@ -77,14 +79,23 @@ fn main() {
                 .about("Get/set parameters on the CAN interface")
                 .subcommand(Command::new("up").about("Bring the interface up"))
                 .subcommand(Command::new("down").about("Bring the interface down"))
-                .subcommand(Command::new("bitrate").about("Set the bit rate on the interface."))
+                .subcommand(
+                    Command::new("bitrate")
+                        .about("Set the bit rate on the interface.")
+                        .arg(
+                            arg!(<bitrate> "The bit rate (in Hz)")
+                                .required(true)
+                                .value_parser(value_parser!(u32)
+                        ),
+                    )
+                )
                 .subcommand(
                     Command::new("add")
                         .about("Create and add a new CAN interface")
                         .arg(
                             arg!(<num> "The interface number (i.e. 0 for 'vcan0')")
                                 .required(false)
-                                .value_parser(value_parser!(u32)), //.default_value("0")
+                                .value_parser(value_parser!(u32)),
                         )
                         .arg(
                             arg!(<type> "The interface type (i.e. vcan', etc)")
