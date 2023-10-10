@@ -110,7 +110,7 @@ fn main() {
     let iface_name = opts.get_one::<String>("iface").unwrap();
 
     let res = if let Some(sub_opts) = opts.subcommand_matches("iface") {
-        iface_cmd(&iface_name, &sub_opts)
+        iface_cmd(iface_name, sub_opts)
     } else {
         Err(anyhow!("Need to specify a subcommand (-? for help)."))
     };

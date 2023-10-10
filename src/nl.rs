@@ -113,7 +113,7 @@ mod rt {
     #[allow(unused)]
     pub const EXT_FILTER_MST: c_uint = 1 << 7;
 
-    ////
+    ///
     /// Also currently missing from libc, from linux/can/netlink.h:
     ///
     /// CAN bit-timing parameters
@@ -124,26 +124,24 @@ mod rt {
     ///
     #[repr(C)]
     #[allow(non_camel_case_types)]
-    #[derive(Default, Clone)]
+    #[derive(Debug, Default, Clone)]
     pub struct can_bittiming {
-        pub(crate) bitrate: u32,      /* Bit-rate in bits/second */
-        pub(crate) sample_point: u32, /* Sample point in one-tenth of a percent */
-        pub(crate) tq: u32,           /* Time quanta (TQ) in nanoseconds */
-        pub(crate) prop_seg: u32,     /* Propagation segment in TQs */
-        pub(crate) phase_seg1: u32,   /* Phase buffer segment 1 in TQs */
-        pub(crate) phase_seg2: u32,   /* Phase buffer segment 2 in TQs */
-        pub(crate) sjw: u32,          /* Synchronisation jump width in TQs */
-        pub(crate) brp: u32,          /* Bit-rate prescaler */
+        pub bitrate: u32,      /* Bit-rate in bits/second */
+        pub sample_point: u32, /* Sample point in one-tenth of a percent */
+        pub tq: u32,           /* Time quanta (TQ) in nanoseconds */
+        pub prop_seg: u32,     /* Propagation segment in TQs */
+        pub phase_seg1: u32,   /* Phase buffer segment 1 in TQs */
+        pub phase_seg2: u32,   /* Phase buffer segment 2 in TQs */
+        pub sjw: u32,          /* Synchronisation jump width in TQs */
+        pub brp: u32,          /* Bit-rate prescaler */
     }
 
     /// Currently missing from libc, from linux/can/netlink.h:
     ///
     /// CAN netlink interface
     ///
-    /// Note: Cannot use repr(C) here, as this will not actually make the underlying type a u32
-    /// as it would be in C (which checks which data type is necessary, notices that i32 does not
-    /// work in this case, and goes for u32 next).
-    ///
+    #[repr(u16)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     pub enum IflaCan {
         Unspec = 0,
         BitTiming = 1,
