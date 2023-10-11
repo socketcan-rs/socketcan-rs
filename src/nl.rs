@@ -39,13 +39,24 @@ use nix::{self, net::if_::if_nametoindex, unistd};
 use std::{
     ffi::CString,
     fmt::Debug,
-    mem,
     os::raw::{c_int, c_uint},
-    slice,
 };
 
 /// A result for Netlink errors.
 type NlResult<T> = Result<T, NlError>;
+
+/// Gets a byte slice for any sized variable.
+///
+/// Note that this should normally be unsafe, but since we're only
+/// using it internally for types sent to the kernel, it's OK.
+fn as_bytes<T: Sized>(val: &T) -> &[u8] {
+    unsafe {
+        std::slice::from_raw_parts::<'_, u8>(
+            val as *const _ as *const u8,
+            std::mem::size_of::<T>(),
+        )
+    }
+}
 
 /// SocketCAN CanInterface
 ///
@@ -675,12 +686,7 @@ impl CanInterface {
             ..rt::can_bittiming::default()
         };
 
-        self.send_cmd(rt::IflaCan::BitTiming, unsafe {
-            slice::from_raw_parts::<'_, u8>(
-                &timing as *const _ as *const u8,
-                mem::size_of::<rt::can_bittiming>(),
-            )
-        })
+        self.send_cmd(rt::IflaCan::BitTiming, as_bytes(&timing))
     }
 
     /// Set the data bitrate and, optionally, data sample point of this
@@ -706,22 +712,12 @@ impl CanInterface {
             ..rt::can_bittiming::default()
         };
 
-        self.send_cmd(rt::IflaCan::DataBitTiming, unsafe {
-            slice::from_raw_parts::<'_, u8>(
-                &timing as *const _ as *const u8,
-                mem::size_of::<rt::can_bittiming>(),
-            )
-        })
+        self.send_cmd(rt::IflaCan::DataBitTiming, as_bytes(&timing))
     }
 
     /// Set the full control mode (bit) collection.
     pub fn set_full_ctrlmode(&self, ctrlmode: rt::can_ctrlmode) -> NlResult<()> {
-        self.send_cmd(rt::IflaCan::CtrlMode, unsafe {
-            slice::from_raw_parts::<'_, u8>(
-                &ctrlmode as *const _ as *const u8,
-                mem::size_of::<rt::can_ctrlmode>(),
-            )
-        })
+        self.send_cmd(rt::IflaCan::CtrlMode, as_bytes(&ctrlmode))
     }
 
     /// Set or clear an individual control mode parameter.
@@ -736,12 +732,7 @@ impl CanInterface {
     /// PRIVILEGED: This requires root privilege.
     ///
     pub fn set_restart_ms(&self, restart_ms: u32) -> NlResult<()> {
-        self.send_cmd(rt::IflaCan::RestartMs, unsafe {
-            slice::from_raw_parts::<'_, u8>(
-                &restart_ms as *const _ as *const u8,
-                mem::size_of::<u32>(),
-            )
-        })
+        self.send_cmd(rt::IflaCan::RestartMs, &restart_ms.to_ne_bytes())
     }
 
     /// Manually restart the interface.
@@ -762,13 +753,33 @@ impl CanInterface {
         // too!
         // See: linux/drivers/net/can/dev/netlink.c
         let restart_data: u32 = 1;
+        self.send_cmd(rt::IflaCan::Restart, &restart_data.to_ne_bytes())
+    }
+}
 
-        self.send_cmd(rt::IflaCan::Restart, unsafe {
-            slice::from_raw_parts::<'_, u8>(
-                &restart_data as *const _ as *const u8,
-                mem::size_of::<u32>(),
-            )
-        })
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    #[test]
+    fn test_as_bytes() {
+        let bitrate = 500000;
+        let sample_point = 750;
+        let timing = rt::can_bittiming {
+            bitrate,
+            sample_point,
+            ..rt::can_bittiming::default()
+        };
+
+        assert_eq!(
+            unsafe {
+                std::slice::from_raw_parts::<'_, u8>(
+                    &timing as *const _ as *const u8,
+                    std::mem::size_of::<rt::can_bittiming>(),
+                )
+            },
+            as_bytes(&timing)
+        );
     }
 }
 
