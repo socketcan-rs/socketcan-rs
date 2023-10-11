@@ -5,7 +5,7 @@
 
 use anyhow::{anyhow, Result};
 use clap::{arg, value_parser, ArgAction, ArgMatches, Command};
-use socketcan::CanInterface;
+use socketcan::{CanInterface, CanCtrlMode};
 use std::process;
 
 // Make the app version the same as the package.
@@ -28,6 +28,50 @@ fn iface_cmd(iface_name: &str, opts: &ArgMatches) -> Result<()> {
         let bitrate = *sub_opts.get_one::<u32>("bitrate").unwrap();
         let iface = CanInterface::open(iface_name)?;
         iface.set_bitrate(bitrate, None)?;
+    } else if let Some(sub_opts) = opts.subcommand_matches("loopback") {
+        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
+        let iface = CanInterface::open(iface_name)?;
+        iface.set_ctrlmode(CanCtrlMode::Loopback, on)?;
+    } else if let Some(sub_opts) = opts.subcommand_matches("loopback") {
+        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
+        let iface = CanInterface::open(iface_name)?;
+        iface.set_ctrlmode(CanCtrlMode::Loopback, on)?;
+    } else if let Some(sub_opts) = opts.subcommand_matches("loopback") {
+        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
+        let iface = CanInterface::open(iface_name)?;
+        iface.set_ctrlmode(CanCtrlMode::Loopback, on)?;
+    } else if let Some(sub_opts) = opts.subcommand_matches("listen-only") {
+        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
+        let iface = CanInterface::open(iface_name)?;
+        iface.set_ctrlmode(CanCtrlMode::ListenOnly, on)?;
+    } else if let Some(sub_opts) = opts.subcommand_matches("triple-sampling") {
+        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
+        let iface = CanInterface::open(iface_name)?;
+        iface.set_ctrlmode(CanCtrlMode::TripleSampling, on)?;
+    } else if let Some(sub_opts) = opts.subcommand_matches("one-shot") {
+        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
+        let iface = CanInterface::open(iface_name)?;
+        iface.set_ctrlmode(CanCtrlMode::OneShot, on)?;
+    } else if let Some(sub_opts) = opts.subcommand_matches("berr-reporting") {
+        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
+        let iface = CanInterface::open(iface_name)?;
+        iface.set_ctrlmode(CanCtrlMode::BerrReporting, on)?;
+    } else if let Some(sub_opts) = opts.subcommand_matches("fd") {
+        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
+        let iface = CanInterface::open(iface_name)?;
+        iface.set_ctrlmode(CanCtrlMode::Fd, on)?;
+    } else if let Some(sub_opts) = opts.subcommand_matches("fd-non-iso") {
+        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
+        let iface = CanInterface::open(iface_name)?;
+        iface.set_ctrlmode(CanCtrlMode::NonIso, on)?;
+    } else if let Some(sub_opts) = opts.subcommand_matches("presume-ack") {
+        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
+        let iface = CanInterface::open(iface_name)?;
+        iface.set_ctrlmode(CanCtrlMode::PresumeAck, on)?;
+    } else if let Some(sub_opts) = opts.subcommand_matches("cc-len8-dlc") {
+        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
+        let iface = CanInterface::open(iface_name)?;
+        iface.set_ctrlmode(CanCtrlMode::CcLen8Dlc, on)?;
     } else if let Some(sub_opts) = opts.subcommand_matches("restart-ms") {
         let ms = *sub_opts.get_one::<u32>("ms").unwrap();
         let iface = CanInterface::open(iface_name)?;
@@ -93,6 +137,87 @@ fn main() {
                             arg!(<bitrate> "The bit rate (in Hz)")
                                 .required(true)
                                 .value_parser(value_parser!(u32)),
+                        ),
+                )
+                .subcommand(
+                    Command::new("loopback")
+                        .about("Put the interface into loopback mode")
+                        .arg(
+                            arg!(<on> "Enable/disable mode")
+                                .required(true)
+                                .value_parser(["on", "off"])
+                        ),
+                )
+                .subcommand(
+                    Command::new("listen-only")
+                        .about("Put the interface into listen-only mode")
+                        .arg(
+                            arg!(<on> "Enable/disable mode")
+                                .required(true)
+                                .value_parser(["on", "off"])
+                        ),
+                )
+                .subcommand(
+                    Command::new("triple-sampling")
+                        .about("Put the interface into triple sampling mode")
+                        .arg(
+                            arg!(<on> "Enable/disable mode")
+                                .required(true)
+                                .value_parser(["on", "off"])
+                        ),
+                )
+                .subcommand(
+                    Command::new("one-shot")
+                        .about("Put the interface into one-shot mode")
+                        .arg(
+                            arg!(<on> "Enable/disable mode")
+                                .required(true)
+                                .value_parser(["on", "off"])
+                        ),
+                )
+                .subcommand(
+                    Command::new("berr-reporting")
+                        .about("Put the interface into BERR reporting mode")
+                        .arg(
+                            arg!(<on> "Enable/disable mode")
+                                .required(true)
+                                .value_parser(["on", "off"])
+                        ),
+                )
+                .subcommand(
+                    Command::new("fd")
+                        .about("Put the interface into FD mode")
+                        .arg(
+                            arg!(<on> "Enable/disable mode")
+                                .required(true)
+                                .value_parser(["on", "off"])
+                        ),
+                )
+                .subcommand(
+                    Command::new("fd-non-iso")
+                        .about("Put the interface into non-ISO FD mode")
+                        .arg(
+                            arg!(<on> "Enable/disable mode")
+                                .required(true)
+                                .value_parser(["on", "off"])
+                        ),
+                )
+                .subcommand(
+                    Command::new("presume-ack")
+                        .about("Put the interface into presume ACK mode")
+                        .arg(
+                            arg!(<on> "Enable/disable mode")
+                                .required(true)
+                                .value_parser(["on", "off"])
+                        ),
+                )
+                .subcommand(
+                    Command::new("cc-len8-dlc")
+                        .about("Put the interface into classic CAN DLC mode")
+                        .arg(
+                            arg!(<on> "Enable/disable mode")
+                                .required(true)
+                                .value_parser(["on", "off"])
                         ),
                 )
                 .subcommand(

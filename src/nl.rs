@@ -206,6 +206,9 @@ mod rt {
     ///
     /// CAN controller mode
     ///
+    /// To set or clear a bit, set the `mask` for that bit, then set or clear
+    /// the bit in the `flags` and send via `set_ctrlmode()`.
+    ///
     #[repr(C)]
     #[derive(Debug, Default, Copy, Clone)]
     pub struct can_ctrlmode {
@@ -231,6 +234,7 @@ mod rt {
     pub const CAN_CTRLMODE_FD_NON_ISO: u32 = 0x80;
     /// Classic CAN DLC option
     pub const CAN_CTRLMODE_CC_LEN8_DLC: u32 = 0x100;
+
 
     /// u16 termination range: 1..65535 Ohms
     pub const CAN_TERMINATION_DISABLED: u32 = 0;
@@ -304,6 +308,40 @@ mod rt {
     }
 }
 
+///
+/// CAN control modes
+///
+/// Note that these correspond to the bit _numbers_ for the control mode bits.
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CanCtrlMode {
+    /// Loopback mode
+    Loopback,
+    /// Listen-only mode
+    ListenOnly,
+    /// Triple sampling mode
+    TripleSampling,
+    /// One-Shot mode
+    OneShot,
+    /// Bus-error reporting
+    BerrReporting,
+    /// CAN FD mode
+    Fd,
+    /// Ignore missing CAN ACKs
+    PresumeAck,
+    /// CAN FD in non-ISO mode
+    NonIso,
+    /// Classic CAN DLC option
+    CcLen8Dlc,
+}
+
+impl CanCtrlMode {
+    /// Get the mask for the specific control mode
+    pub fn mask(&self) -> u32 {
+        1u32 << (*self as u32)
+    }
+}
+
 impl CanInterface {
     /// Open a CAN interface by name.
     ///
@@ -323,7 +361,7 @@ impl CanInterface {
         }
     }
 
-    /// Sends an info message.
+    /// Sends an info message to the kernel.
     fn send_info_msg(msg_type: Rtm, info: Ifinfomsg, additional_flags: &[NlmF]) -> NlResult<()> {
         let mut nl = Self::open_route_socket()?;
 
@@ -380,7 +418,7 @@ impl CanInterface {
         Ok(sock)
     }
 
-    // Send a command down
+    // Send a netlink CAN command down to the kernel.
     fn send_cmd(&self, cmd: rt::IflaCan, cmd_data: &[u8]) -> NlResult<()> {
         let info = Ifinfomsg::new(
             RtAddrFamily::Unspecified,
@@ -416,7 +454,7 @@ impl CanInterface {
         Self::send_info_msg(Rtm::Newlink, info, &[])
     }
 
-    /// Bring up CAN interface
+    /// Bring up this interface
     ///
     /// Brings the interface up by settings its "up" flag enabled via netlink.
     pub fn bring_up(&self) -> NlResult<()> {
@@ -429,18 +467,33 @@ impl CanInterface {
         Self::send_info_msg(Rtm::Newlink, info, &[])
     }
 
-    /// PRIVILEGED: Attempt to create a VCAN interface. Useful for testing applications.
+    /// Create a virtual CAN (VCAN) interface.
+    ///
+    /// Useful for testing applications when a physical CAN interface and
+    /// bus is not available.
+    ///
     /// Note that the length of the name is capped by ```libc::IFNAMSIZ```.
+    ///
+    /// PRIVILEGED: This requires root privilege.
+    ///
     pub fn create_vcan(name: &str, index: Option<u32>) -> NlResult<Self> {
         Self::create(name, index, "vcan")
     }
 
-    /// PRIVILEGED: Create an interface of the given kind.
+    /// Create an interface of the given kind.
+    ///
     /// Note that the length of the name is capped by ```libc::IFNAMSIZ```.
-    pub fn create(name: &str, index: Option<u32>, kind: &str) -> NlResult<Self> {
+    ///
+    /// PRIVILEGED: This requires root privilege.
+    ///
+    pub fn create<I>(name: &str, index: I, kind: &str) -> NlResult<Self>
+    where
+        I: Into<Option<u32>>,
+    {
         if name.len() > libc::IFNAMSIZ {
             return Err(NlError::Msg("Interface name too long".into()));
         }
+        let index = index.into();
 
         let info = Ifinfomsg::new(
             RtAddrFamily::Unspecified,
@@ -462,7 +515,7 @@ impl CanInterface {
         if let Some(if_index) = index {
             Ok(Self { if_index })
         } else {
-            // Unfortunately netlink does not return the the if_index assigned to the interface..
+            // Unfortunately netlink does not return the the if_index assigned to the interface.
             if let Ok(if_index) = if_nametoindex(name) {
                 Ok(Self { if_index })
             } else {
@@ -474,7 +527,10 @@ impl CanInterface {
         }
     }
 
-    /// PRIVILEGED: Attempt to delete the interface.
+    /// Delete the interface.
+    ///
+    /// PRIVILEGED: This requires root privilege.
+    ///
     pub fn delete(self) -> Result<(), (Self, NlError)> {
         let info = Ifinfomsg::new(
             RtAddrFamily::Unspecified,
@@ -586,9 +642,19 @@ impl CanInterface {
         Self::send_info_msg(Rtm::Newlink, info, &[])
     }
 
-    /// PRIVILEGED: Attempt to set the bitrate (and  optionally sample point) of this interface.
-    pub fn set_bitrate(&self, bitrate: u32, sample_point: Option<u32>) -> NlResult<()> {
-        let sample_point: u32 = sample_point.unwrap_or(0);
+    /// Set the bitrate and, optionally, sample point of this interface.
+    ///
+    /// The bitrate can *not* be changed if the interface is UP. It is
+    /// specified in Hz (bps) while the sample point is given in tenths
+    /// of a percent/
+    ///
+    /// PRIVILEGED: This requires root privilege.
+    ///
+    pub fn set_bitrate<P>(&self, bitrate: u32, sample_point: P) -> NlResult<()>
+    where
+        P: Into<Option<u32>>
+    {
+        let sample_point: u32 = sample_point.into().unwrap_or(0);
 
         debug_assert!(
             0 < bitrate && bitrate <= 1000000,
@@ -609,10 +675,27 @@ impl CanInterface {
 
         self.send_cmd(rt::IflaCan::BitTiming, unsafe {
             slice::from_raw_parts::<'_, u8>(
-                &timing as *const rt::can_bittiming as *const u8,
+                &timing as *const _ as *const u8,
                 mem::size_of::<rt::can_bittiming>(),
             )
         })
+    }
+
+    /// Set the full control mode (bit) collection.
+    pub fn set_full_ctrlmode(&self, ctrlmode: rt::can_ctrlmode) -> NlResult<()> {
+        self.send_cmd(rt::IflaCan::CtrlMode, unsafe {
+            slice::from_raw_parts::<'_, u8>(
+                &ctrlmode as *const _ as *const u8,
+                mem::size_of::<rt::can_ctrlmode>(),
+            )
+        })
+    }
+
+    /// Set or clear an individual control mode parameter.
+    pub fn set_ctrlmode(&self, mode: CanCtrlMode, on: bool) -> NlResult<()> {
+        let mask = mode.mask();
+        let flags = if on { mask } else { 0 };
+        self.set_full_ctrlmode(rt::can_ctrlmode { mask, flags })
     }
 
     /// PRIVILEGED: Attempt to set the automatic restart milliseconds of the interface
@@ -636,10 +719,11 @@ impl CanInterface {
     ///     EBUSY - The interface is not in a bus-off state
     ///
     pub fn restart(&self) -> NlResult<()> {
-        // Note: The linux code shows the data type to be u32, but
-        // never appears to access the value sent.
+        // Note: The linux code shows the data type to be u32, but never
+        // appears to access the value sent. iproute2 sends a 1, so we do
+        // too!
         // See: linux/drivers/net/can/dev/netlink.c
-        let restart_data: u32 = 0;
+        let restart_data: u32 = 1;
 
         self.send_cmd(rt::IflaCan::Restart, unsafe {
             slice::from_raw_parts::<'_, u8>(

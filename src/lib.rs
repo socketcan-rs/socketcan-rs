@@ -130,7 +130,7 @@ pub use socket::{CanAddr, CanFdSocket, CanFilter, CanSocket, ShouldRetry, Socket
 mod nl;
 
 #[cfg(feature = "netlink")]
-pub use nl::CanInterface;
+pub use nl::{CanInterface, CanCtrlMode};
 
 /// Optional tokio support
 #[cfg(feature = "tokio")]
