@@ -39,7 +39,9 @@ use nix::{self, net::if_::if_nametoindex, unistd};
 use std::{
     ffi::CString,
     fmt::Debug,
+    mem,
     os::raw::{c_int, c_uint},
+    slice,
 };
 
 /// A result for Netlink errors.
@@ -378,6 +380,29 @@ impl CanInterface {
         Ok(sock)
     }
 
+    // Send a command down
+    fn send_cmd(&self, cmd: rt::IflaCan, cmd_data: &[u8]) -> NlResult<()> {
+        let info = Ifinfomsg::new(
+            RtAddrFamily::Unspecified,
+            Arphrd::Netrom,
+            self.if_index as c_int,
+            IffFlags::empty(),
+            IffFlags::empty(),
+            {
+                let mut rtattrs = RtBuffer::new();
+                let mut link_info = Rtattr::new(None, Ifla::Linkinfo, Buffer::new())?;
+                link_info.add_nested_attribute(&Rtattr::new(None, IflaInfo::Kind, "can")?)?;
+                let mut data = Rtattr::new(None, IflaInfo::Data, Buffer::new())?;
+
+                data.add_nested_attribute(&Rtattr::new(None, cmd as u16, cmd_data)?)?;
+                link_info.add_nested_attribute(&data)?;
+                rtattrs.push(link_info);
+                rtattrs
+            },
+        );
+        Self::send_info_msg(Rtm::Newlink, info, &[])
+    }
+
     /// Bring down this interface.
     ///
     /// Use a netlink control socket to set the interface status to "down".
@@ -563,82 +588,41 @@ impl CanInterface {
 
     /// PRIVILEGED: Attempt to set the bitrate (and  optionally sample point) of this interface.
     pub fn set_bitrate(&self, bitrate: u32, sample_point: Option<u32>) -> NlResult<()> {
+        let sample_point: u32 = sample_point.unwrap_or(0);
+
         debug_assert!(
             0 < bitrate && bitrate <= 1000000,
             "Bitrate must be within 1..=1000000, received {}.",
             bitrate
         );
         debug_assert!(
-            sample_point.filter(|point| *point >= 1000).is_none(),
+            sample_point < 1000,
             "Sample point must be within 0..1000, received {}.",
-            sample_point.unwrap()
+            sample_point
         );
-        let sample_point: u32 = sample_point.unwrap_or(0);
 
-        let info = Ifinfomsg::new(
-            RtAddrFamily::Unspecified,
-            Arphrd::Netrom,
-            self.if_index as c_int,
-            IffFlags::empty(),
-            IffFlags::empty(),
-            {
-                let mut rtattrs = RtBuffer::new();
-                let mut link_info = Rtattr::new(None, Ifla::Linkinfo, Buffer::new())?;
-                link_info.add_nested_attribute(&Rtattr::new(None, IflaInfo::Kind, "can")?)?;
-                let mut data = Rtattr::new(None, IflaInfo::Data, Buffer::new())?;
-                let timing = rt::can_bittiming {
-                    bitrate,
-                    sample_point,
-                    ..rt::can_bittiming::default()
-                };
-                data.add_nested_attribute(&Rtattr::new(
-                    None,
-                    rt::IflaCan::BitTiming as u16,
-                    unsafe {
-                        std::slice::from_raw_parts::<'_, u8>(
-                            &timing as *const rt::can_bittiming as *const u8,
-                            std::mem::size_of::<rt::can_bittiming>(),
-                        )
-                    },
-                )?)?;
-                link_info.add_nested_attribute(&data)?;
-                rtattrs.push(link_info);
-                rtattrs
-            },
-        );
-        Self::send_info_msg(Rtm::Newlink, info, &[])
+        let timing = rt::can_bittiming {
+            bitrate,
+            sample_point,
+            ..rt::can_bittiming::default()
+        };
+
+        self.send_cmd(rt::IflaCan::BitTiming, unsafe {
+            slice::from_raw_parts::<'_, u8>(
+                &timing as *const rt::can_bittiming as *const u8,
+                mem::size_of::<rt::can_bittiming>(),
+            )
+        })
     }
 
     /// PRIVILEGED: Attempt to set the automatic restart milliseconds of the interface
     pub fn set_restart_ms(&self, restart_ms: u32) -> NlResult<()> {
-        let info = Ifinfomsg::new(
-            RtAddrFamily::Unspecified,
-            Arphrd::Netrom,
-            self.if_index as c_int,
-            IffFlags::empty(),
-            IffFlags::empty(),
-            {
-                let mut rtattrs = RtBuffer::new();
-                let mut link_info = Rtattr::new(None, Ifla::Linkinfo, Buffer::new())?;
-                link_info.add_nested_attribute(&Rtattr::new(None, IflaInfo::Kind, "can")?)?;
-                let mut data = Rtattr::new(None, IflaInfo::Data, Buffer::new())?;
-
-                data.add_nested_attribute(&Rtattr::new(
-                    None,
-                    rt::IflaCan::RestartMs as u16,
-                    unsafe {
-                        std::slice::from_raw_parts::<'_, u8>(
-                            &restart_ms as *const _ as *const u8,
-                            std::mem::size_of::<u32>(),
-                        )
-                    },
-                )?)?;
-                link_info.add_nested_attribute(&data)?;
-                rtattrs.push(link_info);
-                rtattrs
-            },
-        );
-        Self::send_info_msg(Rtm::Newlink, info, &[])
+        self.send_cmd(rt::IflaCan::RestartMs, unsafe {
+            slice::from_raw_parts::<'_, u8>(
+                &restart_ms as *const _ as *const u8,
+                mem::size_of::<u32>(),
+            )
+        })
     }
 
     /// PRIVILEGED: Attempt to manually restart the interface.
@@ -657,34 +641,12 @@ impl CanInterface {
         // See: linux/drivers/net/can/dev/netlink.c
         let restart_data: u32 = 0;
 
-        let info = Ifinfomsg::new(
-            RtAddrFamily::Unspecified,
-            Arphrd::Netrom,
-            self.if_index as c_int,
-            IffFlags::empty(),
-            IffFlags::empty(),
-            {
-                let mut rtattrs = RtBuffer::new();
-                let mut link_info = Rtattr::new(None, Ifla::Linkinfo, Buffer::new())?;
-                link_info.add_nested_attribute(&Rtattr::new(None, IflaInfo::Kind, "can")?)?;
-                let mut data = Rtattr::new(None, IflaInfo::Data, Buffer::new())?;
-
-                data.add_nested_attribute(&Rtattr::new(
-                    None,
-                    rt::IflaCan::Restart as u16,
-                    unsafe {
-                        std::slice::from_raw_parts::<'_, u8>(
-                            &restart_data as *const _ as *const u8,
-                            std::mem::size_of::<u32>(),
-                        )
-                    },
-                )?)?;
-                link_info.add_nested_attribute(&data)?;
-                rtattrs.push(link_info);
-                rtattrs
-            },
-        );
-        Self::send_info_msg(Rtm::Newlink, info, &[])
+        self.send_cmd(rt::IflaCan::Restart, unsafe {
+            slice::from_raw_parts::<'_, u8>(
+                &restart_data as *const _ as *const u8,
+                mem::size_of::<u32>(),
+            )
+        })
     }
 }
 
