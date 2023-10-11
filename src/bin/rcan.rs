@@ -5,7 +5,7 @@
 
 use anyhow::{anyhow, Result};
 use clap::{arg, value_parser, ArgAction, ArgMatches, Command};
-use socketcan::{CanInterface, CanCtrlMode};
+use socketcan::{CanCtrlMode, CanInterface};
 use std::process;
 
 // Make the app version the same as the package.
@@ -28,6 +28,10 @@ fn iface_cmd(iface_name: &str, opts: &ArgMatches) -> Result<()> {
         let bitrate = *sub_opts.get_one::<u32>("bitrate").unwrap();
         let iface = CanInterface::open(iface_name)?;
         iface.set_bitrate(bitrate, None)?;
+    } else if let Some(sub_opts) = opts.subcommand_matches("dbitrate") {
+        let dbitrate = *sub_opts.get_one::<u32>("dbitrate").unwrap();
+        let iface = CanInterface::open(iface_name)?;
+        iface.set_data_bitrate(dbitrate, None)?;
     } else if let Some(sub_opts) = opts.subcommand_matches("loopback") {
         let on = sub_opts.get_one::<String>("on").unwrap() == "on";
         let iface = CanInterface::open(iface_name)?;
@@ -140,12 +144,21 @@ fn main() {
                         ),
                 )
                 .subcommand(
+                    Command::new("dbitrate")
+                        .about("Set the data bit rate on the interface")
+                        .arg(
+                            arg!(<dbitrate> "The data bit rate (in Hz)")
+                                .required(true)
+                                .value_parser(value_parser!(u32)),
+                        ),
+                )
+                .subcommand(
                     Command::new("loopback")
                         .about("Put the interface into loopback mode")
                         .arg(
                             arg!(<on> "Enable/disable mode")
                                 .required(true)
-                                .value_parser(["on", "off"])
+                                .value_parser(["on", "off"]),
                         ),
                 )
                 .subcommand(
@@ -154,7 +167,7 @@ fn main() {
                         .arg(
                             arg!(<on> "Enable/disable mode")
                                 .required(true)
-                                .value_parser(["on", "off"])
+                                .value_parser(["on", "off"]),
                         ),
                 )
                 .subcommand(
@@ -163,7 +176,7 @@ fn main() {
                         .arg(
                             arg!(<on> "Enable/disable mode")
                                 .required(true)
-                                .value_parser(["on", "off"])
+                                .value_parser(["on", "off"]),
                         ),
                 )
                 .subcommand(
@@ -172,7 +185,7 @@ fn main() {
                         .arg(
                             arg!(<on> "Enable/disable mode")
                                 .required(true)
-                                .value_parser(["on", "off"])
+                                .value_parser(["on", "off"]),
                         ),
                 )
                 .subcommand(
@@ -181,7 +194,7 @@ fn main() {
                         .arg(
                             arg!(<on> "Enable/disable mode")
                                 .required(true)
-                                .value_parser(["on", "off"])
+                                .value_parser(["on", "off"]),
                         ),
                 )
                 .subcommand(
@@ -190,7 +203,7 @@ fn main() {
                         .arg(
                             arg!(<on> "Enable/disable mode")
                                 .required(true)
-                                .value_parser(["on", "off"])
+                                .value_parser(["on", "off"]),
                         ),
                 )
                 .subcommand(
@@ -199,7 +212,7 @@ fn main() {
                         .arg(
                             arg!(<on> "Enable/disable mode")
                                 .required(true)
-                                .value_parser(["on", "off"])
+                                .value_parser(["on", "off"]),
                         ),
                 )
                 .subcommand(
@@ -208,7 +221,7 @@ fn main() {
                         .arg(
                             arg!(<on> "Enable/disable mode")
                                 .required(true)
-                                .value_parser(["on", "off"])
+                                .value_parser(["on", "off"]),
                         ),
                 )
                 .subcommand(
@@ -217,7 +230,7 @@ fn main() {
                         .arg(
                             arg!(<on> "Enable/disable mode")
                                 .required(true)
-                                .value_parser(["on", "off"])
+                                .value_parser(["on", "off"]),
                         ),
                 )
                 .subcommand(

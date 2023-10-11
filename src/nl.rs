@@ -235,7 +235,6 @@ mod rt {
     /// Classic CAN DLC option
     pub const CAN_CTRLMODE_CC_LEN8_DLC: u32 = 0x100;
 
-
     /// u16 termination range: 1..65535 Ohms
     pub const CAN_TERMINATION_DISABLED: u32 = 0;
 
@@ -621,7 +620,10 @@ impl CanInterface {
         }
     }
 
-    /// PRIVILEGED: Attempt to set the MTU of this interface.
+    /// Set the MTU of this interface.
+    ///
+    /// PRIVILEGED: This requires root privilege.
+    ///
     pub fn set_mtu(&self, mtu: Mtu) -> NlResult<()> {
         let info = Ifinfomsg::new(
             RtAddrFamily::Unspecified,
@@ -652,7 +654,7 @@ impl CanInterface {
     ///
     pub fn set_bitrate<P>(&self, bitrate: u32, sample_point: P) -> NlResult<()>
     where
-        P: Into<Option<u32>>
+        P: Into<Option<u32>>,
     {
         let sample_point: u32 = sample_point.into().unwrap_or(0);
 
@@ -681,6 +683,37 @@ impl CanInterface {
         })
     }
 
+    /// Set the data bitrate and, optionally, data sample point of this
+    /// interface.
+    ///
+    /// This only applies to interfaces in FD mode.
+    ///
+    /// The data bitrate can *not* be changed if the interface is UP. It is
+    /// specified in Hz (bps) while the sample point is given in tenths
+    /// of a percent/
+    ///
+    /// PRIVILEGED: This requires root privilege.
+    ///
+    pub fn set_data_bitrate<P>(&self, bitrate: u32, sample_point: P) -> NlResult<()>
+    where
+        P: Into<Option<u32>>,
+    {
+        let sample_point: u32 = sample_point.into().unwrap_or(0);
+
+        let timing = rt::can_bittiming {
+            bitrate,
+            sample_point,
+            ..rt::can_bittiming::default()
+        };
+
+        self.send_cmd(rt::IflaCan::DataBitTiming, unsafe {
+            slice::from_raw_parts::<'_, u8>(
+                &timing as *const _ as *const u8,
+                mem::size_of::<rt::can_bittiming>(),
+            )
+        })
+    }
+
     /// Set the full control mode (bit) collection.
     pub fn set_full_ctrlmode(&self, ctrlmode: rt::can_ctrlmode) -> NlResult<()> {
         self.send_cmd(rt::IflaCan::CtrlMode, unsafe {
@@ -698,7 +731,10 @@ impl CanInterface {
         self.set_full_ctrlmode(rt::can_ctrlmode { mask, flags })
     }
 
-    /// PRIVILEGED: Attempt to set the automatic restart milliseconds of the interface
+    /// Set the automatic restart milliseconds of the interface
+    ///
+    /// PRIVILEGED: This requires root privilege.
+    ///
     pub fn set_restart_ms(&self, restart_ms: u32) -> NlResult<()> {
         self.send_cmd(rt::IflaCan::RestartMs, unsafe {
             slice::from_raw_parts::<'_, u8>(
@@ -708,11 +744,13 @@ impl CanInterface {
         })
     }
 
-    /// PRIVILEGED: Attempt to manually restart the interface.
+    /// Manually restart the interface.
     ///
     /// Note that a manual restart if only permitted if automatic restart is
     /// disabled and the device is in the bus-off state.
     /// See: linux/drivers/net/can/dev/dev.c
+    ///
+    /// PRIVILEGED: This requires root privilege.
     ///
     /// Common Errors:
     ///     EINVAL - The interface is down or automatic restarts are enabled
