@@ -608,6 +608,39 @@ impl CanInterface {
         );
         Self::send_info_msg(Rtm::Newlink, info, &[])
     }
+
+
+    /// PRIVILEGED: Attempt to set the restart milliseconds of the interface
+    pub fn set_restart_ms(&self, restart_ms: u32) -> NlResult<()> {
+        let info = Ifinfomsg::new(
+            RtAddrFamily::Unspecified,
+            Arphrd::Netrom,
+            self.if_index as c_int,
+            IffFlags::empty(),
+            IffFlags::empty(),
+            {
+                let mut rtattrs = RtBuffer::new();
+                let mut link_info = Rtattr::new(None, Ifla::Linkinfo, Buffer::new())?;
+                link_info.add_nested_attribute(&Rtattr::new(None, IflaInfo::Kind, "can")?)?;
+                let mut data = Rtattr::new(None, IflaInfo::Data, Buffer::new())?;
+
+                data.add_nested_attribute(&Rtattr::new(
+                    None,
+                    rt::IflaCan::RestartMs as u16,
+                    unsafe {
+                        std::slice::from_raw_parts::<'_, u8>(
+                            &restart_ms as *const _ as *const u8,
+                            std::mem::size_of::<u32>(),
+                        )
+                    },
+                )?)?;
+                link_info.add_nested_attribute(&data)?;
+                rtattrs.push(link_info);
+                rtattrs
+            },
+        );
+        Self::send_info_msg(Rtm::Newlink, info, &[])
+    }
 }
 
 #[cfg(test)]

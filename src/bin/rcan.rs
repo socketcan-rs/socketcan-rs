@@ -28,6 +28,10 @@ fn iface_cmd(iface_name: &str, opts: &ArgMatches) -> Result<()> {
         let bitrate = *sub_opts.get_one::<u32>("bitrate").unwrap();
         let iface = CanInterface::open(iface_name)?;
         iface.set_bitrate(bitrate, None)?;
+    } else if let Some(sub_opts) = opts.subcommand_matches("restart-ms") {
+        let ms = *sub_opts.get_one::<u32>("ms").unwrap();
+        let iface = CanInterface::open(iface_name)?;
+        iface.set_restart_ms(ms)?;
     } else if let Some(sub_opts) = opts.subcommand_matches("add") {
         let idx = sub_opts.get_one::<u32>("num").copied();
         let typ = sub_opts.get_one::<String>("type").unwrap();
@@ -84,6 +88,15 @@ fn main() {
                         .about("Set the bit rate on the interface.")
                         .arg(
                             arg!(<bitrate> "The bit rate (in Hz)")
+                                .required(true)
+                                .value_parser(value_parser!(u32)),
+                        ),
+                )
+                .subcommand(
+                    Command::new("restart-ms")
+                        .about("Set the automatic restart delay time (in ms).")
+                        .arg(
+                            arg!(<ms> "The automatic restart delay time (in ms)")
                                 .required(true)
                                 .value_parser(value_parser!(u32)),
                         ),
