@@ -32,6 +32,9 @@ fn iface_cmd(iface_name: &str, opts: &ArgMatches) -> Result<()> {
         let ms = *sub_opts.get_one::<u32>("ms").unwrap();
         let iface = CanInterface::open(iface_name)?;
         iface.set_restart_ms(ms)?;
+    } else if let Some(_sub_opts) = opts.subcommand_matches("restart") {
+        let iface = CanInterface::open(iface_name)?;
+        iface.restart()?;
     } else if let Some(sub_opts) = opts.subcommand_matches("add") {
         let idx = sub_opts.get_one::<u32>("num").copied();
         let typ = sub_opts.get_one::<String>("type").unwrap();
@@ -85,7 +88,7 @@ fn main() {
                 .subcommand(Command::new("down").about("Bring the interface down"))
                 .subcommand(
                     Command::new("bitrate")
-                        .about("Set the bit rate on the interface.")
+                        .about("Set the bit rate on the interface")
                         .arg(
                             arg!(<bitrate> "The bit rate (in Hz)")
                                 .required(true)
@@ -94,13 +97,14 @@ fn main() {
                 )
                 .subcommand(
                     Command::new("restart-ms")
-                        .about("Set the automatic restart delay time (in ms).")
+                        .about("Set the automatic restart delay time (in ms)")
                         .arg(
                             arg!(<ms> "The automatic restart delay time (in ms)")
                                 .required(true)
                                 .value_parser(value_parser!(u32)),
                         ),
                 )
+                .subcommand(Command::new("restart").about("Restart the interface"))
                 .subcommand(
                     Command::new("add")
                         .about("Create and add a new CAN interface")

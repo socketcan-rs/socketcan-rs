@@ -609,8 +609,7 @@ impl CanInterface {
         Self::send_info_msg(Rtm::Newlink, info, &[])
     }
 
-
-    /// PRIVILEGED: Attempt to set the restart milliseconds of the interface
+    /// PRIVILEGED: Attempt to set the automatic restart milliseconds of the interface
     pub fn set_restart_ms(&self, restart_ms: u32) -> NlResult<()> {
         let info = Ifinfomsg::new(
             RtAddrFamily::Unspecified,
@@ -630,6 +629,52 @@ impl CanInterface {
                     unsafe {
                         std::slice::from_raw_parts::<'_, u8>(
                             &restart_ms as *const _ as *const u8,
+                            std::mem::size_of::<u32>(),
+                        )
+                    },
+                )?)?;
+                link_info.add_nested_attribute(&data)?;
+                rtattrs.push(link_info);
+                rtattrs
+            },
+        );
+        Self::send_info_msg(Rtm::Newlink, info, &[])
+    }
+
+    /// PRIVILEGED: Attempt to manually restart the interface.
+    ///
+    /// Note that a manual restart if only permitted if automatic restart is
+    /// disabled and the device is in the bus-off state.
+    /// See: linux/drivers/net/can/dev/dev.c
+    ///
+    /// Common Errors:
+    ///     EINVAL - The interface is down or automatic restarts are enabled
+    ///     EBUSY - The interface is not in a bus-off state
+    ///
+    pub fn restart(&self) -> NlResult<()> {
+        // Note: The linux code shows the data type to be u32, but
+        // never appears to access the value sent.
+        // See: linux/drivers/net/can/dev/netlink.c
+        let restart_data: u32 = 0;
+
+        let info = Ifinfomsg::new(
+            RtAddrFamily::Unspecified,
+            Arphrd::Netrom,
+            self.if_index as c_int,
+            IffFlags::empty(),
+            IffFlags::empty(),
+            {
+                let mut rtattrs = RtBuffer::new();
+                let mut link_info = Rtattr::new(None, Ifla::Linkinfo, Buffer::new())?;
+                link_info.add_nested_attribute(&Rtattr::new(None, IflaInfo::Kind, "can")?)?;
+                let mut data = Rtattr::new(None, IflaInfo::Data, Buffer::new())?;
+
+                data.add_nested_attribute(&Rtattr::new(
+                    None,
+                    rt::IflaCan::Restart as u16,
+                    unsafe {
+                        std::slice::from_raw_parts::<'_, u8>(
+                            &restart_data as *const _ as *const u8,
                             std::mem::size_of::<u32>(),
                         )
                     },
