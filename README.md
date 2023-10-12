@@ -10,11 +10,7 @@ Please see the [documentation](https://docs.rs/socketcan) for details about the 
 
 ## Latest News
 
-### Work has started on v3.1
-
-This will primarily add support for increased Netlink functionality to do things like set the bitrate on the interface, set control modes, restart the inteface, etc.
-
-### Version 3.x adds integrated async/await!
+### Version 3.x adds integrated async/await and more!
 
 Version 3.0 adds integrated support for async/await, with the most popular runtimes, _tokio, async-std_, and _smol_.  To get started we have already merged the [tokio-socketcan](https://github.com/oefd/tokio-socketcan) crate into this one and implemented `async-io`.
 
@@ -22,13 +18,18 @@ Unfortunaly this required a minor breaking change to the existing API, so we bum
 
 The async support is optional, and can be enabled with a feature for the target runtime: `tokio`, `async-std`, or `smol`.
 
-### Unreleased Features in This Branch (for v3.1)
+Additional implementation of the netlink control of the CAN interface was added in v3.1 allws an application to do things like set the bitrate on the interface, set control modes, restart the inteface, etc.
+
+### What's New in Version 3.1
 
 - Added netlink functionality:
-    - Set the bitrate
+    - Set the bitrate [PR #50](https://github.com/socketcan-rs/socketcan-rs/pull/50), and the FD data bitrate
     - Set the control modes (Loopback, Listen-Only, etc)
     - Set automatic restart delay time
     - Manual restart
+- [PR #45](https://github.com/socketcan-rs/socketcan-rs/pull/45) Dump handles extended IDs
+- [PR #44](https://github.com/socketcan-rs/socketcan-rs/pull/44) Fix clippy warnings
+- [PR #43](https://github.com/socketcan-rs/socketcan-rs/pull/43) Implement AsPtr for CanAnyFrame
 
 ### What's New in Version 3.0
 
@@ -39,23 +40,12 @@ The async support is optional, and can be enabled with a feature for the target 
     - Added cargo build features for `tokio` or `async-io`.
     - Also created specific build features for `async-std` and `smol` which just bring in the `async-io` module and alias the module name to `async-std` or `smol`, respectively, and build examples for each.
 
-### What's New in Version 2.1
-
-- Made `CanAddr` pulic and added functions to help interact with low-level sockaddr types. Sockets can now be opened with an address.
-- Can create an `Error` directly from a `CanErrorFrame` or `std::io::ErrorKind`.
-- [#46](https://github.com/socketcan-rs/socketcan-rs/issues/46)  Applications can create error frames:
-    - `CanErrorFrame::new()` now works.
-    - `CanErrorFrame::new_error()` is similar but more intuitive using a raw ID word.
-    - `From<CanError> for CanErrorFrame` to create an error frame from a `CanError`.
-- Added `Frame::from_raw_id()` and `Frame::remote_from_raw_id()`
-- Bumped MSRV to 1.65.0
-
 ## Next Steps
 
-A number of items still did not makei into a release. These will be added in v3.x, coming soon.
+A number of items still did not make it into a release. These will be added in v3.x, coming soon.
 
 - Issue [#22](https://github.com/socketcan-rs/socketcan-rs/issues/22) Timestamps, including optional hardware timestamps
-- Issue [#32](https://github.com/socketcan-rs/socketcan-rs/issues/32) Better coverage of the Netlink API to manipulate the CAN interfaces programatically.
+- Issue [#32](https://github.com/socketcan-rs/socketcan-rs/issues/32) A number of important netlink commands were added in v3.1, particularly the ability to set bitrates, reset the interface, and set control modes. But the implementation is still incomplete, particularly in regard t
 - Better documentation. This README will be expanded with basic usage information, along with better doc comments, and perhaps creation of the wiki
 
 
