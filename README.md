@@ -45,7 +45,7 @@ Additional implementation of the netlink control of the CAN interface was added 
 A number of items still did not make it into a release. These will be added in v3.x, coming soon.
 
 - Issue [#22](https://github.com/socketcan-rs/socketcan-rs/issues/22) Timestamps, including optional hardware timestamps
-- Issue [#32](https://github.com/socketcan-rs/socketcan-rs/issues/32) A number of important netlink commands were added in v3.1, particularly the ability to set bitrates, reset the interface, and set control modes. But the implementation is still incomplete, particularly in regard t
+- Issue [#32](https://github.com/socketcan-rs/socketcan-rs/issues/32) A number of important netlink commands were added in v3.1, particularly the ability to set bitrates, reset the interface, and set control modes. But the implementation is still incomplete, particularly in regard to retrieving parameters and status from the interface.
 - Better documentation. This README will be expanded with basic usage information, along with better doc comments, and perhaps creation of the wiki
 
 
