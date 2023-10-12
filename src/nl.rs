@@ -51,10 +51,7 @@ type NlResult<T> = Result<T, NlError>;
 /// using it internally for types sent to the kernel, it's OK.
 fn as_bytes<T: Sized>(val: &T) -> &[u8] {
     unsafe {
-        std::slice::from_raw_parts::<'_, u8>(
-            val as *const _ as *const u8,
-            std::mem::size_of::<T>(),
-        )
+        std::slice::from_raw_parts::<'_, u8>(val as *const _ as *const u8, std::mem::size_of::<T>())
     }
 }
 
