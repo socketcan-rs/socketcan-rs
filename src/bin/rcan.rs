@@ -18,88 +18,76 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Set parameters on the interface, or bring it up or down.
 #[cfg(feature = "netlink")]
 fn iface_cmd(iface_name: &str, opts: &ArgMatches) -> Result<()> {
-    if let Some(_sub_opts) = opts.subcommand_matches("up") {
-        let iface = CanInterface::open(iface_name)?;
-        iface.bring_up()?;
-    } else if let Some(_sub_opts) = opts.subcommand_matches("down") {
-        let iface = CanInterface::open(iface_name)?;
-        iface.bring_down()?;
-    } else if let Some(sub_opts) = opts.subcommand_matches("bitrate") {
-        let bitrate = *sub_opts.get_one::<u32>("bitrate").unwrap();
-        let iface = CanInterface::open(iface_name)?;
-        iface.set_bitrate(bitrate, None)?;
-    } else if let Some(sub_opts) = opts.subcommand_matches("dbitrate") {
-        let dbitrate = *sub_opts.get_one::<u32>("dbitrate").unwrap();
-        let iface = CanInterface::open(iface_name)?;
-        iface.set_data_bitrate(dbitrate, None)?;
-    } else if let Some(sub_opts) = opts.subcommand_matches("loopback") {
-        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
-        let iface = CanInterface::open(iface_name)?;
-        iface.set_ctrlmode(CanCtrlMode::Loopback, on)?;
-    } else if let Some(sub_opts) = opts.subcommand_matches("loopback") {
-        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
-        let iface = CanInterface::open(iface_name)?;
-        iface.set_ctrlmode(CanCtrlMode::Loopback, on)?;
-    } else if let Some(sub_opts) = opts.subcommand_matches("loopback") {
-        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
-        let iface = CanInterface::open(iface_name)?;
-        iface.set_ctrlmode(CanCtrlMode::Loopback, on)?;
-    } else if let Some(sub_opts) = opts.subcommand_matches("listen-only") {
-        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
-        let iface = CanInterface::open(iface_name)?;
-        iface.set_ctrlmode(CanCtrlMode::ListenOnly, on)?;
-    } else if let Some(sub_opts) = opts.subcommand_matches("triple-sampling") {
-        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
-        let iface = CanInterface::open(iface_name)?;
-        iface.set_ctrlmode(CanCtrlMode::TripleSampling, on)?;
-    } else if let Some(sub_opts) = opts.subcommand_matches("one-shot") {
-        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
-        let iface = CanInterface::open(iface_name)?;
-        iface.set_ctrlmode(CanCtrlMode::OneShot, on)?;
-    } else if let Some(sub_opts) = opts.subcommand_matches("berr-reporting") {
-        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
-        let iface = CanInterface::open(iface_name)?;
-        iface.set_ctrlmode(CanCtrlMode::BerrReporting, on)?;
-    } else if let Some(sub_opts) = opts.subcommand_matches("fd") {
-        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
-        let iface = CanInterface::open(iface_name)?;
-        iface.set_ctrlmode(CanCtrlMode::Fd, on)?;
-    } else if let Some(sub_opts) = opts.subcommand_matches("fd-non-iso") {
-        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
-        let iface = CanInterface::open(iface_name)?;
-        iface.set_ctrlmode(CanCtrlMode::NonIso, on)?;
-    } else if let Some(sub_opts) = opts.subcommand_matches("presume-ack") {
-        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
-        let iface = CanInterface::open(iface_name)?;
-        iface.set_ctrlmode(CanCtrlMode::PresumeAck, on)?;
-    } else if let Some(sub_opts) = opts.subcommand_matches("cc-len8-dlc") {
-        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
-        let iface = CanInterface::open(iface_name)?;
-        iface.set_ctrlmode(CanCtrlMode::CcLen8Dlc, on)?;
-    } else if let Some(sub_opts) = opts.subcommand_matches("restart-ms") {
-        let ms = *sub_opts.get_one::<u32>("ms").unwrap();
-        let iface = CanInterface::open(iface_name)?;
-        iface.set_restart_ms(ms)?;
-    } else if let Some(_sub_opts) = opts.subcommand_matches("restart") {
-        let iface = CanInterface::open(iface_name)?;
-        iface.restart()?;
-    } else if let Some(sub_opts) = opts.subcommand_matches("add") {
+    // Add an interface such as vcan
+    if let Some(sub_opts) = opts.subcommand_matches("add") {
         let idx = sub_opts.get_one::<u32>("num").copied();
         let typ = sub_opts.get_one::<String>("type").unwrap();
         println!("Add {} idx: {:?}, type: {}", iface_name, idx, typ);
         CanInterface::create(iface_name, idx, typ)?;
+        return Ok(());
+    }
+
+    // All other commands act on an existing interface
+    let iface = CanInterface::open(iface_name)?;
+
+    if let Some(_sub_opts) = opts.subcommand_matches("up") {
+        iface.bring_up()?;
+    } else if let Some(_sub_opts) = opts.subcommand_matches("down") {
+        iface.bring_down()?;
+    } else if let Some(sub_opts) = opts.subcommand_matches("bitrate") {
+        let bitrate = *sub_opts.get_one::<u32>("bitrate").unwrap();
+        iface.set_bitrate(bitrate, None)?;
+    } else if let Some(sub_opts) = opts.subcommand_matches("dbitrate") {
+        let dbitrate = *sub_opts.get_one::<u32>("dbitrate").unwrap();
+        iface.set_data_bitrate(dbitrate, None)?;
+    } else if let Some(sub_opts) = opts.subcommand_matches("loopback") {
+        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
+        iface.set_ctrlmode(CanCtrlMode::Loopback, on)?;
+    } else if let Some(sub_opts) = opts.subcommand_matches("loopback") {
+        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
+        iface.set_ctrlmode(CanCtrlMode::Loopback, on)?;
+    } else if let Some(sub_opts) = opts.subcommand_matches("loopback") {
+        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
+        iface.set_ctrlmode(CanCtrlMode::Loopback, on)?;
+    } else if let Some(sub_opts) = opts.subcommand_matches("listen-only") {
+        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
+        iface.set_ctrlmode(CanCtrlMode::ListenOnly, on)?;
+    } else if let Some(sub_opts) = opts.subcommand_matches("triple-sampling") {
+        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
+        iface.set_ctrlmode(CanCtrlMode::TripleSampling, on)?;
+    } else if let Some(sub_opts) = opts.subcommand_matches("one-shot") {
+        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
+        iface.set_ctrlmode(CanCtrlMode::OneShot, on)?;
+    } else if let Some(sub_opts) = opts.subcommand_matches("berr-reporting") {
+        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
+        iface.set_ctrlmode(CanCtrlMode::BerrReporting, on)?;
+    } else if let Some(sub_opts) = opts.subcommand_matches("fd") {
+        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
+        iface.set_ctrlmode(CanCtrlMode::Fd, on)?;
+    } else if let Some(sub_opts) = opts.subcommand_matches("fd-non-iso") {
+        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
+        iface.set_ctrlmode(CanCtrlMode::NonIso, on)?;
+    } else if let Some(sub_opts) = opts.subcommand_matches("presume-ack") {
+        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
+        iface.set_ctrlmode(CanCtrlMode::PresumeAck, on)?;
+    } else if let Some(sub_opts) = opts.subcommand_matches("cc-len8-dlc") {
+        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
+        iface.set_ctrlmode(CanCtrlMode::CcLen8Dlc, on)?;
+    } else if let Some(sub_opts) = opts.subcommand_matches("restart-ms") {
+        let ms = *sub_opts.get_one::<u32>("ms").unwrap();
+        iface.set_restart_ms(ms)?;
+    } else if let Some(_sub_opts) = opts.subcommand_matches("restart") {
+        iface.restart()?;
     } else if let Some(_sub_opts) = opts.subcommand_matches("delete") {
-        let iface = CanInterface::open(iface_name)?;
         if let Err((_iface, err)) = iface.delete() {
             return Err(err.into());
         }
     } else if let Some(_sub_opts) = opts.subcommand_matches("details") {
-        let iface = CanInterface::open(iface_name)?;
         let details = iface.details()?;
         println!("{:?}", details);
     } else {
-        return Err(anyhow!("Unknown 'iface' subcommand"));
-    };
+        return Err(anyhow!("Unimplemented 'iface' subcommand"));
+    }
     Ok(())
 }
 
