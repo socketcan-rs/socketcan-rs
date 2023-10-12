@@ -127,7 +127,7 @@ pub mod socket;
 pub use socket::{CanAddr, CanFdSocket, CanFilter, CanSocket, ShouldRetry, Socket, SocketOptions};
 
 #[cfg(feature = "netlink")]
-mod nl;
+pub mod nl;
 
 #[cfg(feature = "netlink")]
 pub use nl::{CanCtrlMode, CanInterface};

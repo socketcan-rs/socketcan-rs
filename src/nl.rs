@@ -12,13 +12,37 @@
 //! Netlink module
 //!
 //! The netlink module contains the netlink-based management capabilities of
-//! the socketcan crate. Quoth wikipedia:
+//! the socketcan crate. Netlink is a socket-based mechanism, similar to
+//! Unix-domain sockets, which allows a user-space program communicate with
+//! the kernel.
 //!
+//! In the case of the SocketCAN subsystem, it allows an application to query
+//! or set the paramaters of a CAN interface, such as the bitrate, the control
+//! mode bits, and so forth. It also allows the application to get statistics
+//! from the inerface and send commands to the interface, such as performing a
+//! bus restart
 //!
-//! > Netlink socket family is a Linux kernel interface used for inter-process
-//! > communication (IPC) between both the kernel and userspace processes, and
-//! > between different userspace processes, in a way similar to the Unix
-//! > domain sockets.
+//! Unfortunately, the SocketCAN netlink API does not appear to be documented
+//! _anywhere_. The netlink functional summary on the SocketCAN page is here:
+//!
+//! <https://www.kernel.org/doc/html/latest/networking/can.html#netlink-interface-to-set-get-devices-properties>
+//!
+//! The CAN netlink header file for the Linux kernel has the definition of
+//! the constants and data structures that are sent back and forth to the
+//! kernel over nelink. It can be found in the Linux sources here:
+//!
+//! <https://github.com/torvalds/linux/blob/master/include/uapi/linux/can/netlink.h?ts=4>
+//!
+//! The corresponding kernel code that receives and processes messages from
+//! userspace is useful to help figure out what the kernel expects. It's here:
+//!
+//! <https://github.com/torvalds/linux/blob/master/drivers/net/can/dev/netlink.c?ts=4>
+//! <https://github.com/torvalds/linux/blob/master/drivers/net/can/dev/dev.c?ts=4>
+//!
+//! The main Linux user-space client to communicate with network interfaces,
+//! including CAN is _iproute2_. The CAN-specific code for it is here:
+//!
+//! <https://github.com/iproute2/iproute2/blob/main/ip/iplink_can.c?ts=4>
 //!
 
 use neli::{
@@ -55,33 +79,18 @@ fn as_bytes<T: Sized>(val: &T) -> &[u8] {
     }
 }
 
-/// SocketCAN CanInterface
-///
-/// Controlled through the kernel's Netlink interface, CAN devices can be
-/// brought up or down or configured through this.
-///
-/// Note while that this API is designed in an RAII-fashion, it cannot really
-/// make the same guarantees: It is entirely possible for another user/process
-/// to modify, remove and re-add an interface while you are holding this object
-/// with a reference to it.
-///
-/// Some actions possible on this interface require the process/user to have
-/// the `CAP_NET_ADMIN` capability, like the root user does. This is
-/// indicated by their documentation starting with "PRIVILEGED:".
-#[allow(missing_copy_implementations)]
-#[derive(Debug)]
-pub struct CanInterface {
-    if_index: c_uint,
-}
-
 /// The details of the interface which can be obtained with the
 /// `CanInterface::detail()` function.
 #[allow(missing_copy_implementations)]
 #[derive(Debug, Default, Clone)]
 pub struct InterfaceDetails {
+    /// The name of the interface
     pub name: Option<String>,
+    /// The index of the interface
     pub index: c_uint,
+    /// Whether the interface is currently up
     pub is_up: bool,
+    /// The MTU size of the interface (Standard or FD frames support)
     pub mtu: Option<Mtu>,
 }
 
@@ -95,14 +104,19 @@ impl InterfaceDetails {
     }
 }
 
+/// The MTU size for the interface
+///
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
 pub enum Mtu {
+    /// Standard CAN frame, 8-byte data (16-byte total)
     Standard = 16,
+    /// FD CAN frame, 64-byte data (64-byte total)
     Fd = 72,
 }
 
 // These are missing from libc and neli, adding them here as a stand-in for now.
+// Most of these should be pushed upstream, if/when possible.
 mod rt {
     #![allow(non_camel_case_types, unused)]
 
@@ -349,10 +363,32 @@ impl CanCtrlMode {
     }
 }
 
+// ===== CanInterface =====
+
+/// SocketCAN Netlink CanInterface
+///
+/// Controlled through the kernel's Netlink interface, CAN devices can be
+/// brought up or down or configured or queried through this.
+///
+/// Note while that this API is designed in an RAII-fashion, it cannot really
+/// make the same guarantees: It is entirely possible for another user/process
+/// to modify, remove and re-add an interface while you are holding this object
+/// with a reference to it.
+///
+/// Some actions possible on this interface require the process/user to have
+/// the `CAP_NET_ADMIN` capability, like the root user does. This is
+/// indicated by their documentation starting with "PRIVILEGED:".
+#[allow(missing_copy_implementations)]
+#[derive(Debug)]
+pub struct CanInterface {
+    if_index: c_uint,
+}
+
 impl CanInterface {
     /// Open a CAN interface by name.
     ///
-    /// Similar to `open_if`, but looks up the device by name instead
+    /// Similar to `open_iface`, but looks up the device by name instead of
+    /// the interface index.
     pub fn open(ifname: &str) -> Result<Self, nix::Error> {
         let if_index = if_nametoindex(ifname)?;
         Ok(Self::open_iface(if_index))
@@ -360,12 +396,14 @@ impl CanInterface {
 
     /// Open a CAN interface.
     ///
-    /// Creates a new `CanInterface` instance. No actual "opening" is necessary
-    /// or performed when calling this function.
+    /// Creates a new `CanInterface` instance.
+    ///
+    /// Note that no actual "opening" or checks are performed when calling
+    /// this function, nor does it test to determine if the interface with
+    /// the specified index actually exists.
     pub fn open_iface(if_index: u32) -> Self {
-        Self {
-            if_index: if_index as c_uint,
-        }
+        let if_index = if_index as c_uint;
+        Self { if_index }
     }
 
     /// Sends an info message to the kernel.
