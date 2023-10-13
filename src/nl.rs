@@ -44,6 +44,12 @@
 //!
 //! <https://github.com/iproute2/iproute2/blob/main/ip/iplink_can.c?ts=4>
 //!
+//! There is also a C library for SocketCAN, which primarily deals with the
+//! Netlink interface. There are several forks, but one of the later ones
+//! with updated documents is here:
+//!
+//! <https://github.com/lalten/libsocketcan>
+//!
 
 use neli::{
     consts::{
@@ -113,6 +119,18 @@ pub enum Mtu {
     Standard = 16,
     /// FD CAN frame, 64-byte data (64-byte total)
     Fd = 72,
+}
+
+impl TryFrom<u32> for Mtu {
+    type Error = std::io::Error;
+
+    fn try_from(val: u32) -> Result<Self, Self::Error> {
+        match val {
+            16 => Ok(Mtu::Standard),
+            72 => Ok(Mtu::Fd),
+            _ => Err(std::io::Error::from(std::io::ErrorKind::InvalidData)),
+        }
+    }
 }
 
 // These are missing from libc and neli, adding them here as a stand-in for now.
@@ -329,6 +347,8 @@ mod rt {
     }
 }
 
+// ===== CanCtrlMode(s) =====
+
 ///
 /// CAN control modes
 ///
@@ -360,6 +380,50 @@ impl CanCtrlMode {
     /// Get the mask for the specific control mode
     pub fn mask(&self) -> u32 {
         1u32 << (*self as u32)
+    }
+}
+
+/// The collection of control modes
+#[derive(Debug, Default, Clone, Copy)]
+pub struct CanCtrlModes(rt::can_ctrlmode);
+
+impl CanCtrlModes {
+    /// Create a set of CAN control modes from a mask and set of flags.
+    pub fn new(mask: u32, flags: u32) -> Self {
+        Self(rt::can_ctrlmode { mask, flags })
+    }
+
+    /// Create the set of mode flags for a single mode
+    pub fn from_mode(mode: CanCtrlMode, on: bool) -> Self {
+        let mask = mode.mask();
+        let flags = if on { mask } else { 0 };
+        Self::new(mask, flags)
+    }
+
+    /// Adds a mode flag to the existing set of modes.
+    pub fn add(&mut self, mode: CanCtrlMode, on: bool) {
+        let mask = mode.mask();
+        self.0.mask |= mask;
+        if on {
+            self.0.flags |= mask;
+        }
+    }
+
+    /// Clears all of the mode flags in the collection
+    pub fn clear(&mut self) {
+        self.0 = rt::can_ctrlmode::default();
+    }
+}
+
+impl From<rt::can_ctrlmode> for CanCtrlModes {
+    fn from(mode: rt::can_ctrlmode) -> Self {
+        Self(mode)
+    }
+}
+
+impl From<CanCtrlModes> for rt::can_ctrlmode {
+    fn from(mode: CanCtrlModes) -> Self {
+        mode.0
     }
 }
 
@@ -626,6 +690,7 @@ impl CanInterface {
                     info.is_up = payload.ifi_flags.contains(&Iff::Up);
 
                     for attr in payload.rtattrs.iter() {
+                        println!("{:?}", attr);
                         match attr.rta_type {
                             Ifla::Ifname => {
                                 if let Ok(string) =
@@ -645,14 +710,7 @@ impl CanInterface {
                                         bytes[index] = *byte;
                                     }
 
-                                    const STANDARD: u32 = Mtu::Standard as u32;
-                                    const FD: u32 = Mtu::Fd as u32;
-
-                                    info.mtu = match u32::from_ne_bytes(bytes) {
-                                        STANDARD => Some(Mtu::Standard),
-                                        FD => Some(Mtu::Fd),
-                                        _ => None,
-                                    }
+                                    info.mtu = Mtu::try_from(u32::from_ne_bytes(bytes)).ok();
                                 }
                             }
                             _ => (),
@@ -671,6 +729,7 @@ impl CanInterface {
     /// PRIVILEGED: This requires root privilege.
     ///
     pub fn set_mtu(&self, mtu: Mtu) -> NlResult<()> {
+        let mtu = mtu as u32;
         let info = Ifinfomsg::new(
             RtAddrFamily::Unspecified,
             Arphrd::Netrom,
@@ -679,11 +738,7 @@ impl CanInterface {
             IffFlags::empty(),
             {
                 let mut buffer = RtBuffer::new();
-                buffer.push(Rtattr::new(
-                    None,
-                    Ifla::Mtu,
-                    &u32::to_ne_bytes(mtu as u32)[..],
-                )?);
+                buffer.push(Rtattr::new(None, Ifla::Mtu, &mtu.to_ne_bytes()[..])?);
                 buffer
             },
         );
@@ -751,15 +806,24 @@ impl CanInterface {
     }
 
     /// Set the full control mode (bit) collection.
+    #[deprecated(since = "3.2.0", note = "Use `set_ctrlmodes` instead")]
     pub fn set_full_ctrlmode(&self, ctrlmode: rt::can_ctrlmode) -> NlResult<()> {
         self.send_cmd(rt::IflaCan::CtrlMode, as_bytes(&ctrlmode))
     }
 
+    /// Set the full control mode (bit) collection.
+    pub fn set_ctrlmodes<M>(&self, ctrlmode: M) -> NlResult<()>
+    where
+        M: Into<CanCtrlModes>,
+    {
+        let modes = ctrlmode.into();
+        let modes: rt::can_ctrlmode = modes.into();
+        self.send_cmd(rt::IflaCan::CtrlMode, as_bytes(&modes))
+    }
+
     /// Set or clear an individual control mode parameter.
     pub fn set_ctrlmode(&self, mode: CanCtrlMode, on: bool) -> NlResult<()> {
-        let mask = mode.mask();
-        let flags = if on { mask } else { 0 };
-        self.set_full_ctrlmode(rt::can_ctrlmode { mask, flags })
+        self.set_ctrlmodes(CanCtrlModes::from_mode(mode, on))
     }
 
     /// Set the automatic restart milliseconds of the interface
