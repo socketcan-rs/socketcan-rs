@@ -9,7 +9,7 @@
 // This file may not be copied, modified, or distributed except according
 // to those terms.
 
-//! Netlink module
+//! CAN Netlink access
 //!
 //! The netlink module contains the netlink-based management capabilities of
 //! the socketcan crate. Netlink is a socket-based mechanism, similar to
@@ -44,9 +44,9 @@
 //!
 //! <https://github.com/iproute2/iproute2/blob/main/ip/iplink_can.c?ts=4>
 //!
-//! There is also a C library for SocketCAN, which primarily deals with the
-//! Netlink interface. There are several forks, but one of the later ones
-//! with updated documents is here:
+//! There is also a C user-space library for SocketCAN, which primarily
+//! deals with the Netlink interface. There are several forks, but one of
+//! the later ones with updated documents is here:
 //!
 //! <https://github.com/lalten/libsocketcan>
 //!
@@ -259,6 +259,18 @@ impl CanInterface {
         Self { if_index }
     }
 
+    /// Creates an `Ifinfomsg` for this CAN interface from a buffer
+    fn info_msg(&self, buf: RtBuffer<Ifla, Buffer>) -> Ifinfomsg {
+        Ifinfomsg::new(
+            RtAddrFamily::Unspecified,
+            Arphrd::Netrom,
+            self.if_index as c_int,
+            IffFlags::empty(),
+            IffFlags::empty(),
+            buf,
+        )
+    }
+
     /// Sends an info message to the kernel.
     fn send_info_msg(msg_type: Rtm, info: Ifinfomsg, additional_flags: &[NlmF]) -> NlResult<()> {
         let mut nl = Self::open_route_socket()?;
@@ -282,7 +294,7 @@ impl CanInterface {
         Self::send_and_read_ack(&mut nl, hdr)
     }
 
-    /// Sends a netlink message down a netlink socket, and checks if an ACK was
+    /// Sends a message down a netlink socket, and checks if an ACK was
     /// properly received.
     fn send_and_read_ack<T, P>(sock: &mut NlSocketHandle, msg: Nlmsghdr<T, P>) -> NlResult<()>
     where
@@ -291,7 +303,8 @@ impl CanInterface {
     {
         sock.send(msg)?;
 
-        // This will actually produce an Err if the response is a netlink error, no need to match.
+        // This will actually produce an Err if the response is a netlink error,
+        // no need to match.
         if let Some(Nlmsghdr {
             nl_payload: NlPayload::Ack(_),
             ..
@@ -304,8 +317,8 @@ impl CanInterface {
     }
 
     /// Opens a new netlink socket, bound to this process' PID.
-    /// The function is generic to allow for usage in contexts where NlError has specific,
-    /// non-default generic parameters.
+    /// The function is generic to allow for usage in contexts where NlError
+    /// has specific, non-default, generic parameters.
     fn open_route_socket<T, P>() -> Result<NlSocketHandle, NlError<T, P>> {
         // retrieve PID
         let pid = unistd::getpid().as_raw() as u32;
@@ -316,27 +329,21 @@ impl CanInterface {
         Ok(sock)
     }
 
-    // Send a netlink CAN command down to the kernel.
+    // Send a netlink CAN command down to the kernel to set an attribute
+    // in the link info, such as bitrate, control modes, etc
     fn set_can_param(&self, param: rt::IflaCan, param_data: &[u8]) -> NlResult<()> {
-        let info = Ifinfomsg::new(
-            RtAddrFamily::Unspecified,
-            Arphrd::Netrom,
-            self.if_index as c_int,
-            IffFlags::empty(),
-            IffFlags::empty(),
-            {
-                let mut data = Rtattr::new(None, IflaInfo::Data, Buffer::new())?;
-                data.add_nested_attribute(&Rtattr::new(None, param as u16, param_data)?)?;
+        let info = self.info_msg({
+            let mut data = Rtattr::new(None, IflaInfo::Data, Buffer::new())?;
+            data.add_nested_attribute(&Rtattr::new(None, param as u16, param_data)?)?;
 
-                let mut link_info = Rtattr::new(None, Ifla::Linkinfo, Buffer::new())?;
-                link_info.add_nested_attribute(&Rtattr::new(None, IflaInfo::Kind, "can")?)?;
-                link_info.add_nested_attribute(&data)?;
+            let mut link_info = Rtattr::new(None, Ifla::Linkinfo, Buffer::new())?;
+            link_info.add_nested_attribute(&Rtattr::new(None, IflaInfo::Kind, "can")?)?;
+            link_info.add_nested_attribute(&data)?;
 
-                let mut rtattrs = RtBuffer::new();
-                rtattrs.push(link_info);
-                rtattrs
-            },
-        );
+            let mut rtattrs = RtBuffer::new();
+            rtattrs.push(link_info);
+            rtattrs
+        });
         Self::send_info_msg(Rtm::Newlink, info, &[])
     }
 
@@ -344,6 +351,7 @@ impl CanInterface {
     ///
     /// Use a netlink control socket to set the interface status to "down".
     pub fn bring_down(&self) -> NlResult<()> {
+        // Specific iface down info
         let info = Ifinfomsg::down(
             RtAddrFamily::Unspecified,
             Arphrd::Netrom,
@@ -357,6 +365,7 @@ impl CanInterface {
     ///
     /// Brings the interface up by settings its "up" flag enabled via netlink.
     pub fn bring_up(&self) -> NlResult<()> {
+        // Specific iface up info
         let info = Ifinfomsg::up(
             RtAddrFamily::Unspecified,
             Arphrd::Netrom,
@@ -431,14 +440,7 @@ impl CanInterface {
     /// PRIVILEGED: This requires root privilege.
     ///
     pub fn delete(self) -> Result<(), (Self, NlError)> {
-        let info = Ifinfomsg::new(
-            RtAddrFamily::Unspecified,
-            Arphrd::Netrom,
-            self.if_index as c_int,
-            IffFlags::empty(),
-            IffFlags::empty(),
-            RtBuffer::new(),
-        );
+        let info = self.info_msg(RtBuffer::new());
         match Self::send_info_msg(Rtm::Dellink, info, &[]) {
             Ok(()) => Ok(()),
             Err(err) => Err((self, err)),
@@ -447,18 +449,11 @@ impl CanInterface {
 
     /// Attempt to query detailed information on the interface.
     pub fn details(&self) -> Result<InterfaceDetails, NlError<Rtm, Ifinfomsg>> {
-        let info = Ifinfomsg::new(
-            RtAddrFamily::Unspecified,
-            Arphrd::Netrom,
-            self.if_index as c_int,
-            IffFlags::empty(),
-            IffFlags::empty(),
-            {
-                let mut buffer = RtBuffer::new();
-                buffer.push(Rtattr::new(None, Ifla::ExtMask, rt::EXT_FILTER_VF).unwrap());
-                buffer
-            },
-        );
+        let info = self.info_msg({
+            let mut buffer = RtBuffer::new();
+            buffer.push(Rtattr::new(None, Ifla::ExtMask, rt::EXT_FILTER_VF).unwrap());
+            buffer
+        });
 
         let mut nl = Self::open_route_socket()?;
 
@@ -515,18 +510,11 @@ impl CanInterface {
 
     /// Attempt to query a CAN parameter on the interface.
     pub fn can_param(&self) -> Result<u32, NlError<Rtm, Ifinfomsg>> {
-        let info = Ifinfomsg::new(
-            RtAddrFamily::Unspecified,
-            Arphrd::Netrom,
-            self.if_index as c_int,
-            IffFlags::empty(),
-            IffFlags::empty(),
-            {
-                let mut buffer = RtBuffer::new();
-                buffer.push(Rtattr::new(None, Ifla::ExtMask, rt::EXT_FILTER_VF).unwrap());
-                buffer
-            },
-        );
+        let info = self.info_msg({
+            let mut buffer = RtBuffer::new();
+            buffer.push(Rtattr::new(None, Ifla::ExtMask, rt::EXT_FILTER_VF).unwrap());
+            buffer
+        });
 
         let hdr = Nlmsghdr::new(
             None,
@@ -560,18 +548,11 @@ impl CanInterface {
     ///
     pub fn set_mtu(&self, mtu: Mtu) -> NlResult<()> {
         let mtu = mtu as u32;
-        let info = Ifinfomsg::new(
-            RtAddrFamily::Unspecified,
-            Arphrd::Netrom,
-            self.if_index as c_int,
-            IffFlags::empty(),
-            IffFlags::empty(),
-            {
-                let mut buffer = RtBuffer::new();
-                buffer.push(Rtattr::new(None, Ifla::Mtu, &mtu.to_ne_bytes()[..])?);
-                buffer
-            },
-        );
+        let info = self.info_msg({
+            let mut buffer = RtBuffer::new();
+            buffer.push(Rtattr::new(None, Ifla::Mtu, &mtu.to_ne_bytes()[..])?);
+            buffer
+        });
         Self::send_info_msg(Rtm::Newlink, info, &[])
     }
 
