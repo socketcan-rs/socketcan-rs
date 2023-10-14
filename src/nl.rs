@@ -139,6 +139,7 @@ mod rt {
     #![allow(non_camel_case_types, unused)]
 
     use libc::{c_char, c_uint};
+    use neli::FromBytes;
     use std::io;
 
     pub const EXT_FILTER_VF: c_uint = 1 << 0;
@@ -160,7 +161,7 @@ mod rt {
     /// at http://www.semiconductors.bosch.de/pdf/can2spec.pdf.
     ///
     #[repr(C)]
-    #[derive(Debug, Default, Clone, Copy)]
+    #[derive(Debug, Default, Clone, Copy, FromBytes)]
     pub struct can_bittiming {
         pub bitrate: u32,      // Bit-rate in bits/second
         pub sample_point: u32, // Sample point in one-tenth of a percent
@@ -528,7 +529,7 @@ impl CanInterface {
     }
 
     // Send a netlink CAN command down to the kernel.
-    fn send_cmd(&self, cmd: rt::IflaCan, cmd_data: &[u8]) -> NlResult<()> {
+    fn set_can_param(&self, param: rt::IflaCan, param_data: &[u8]) -> NlResult<()> {
         let info = Ifinfomsg::new(
             RtAddrFamily::Unspecified,
             Arphrd::Netrom,
@@ -536,13 +537,14 @@ impl CanInterface {
             IffFlags::empty(),
             IffFlags::empty(),
             {
-                let mut rtattrs = RtBuffer::new();
+                let mut data = Rtattr::new(None, IflaInfo::Data, Buffer::new())?;
+                data.add_nested_attribute(&Rtattr::new(None, param as u16, param_data)?)?;
+
                 let mut link_info = Rtattr::new(None, Ifla::Linkinfo, Buffer::new())?;
                 link_info.add_nested_attribute(&Rtattr::new(None, IflaInfo::Kind, "can")?)?;
-                let mut data = Rtattr::new(None, IflaInfo::Data, Buffer::new())?;
-
-                data.add_nested_attribute(&Rtattr::new(None, cmd as u16, cmd_data)?)?;
                 link_info.add_nested_attribute(&data)?;
+
+                let mut rtattrs = RtBuffer::new();
                 rtattrs.push(link_info);
                 rtattrs
             },
@@ -690,7 +692,6 @@ impl CanInterface {
                     info.is_up = payload.ifi_flags.contains(&Iff::Up);
 
                     for attr in payload.rtattrs.iter() {
-                        println!("{:?}", attr);
                         match attr.rta_type {
                             Ifla::Ifname => {
                                 if let Ok(string) =
@@ -721,6 +722,47 @@ impl CanInterface {
                 Ok(info)
             }
             None => Err(NlError::NoAck),
+        }
+    }
+
+    /// Attempt to query a CAN parameter on the interface.
+    pub fn can_param(&self) -> Result<u32, NlError<Rtm, Ifinfomsg>> {
+        let info = Ifinfomsg::new(
+            RtAddrFamily::Unspecified,
+            Arphrd::Netrom,
+            self.if_index as c_int,
+            IffFlags::empty(),
+            IffFlags::empty(),
+            {
+                let mut buffer = RtBuffer::new();
+                buffer.push(Rtattr::new(None, Ifla::ExtMask, rt::EXT_FILTER_VF).unwrap());
+                buffer
+            },
+        );
+
+        let hdr = Nlmsghdr::new(
+            None,
+            Rtm::Getlink,
+            NlmFFlags::new(&[NlmF::Request]),
+            None,
+            None,
+            NlPayload::Payload(info),
+        );
+
+        let mut nl = Self::open_route_socket()?;
+        nl.send(hdr)?;
+
+        if let Some(msg) = nl.recv::<'_, Rtm, Ifinfomsg>()? {
+            if let Ok(payload) = msg.get_payload() {
+                for attr in payload.rtattrs.iter() {
+                    if attr.rta_type == Ifla::Linkinfo {
+                        // Trying to figure this out!
+                    }
+                }
+            }
+            Ok(0)
+        } else {
+            Err(NlError::NoAck)
         }
     }
 
@@ -776,7 +818,7 @@ impl CanInterface {
             ..rt::can_bittiming::default()
         };
 
-        self.send_cmd(rt::IflaCan::BitTiming, as_bytes(&timing))
+        self.set_can_param(rt::IflaCan::BitTiming, as_bytes(&timing))
     }
 
     /// Set the data bitrate and, optionally, data sample point of this
@@ -802,13 +844,13 @@ impl CanInterface {
             ..rt::can_bittiming::default()
         };
 
-        self.send_cmd(rt::IflaCan::DataBitTiming, as_bytes(&timing))
+        self.set_can_param(rt::IflaCan::DataBitTiming, as_bytes(&timing))
     }
 
     /// Set the full control mode (bit) collection.
     #[deprecated(since = "3.2.0", note = "Use `set_ctrlmodes` instead")]
     pub fn set_full_ctrlmode(&self, ctrlmode: rt::can_ctrlmode) -> NlResult<()> {
-        self.send_cmd(rt::IflaCan::CtrlMode, as_bytes(&ctrlmode))
+        self.set_can_param(rt::IflaCan::CtrlMode, as_bytes(&ctrlmode))
     }
 
     /// Set the full control mode (bit) collection.
@@ -818,7 +860,7 @@ impl CanInterface {
     {
         let modes = ctrlmode.into();
         let modes: rt::can_ctrlmode = modes.into();
-        self.send_cmd(rt::IflaCan::CtrlMode, as_bytes(&modes))
+        self.set_can_param(rt::IflaCan::CtrlMode, as_bytes(&modes))
     }
 
     /// Set or clear an individual control mode parameter.
@@ -831,7 +873,7 @@ impl CanInterface {
     /// PRIVILEGED: This requires root privilege.
     ///
     pub fn set_restart_ms(&self, restart_ms: u32) -> NlResult<()> {
-        self.send_cmd(rt::IflaCan::RestartMs, &restart_ms.to_ne_bytes())
+        self.set_can_param(rt::IflaCan::RestartMs, &restart_ms.to_ne_bytes())
     }
 
     /// Manually restart the interface.
@@ -852,7 +894,7 @@ impl CanInterface {
         // too!
         // See: linux/drivers/net/can/dev/netlink.c
         let restart_data: u32 = 1;
-        self.send_cmd(rt::IflaCan::Restart, &restart_data.to_ne_bytes())
+        self.set_can_param(rt::IflaCan::Restart, &restart_data.to_ne_bytes())
     }
 }
 

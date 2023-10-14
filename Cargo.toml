@@ -36,6 +36,7 @@ async-std = ["dep:async-std", "dep:async-io"]
 [dependencies]
 embedded-can = "0.4"
 nb = "1"
+log = "0.4"
 byte_conv = "0.1.1"
 hex = "0.4"
 itertools = "0.10"
