@@ -69,7 +69,7 @@ use neli::{
 use nix::{self, net::if_::if_nametoindex, unistd};
 use rt::IflaCan;
 use std::{
-    ffi::CString,
+    ffi::CStr,
     fmt::Debug,
     os::raw::{c_int, c_uint},
 };
@@ -102,6 +102,9 @@ pub struct InterfaceDetails {
     pub mtu: Option<Mtu>,
     /// The CAN bit timing parameters
     pub bit_timing: Option<rt::can_bittiming>,
+    /// The CAN clock parameters
+    pub clock: Option<rt::can_clock>,
+    // TODO: Add the other CAN parameters...
 }
 
 impl InterfaceDetails {
@@ -352,9 +355,8 @@ impl CanInterface {
     }
 
     /// Parses the info attribute to find and extratc a CAN parameter.
-    #[allow(dead_code)]
     fn parse_can_param<P>(
-        link_info: Rtattr<IflaInfo, Buffer>,
+        link_info: &Rtattr<Ifla, Buffer>,
         param: IflaCan,
     ) -> Result<Option<P>, NlError<Rtm, Ifinfomsg>>
     where
@@ -547,43 +549,25 @@ impl CanInterface {
                     for attr in payload.rtattrs.iter() {
                         match attr.rta_type {
                             Ifla::Ifname => {
-                                if let Ok(string) =
-                                    CString::from_vec_with_nul(Vec::from(attr.rta_payload.as_ref()))
-                                {
-                                    if let Ok(string) = string.into_string() {
-                                        info.name = Some(string);
-                                    }
-                                }
+                                info.name = CStr::from_bytes_until_nul(attr.rta_payload.as_ref())
+                                    .map(|s| s.to_string_lossy().into_owned())
+                                    .ok();
                             }
                             Ifla::Mtu => {
-                                if attr.rta_payload.len() == 4 {
-                                    let mut bytes = [0u8; 4];
-                                    for (index, byte) in
-                                        attr.rta_payload.as_ref().iter().enumerate()
-                                    {
-                                        bytes[index] = *byte;
-                                    }
-
-                                    info.mtu = Mtu::try_from(u32::from_ne_bytes(bytes)).ok();
-                                }
+                                info.mtu = attr
+                                    .get_payload_as::<u32>()
+                                    .ok()
+                                    .map(|mtu| Mtu::try_from(mtu).ok())
+                                    .flatten();
                             }
                             Ifla::Linkinfo => {
-                                for info_attr in attr.get_attr_handle::<IflaInfo>()?.get_attrs() {
-                                    if info_attr.rta_type == IflaInfo::Data {
-                                        for attr in
-                                            info_attr.get_attr_handle::<IflaCan>()?.get_attrs()
-                                        {
-                                            match attr.rta_type {
-                                                IflaCan::BitTiming => {
-                                                    info.bit_timing = Some(
-                                                        attr.get_payload_as::<rt::can_bittiming>()?,
-                                                    )
-                                                }
-                                                _ => (),
-                                            }
-                                        }
-                                    }
-                                }
+                                info.bit_timing = Self::parse_can_param::<rt::can_bittiming>(
+                                    attr,
+                                    IflaCan::BitTiming,
+                                )?;
+                                info.clock =
+                                    Self::parse_can_param::<rt::can_clock>(attr, IflaCan::Clock)?;
+                                // TODO: Add the other CAN parameters...
                             }
                             _ => (),
                         }
