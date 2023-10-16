@@ -557,8 +557,7 @@ impl CanInterface {
                                 info.mtu = attr
                                     .get_payload_as::<u32>()
                                     .ok()
-                                    .map(|mtu| Mtu::try_from(mtu).ok())
-                                    .flatten();
+                                    .and_then(|mtu| Mtu::try_from(mtu).ok());
                             }
                             Ifla::Linkinfo => {
                                 info.bit_timing = Self::parse_can_param::<rt::can_bittiming>(
@@ -734,16 +733,12 @@ pub mod tests {
             as_bytes(&timing)
         );
     }
-}
 
-#[cfg(test)]
-#[cfg(feature = "netlink_tests")]
-pub mod tests {
+    #[cfg(feature = "netlink_tests")]
     use std::ops::Deref;
 
+    #[cfg(feature = "netlink_tests")]
     use serial_test::serial;
-
-    use super::*;
 
     /// RAII-style helper to create and clean-up a specific vcan interface for a single test.
     /// Using drop here ensures that the interface always gets cleaned up
@@ -759,10 +754,14 @@ pub mod tests {
     /// ```
     /// Please note that there is a limit to the length of interface names,
     /// namely 16 characters on Linux.
+    #[cfg(feature = "netlink_tests")]
+    #[allow(missing_copy_implementations)]
+    #[derive(Debug)]
     pub struct TemporaryInterface {
         interface: CanInterface,
     }
 
+    #[cfg(feature = "netlink_tests")]
     impl TemporaryInterface {
         #[allow(unused)]
         pub fn new(name: &str) -> NlResult<Self> {
@@ -772,6 +771,7 @@ pub mod tests {
         }
     }
 
+    #[cfg(feature = "netlink_tests")]
     impl Drop for TemporaryInterface {
         fn drop(&mut self) {
             assert!(CanInterface::open_iface(self.interface.if_index)
@@ -780,6 +780,7 @@ pub mod tests {
         }
     }
 
+    #[cfg(feature = "netlink_tests")]
     impl Deref for TemporaryInterface {
         type Target = CanInterface;
 
