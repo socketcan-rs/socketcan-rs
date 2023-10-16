@@ -18,9 +18,16 @@
 
 #![allow(non_camel_case_types, unused)]
 
+use super::{as_bytes, as_bytes_mut};
 use libc::{c_char, c_uint};
-use neli::{FromBytes, Size, ToBytes};
-use std::io;
+use neli::{
+    err::{DeError, SerError},
+    FromBytes, Size, ToBytes,
+};
+use std::{
+    io::{self, Cursor, Read, Write},
+    mem,
+};
 
 pub const EXT_FILTER_VF: c_uint = 1 << 0;
 pub const EXT_FILTER_BRVLAN: c_uint = 1 << 1;
@@ -73,6 +80,21 @@ pub struct can_bittiming_const {
     pub brp_min: u32, // Bit-rate prescaler
     pub brp_max: u32,
     pub brp_inc: u32,
+}
+
+impl ToBytes for can_bittiming_const {
+    fn to_bytes(&self, buf: &mut Cursor<Vec<u8>>) -> Result<(), SerError> {
+        buf.write_all(as_bytes(self))?;
+        Ok(())
+    }
+}
+
+impl<'a> FromBytes<'a> for can_bittiming_const {
+    fn from_bytes(buf: &mut Cursor<&'a [u8]>) -> Result<Self, DeError> {
+        let mut timing_const: can_bittiming_const = unsafe { mem::zeroed() };
+        buf.read(as_bytes_mut(&mut timing_const))?;
+        Ok(timing_const)
+    }
 }
 
 /// CAN clock parameters
