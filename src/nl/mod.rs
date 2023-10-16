@@ -549,7 +549,8 @@ impl CanInterface {
                     for attr in payload.rtattrs.iter() {
                         match attr.rta_type {
                             Ifla::Ifname => {
-                                info.name = CStr::from_bytes_until_nul(attr.rta_payload.as_ref())
+                                // Note: Use `CStr::from_bytes_until_nul` when MSRV >= 1.69
+                                info.name = CStr::from_bytes_with_nul(attr.rta_payload.as_ref())
                                     .map(|s| s.to_string_lossy().into_owned())
                                     .ok();
                             }
