@@ -123,7 +123,7 @@ impl TryFrom<u32> for CanState {
 /// CAN bus error counters
 ///
 #[repr(C)]
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone, FromBytes, ToBytes)]
 pub struct can_berr_counter {
     pub txerr: u16,
     pub rxerr: u16,
@@ -135,7 +135,7 @@ pub struct can_berr_counter {
 /// the bit in the `flags` and send via `set_ctrlmode()`.
 ///
 #[repr(C)]
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone, FromBytes, ToBytes)]
 pub struct can_ctrlmode {
     pub mask: u32,
     pub flags: u32,

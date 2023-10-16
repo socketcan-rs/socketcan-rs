@@ -74,6 +74,11 @@ use std::{
     os::raw::{c_int, c_uint},
 };
 
+/// Low-level Netlink CAN struct bindings.
+mod rt;
+
+use rt::{can_berr_counter, can_bittiming, can_bittiming_const, can_clock, can_ctrlmode, CanState};
+
 /// A result for Netlink errors.
 type NlResult<T> = Result<T, NlError>;
 
@@ -100,11 +105,8 @@ pub struct InterfaceDetails {
     pub is_up: bool,
     /// The MTU size of the interface (Standard or FD frames support)
     pub mtu: Option<Mtu>,
-    /// The CAN bit timing parameters
-    pub bit_timing: Option<rt::can_bittiming>,
-    /// The CAN clock parameters
-    pub clock: Option<rt::can_clock>,
-    // TODO: Add the other CAN parameters...
+    /// The CAN-specific parameters for the interface
+    pub can: InterfaceCanParams,
 }
 
 impl InterfaceDetails {
@@ -140,8 +142,84 @@ impl TryFrom<u32> for Mtu {
     }
 }
 
-/// Low-level Netlink CAN struct bindings.
-mod rt;
+/// The CAN-specific parameters for the interface.
+#[allow(missing_copy_implementations)]
+#[derive(Debug, Default, Clone)]
+pub struct InterfaceCanParams {
+    /// The CAN bit timing parameters
+    pub bit_timing: Option<can_bittiming>,
+    /// The bit timing const parameters
+    pub bit_timing_const: Option<can_bittiming_const>,
+    /// The CAN clock parameters
+    pub clock: Option<can_clock>,
+    /// The CAN bus state
+    pub state: Option<CanState>,
+    /// The automatic restart time (in millisec)
+    /// Zero means auto-restart is disabled.
+    pub restart_ms: u32,
+    /// The bit error counter
+    pub berr_counter: Option<can_berr_counter>,
+    /// The control mode bits
+    pub ctrl_mode: can_ctrlmode,
+    /// The FD data bit timing
+    pub data_bit_timing: Option<can_bittiming>,
+    /// The FD data bit timing const parameters
+    pub data_bit_timing_const: Option<can_bittiming_const>,
+    /// The CANbus termination resistance
+    pub termination: u16,
+}
+
+impl TryFrom<&Rtattr<Ifla, Buffer>> for InterfaceCanParams {
+    type Error = NlError<Rtm, Ifinfomsg>;
+
+    /// Try to parse the CAN parameters out of a Linkinfo attribute
+    fn try_from(link_info: &Rtattr<Ifla, Buffer>) -> Result<Self, Self::Error> {
+        let mut params = Self::default();
+
+        for info in link_info.get_attr_handle::<IflaInfo>()?.get_attrs() {
+            if info.rta_type == IflaInfo::Data {
+                for attr in info.get_attr_handle::<IflaCan>()?.get_attrs() {
+                    match attr.rta_type {
+                        IflaCan::BitTiming => {
+                            params.bit_timing = Some(attr.get_payload_as::<can_bittiming>()?);
+                        }
+                        IflaCan::BitTimingConst => {
+                            // TODO: Need FromBytes for this
+                            //params.bit_timing_const = Some(attr.get_payload_as::<can_bittiming_const>()?);
+                        }
+                        IflaCan::Clock => {
+                            params.clock = Some(attr.get_payload_as::<can_clock>()?);
+                        }
+                        IflaCan::State => {
+                            params.state = CanState::try_from(attr.get_payload_as::<u32>()?).ok();
+                        }
+                        IflaCan::CtrlMode => {
+                            params.ctrl_mode = attr.get_payload_as::<can_ctrlmode>()?;
+                        }
+                        IflaCan::RestartMs => {
+                            params.restart_ms = attr.get_payload_as::<u32>()?;
+                        }
+                        IflaCan::BerrCounter => {
+                            params.berr_counter = Some(attr.get_payload_as::<can_berr_counter>()?);
+                        }
+                        IflaCan::DataBitTiming => {
+                            params.data_bit_timing = Some(attr.get_payload_as::<can_bittiming>()?);
+                        }
+                        IflaCan::DataBitTimingConst => {
+                            // TODO: Need FromBytes for this
+                            //params.data_bit_timing_const = Some(attr.get_payload_as::<can_bittiming_const>()?);
+                        }
+                        IflaCan::Termination => {
+                            params.termination = attr.get_payload_as::<u16>()?;
+                        }
+                        _ => (),
+                    }
+                }
+            }
+        }
+        Ok(params)
+    }
+}
 
 // ===== CanCtrlMode(s) =====
 
@@ -181,12 +259,12 @@ impl CanCtrlMode {
 
 /// The collection of control modes
 #[derive(Debug, Default, Clone, Copy)]
-pub struct CanCtrlModes(rt::can_ctrlmode);
+pub struct CanCtrlModes(can_ctrlmode);
 
 impl CanCtrlModes {
     /// Create a set of CAN control modes from a mask and set of flags.
     pub fn new(mask: u32, flags: u32) -> Self {
-        Self(rt::can_ctrlmode { mask, flags })
+        Self(can_ctrlmode { mask, flags })
     }
 
     /// Create the set of mode flags for a single mode
@@ -207,17 +285,17 @@ impl CanCtrlModes {
 
     /// Clears all of the mode flags in the collection
     pub fn clear(&mut self) {
-        self.0 = rt::can_ctrlmode::default();
+        self.0 = can_ctrlmode::default();
     }
 }
 
-impl From<rt::can_ctrlmode> for CanCtrlModes {
-    fn from(mode: rt::can_ctrlmode) -> Self {
+impl From<can_ctrlmode> for CanCtrlModes {
+    fn from(mode: can_ctrlmode) -> Self {
         Self(mode)
     }
 }
 
-impl From<CanCtrlModes> for rt::can_ctrlmode {
+impl From<CanCtrlModes> for can_ctrlmode {
     fn from(mode: CanCtrlModes) -> Self {
         mode.0
     }
@@ -355,6 +433,7 @@ impl CanInterface {
     }
 
     /// Parses the info attribute to find and extratc a CAN parameter.
+    #[allow(dead_code)]
     fn parse_can_param<P>(
         link_info: &Rtattr<Ifla, Buffer>,
         param: IflaCan,
@@ -561,13 +640,7 @@ impl CanInterface {
                                     .and_then(|mtu| Mtu::try_from(mtu).ok());
                             }
                             Ifla::Linkinfo => {
-                                info.bit_timing = Self::parse_can_param::<rt::can_bittiming>(
-                                    attr,
-                                    IflaCan::BitTiming,
-                                )?;
-                                info.clock =
-                                    Self::parse_can_param::<rt::can_clock>(attr, IflaCan::Clock)?;
-                                // TODO: Add the other CAN parameters...
+                                info.can = InterfaceCanParams::try_from(attr)?;
                             }
                             _ => (),
                         }
@@ -595,8 +668,8 @@ impl CanInterface {
     }
 
     /// Gets the bit timing data for the interface
-    pub fn bit_timing(&self) -> Result<Option<rt::can_bittiming>, NlError<Rtm, Ifinfomsg>> {
-        self.can_param::<rt::can_bittiming>(IflaCan::BitTiming)
+    pub fn bit_timing(&self) -> Result<Option<can_bittiming>, NlError<Rtm, Ifinfomsg>> {
+        self.can_param::<can_bittiming>(IflaCan::BitTiming)
     }
 
     /// Set the bitrate and, optionally, sample point of this interface.
@@ -624,10 +697,10 @@ impl CanInterface {
             sample_point
         );
 
-        let timing = rt::can_bittiming {
+        let timing = can_bittiming {
             bitrate,
             sample_point,
-            ..rt::can_bittiming::default()
+            ..can_bittiming::default()
         };
 
         self.set_can_param(IflaCan::BitTiming, as_bytes(&timing))
@@ -650,10 +723,10 @@ impl CanInterface {
     {
         let sample_point: u32 = sample_point.into().unwrap_or(0);
 
-        let timing = rt::can_bittiming {
+        let timing = can_bittiming {
             bitrate,
             sample_point,
-            ..rt::can_bittiming::default()
+            ..can_bittiming::default()
         };
 
         self.set_can_param(IflaCan::DataBitTiming, as_bytes(&timing))
@@ -661,7 +734,7 @@ impl CanInterface {
 
     /// Set the full control mode (bit) collection.
     #[deprecated(since = "3.2.0", note = "Use `set_ctrlmodes` instead")]
-    pub fn set_full_ctrlmode(&self, ctrlmode: rt::can_ctrlmode) -> NlResult<()> {
+    pub fn set_full_ctrlmode(&self, ctrlmode: can_ctrlmode) -> NlResult<()> {
         self.set_can_param(IflaCan::CtrlMode, as_bytes(&ctrlmode))
     }
 
@@ -671,7 +744,7 @@ impl CanInterface {
         M: Into<CanCtrlModes>,
     {
         let modes = ctrlmode.into();
-        let modes: rt::can_ctrlmode = modes.into();
+        let modes: can_ctrlmode = modes.into();
         self.set_can_param(IflaCan::CtrlMode, as_bytes(&modes))
     }
 
@@ -718,17 +791,17 @@ pub mod tests {
     fn test_as_bytes() {
         let bitrate = 500000;
         let sample_point = 750;
-        let timing = rt::can_bittiming {
+        let timing = can_bittiming {
             bitrate,
             sample_point,
-            ..rt::can_bittiming::default()
+            ..can_bittiming::default()
         };
 
         assert_eq!(
             unsafe {
                 std::slice::from_raw_parts::<'_, u8>(
                     &timing as *const _ as *const u8,
-                    std::mem::size_of::<rt::can_bittiming>(),
+                    std::mem::size_of::<can_bittiming>(),
                 )
             },
             as_bytes(&timing)
