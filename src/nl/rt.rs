@@ -19,7 +19,7 @@
 #![allow(non_camel_case_types, unused)]
 
 use libc::{c_char, c_uint};
-use neli::FromBytes;
+use neli::{FromBytes, Size, ToBytes};
 use std::io;
 
 pub const EXT_FILTER_VF: c_uint = 1 << 0;
@@ -38,7 +38,7 @@ pub const EXT_FILTER_MST: c_uint = 1 << 7;
 /// at http://www.semiconductors.bosch.de/pdf/can2spec.pdf.
 ///
 #[repr(C)]
-#[derive(Debug, Default, Clone, Copy, FromBytes)]
+#[derive(Debug, Default, Clone, Copy, FromBytes, ToBytes)]
 pub struct can_bittiming {
     pub bitrate: u32,      // Bit-rate in bits/second
     pub sample_point: u32, // Sample point in one-tenth of a percent
@@ -48,6 +48,12 @@ pub struct can_bittiming {
     pub phase_seg2: u32,   // Phase buffer segment 2 in TQs
     pub sjw: u32,          // Synchronisation jump width in TQs
     pub brp: u32,          // Bit-rate prescaler
+}
+
+impl Size for can_bittiming {
+    fn unpadded_size(&self) -> usize {
+        std::mem::size_of::<can_bittiming>()
+    }
 }
 
 /// CAN hardware-dependent bit-timing constant
@@ -72,9 +78,15 @@ pub struct can_bittiming_const {
 /// CAN clock parameters
 ///
 #[repr(C)]
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, FromBytes, ToBytes)]
 pub struct can_clock {
     pub freq: u32, // CAN system clock frequency in Hz
+}
+
+impl Size for can_clock {
+    fn unpadded_size(&self) -> usize {
+        std::mem::size_of::<can_clock>()
+    }
 }
 
 /// CAN operational and error states
@@ -165,6 +177,9 @@ pub struct can_device_stats {
     pub restarts: u32,         // CAN controller re-starts
 }
 
+pub use neli::consts::rtnl::IflaCan;
+
+/*
 /// Currently missing from libc, from linux/can/netlink.h:
 ///
 /// CAN netlink interface
@@ -218,3 +233,4 @@ impl From<u16> for IflaCan {
         }
     }
 }
+*/
