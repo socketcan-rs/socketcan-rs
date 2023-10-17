@@ -209,7 +209,7 @@ impl Sink<CanFrame> for CanSocket {
 
 /// A Future representing the eventual writing of a CanFdFrame to the socket.
 ///
-/// Created by the CanSocket.write_frame() method
+/// Created by the CanFdSocket.write_frame() method
 #[derive(Debug)]
 pub struct CanFdWriteFuture {
     socket: CanFdSocket,
