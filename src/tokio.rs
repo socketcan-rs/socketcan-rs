@@ -207,6 +207,64 @@ impl Sink<CanFrame> for CanSocket {
     }
 }
 
+
+/// An asynchronous I/O wrapped CanFdSocket
+#[derive(Debug)]
+pub struct CanFdSocket(Async<crate::CanFdSocket>);
+
+impl CanFdSocket {
+    /// Open a named CAN device.
+    ///
+    /// Usually the more common case, opens a socket can device by name, such
+    /// as "can0", "vcan0", or "socan0".
+    pub fn open(ifname: &str) -> io::Result<Self> {
+        let sock = crate::CanFdSocket::open(ifname)?;
+        sock.set_nonblocking(true)?;
+        Ok(Self(AsyncFd::new(EventedCanSocket(sock))?))
+    }
+
+    /// Writes a frame to the socket asynchronously.
+    pub async fn write_frame<F>(&self, frame: &F) -> io::Result<()>
+    where
+        F: Into<CanAnyFrame> + AsPtr,
+    {
+        self.0.write_with(|fd| fd.write_frame(frame)).await
+    }
+
+    /// Write a CAN frame to the socket asynchronously
+    ///
+    /// This uses the semantics of socketcan's `write_frame_insist`,
+    /// IE: it will automatically retry when it fails on an EINTR
+    pub fn write_frame(&self, frame: CanFdFrame) -> Result<CanWriteFuture> {
+        Ok(CanWriteFuture {
+            socket: self.try_clone()?,
+            frame,
+        })
+    }
+
+    /// Reads a frame from the socket asynchronously.
+    pub async fn read_frame(&self) -> io::Result<CanAnyFrame> {
+        self.0.read_with(|fd| fd.read_frame()).await
+    }
+}
+
+impl SocketOptions for CanFdSocket {}
+
+impl TryFrom<crate::CanFdSocket> for CanFdSocket {
+    type Error = io::Error;
+
+    fn try_from(sock: crate::CanFdSocket) -> Result<Self, Self::Error> {
+        Ok(Self(Async::new(sock)?))
+    }
+}
+
+impl AsRawFd for CanFdSocket {
+    fn as_raw_fd(&self) -> RawFd {
+        self.0.as_raw_fd()
+    }
+}
+
+
 /////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
