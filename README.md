@@ -137,7 +137,7 @@ $ cargo test --features=vcan_tests
 
 ### Developing with Nix
 
-If you have [Nix](https://nixos.org/) installed, you can enter a development that includes the needed rust dependencies with
+If you have [Nix](https://nixos.org/) installed, you can enter a development shell that includes the needed rust dependencies with
 ```bash
 nix develop
 ```
