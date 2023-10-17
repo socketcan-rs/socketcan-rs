@@ -838,8 +838,8 @@ impl CanInterface {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use std::ops::Deref;
     use serial_test::serial;
+    use std::ops::Deref;
 
     /// RAII-style helper to create and clean-up a specific vcan interface for a single test.
     /// Using drop here ensures that the interface always gets cleaned up

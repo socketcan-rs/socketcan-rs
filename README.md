@@ -1,7 +1,7 @@
 Rust SocketCAN
 ==============
 
-This library implements Controller Area Network (CAN) communications on Linux using the SocketCAN interfaces. This provides a network socket interface to the CAN bus.
+This library implements Controller Area Network (CAN) communications on Linux using the SocketCAN subsystem. This provides a network socket interface to the CAN bus.
 
 [Linux SocketCAN](https://docs.kernel.org/networking/can.html)
 
@@ -10,19 +10,31 @@ Please see the [documentation](https://docs.rs/socketcan) for details about the 
 
 ## Latest News
 
-### Version 3.x adds integrated async/await and more!
+### Version 3.x adds integrated async/await, improved Netlink coverage, and more!
 
-Version 3.0 adds integrated support for async/await, with the most popular runtimes, _tokio, async-std_, and _smol_.  To get started we have already merged the [tokio-socketcan](https://github.com/oefd/tokio-socketcan) crate into this one and implemented `async-io`.
+Version 3.0 adds integrated support for async/await, with the most popular runtimes, _tokio, async-std_, and _smol_.  We have merged the [tokio-socketcan](https://github.com/oefd/tokio-socketcan) crate into this one and implemented `async-io`.
 
 Unfortunaly this required a minor breaking change to the existing API, so we bumped the version to 3.0.
 
 The async support is optional, and can be enabled with a feature for the target runtime: `tokio`, `async-std`, or `smol`.
 
-Additional implementation of the netlink control of the CAN interface was added in v3.1 allws an application to do things like set the bitrate on the interface, set control modes, restart the inteface, etc.
+Additional implementation of the netlink control of the CAN interface was added in v3.1 allowing an application to do things like set the bitrate on the interface, set control modes, restart the inteface, etc.
+
+v3.2 increased the interface configuration coverage with Netlink, allowing an application to set most interface CAN parameters and query them all back.
+
+### What's New in Version 3.2
+
+- [#32](https://github.com/socketcan-rs/socketcan-rs/issues/32) Further expanded netlink functionality:
+    - Added setters for most additional interface CAN parameters
+    - Ability to query back interface CAN parameters
+    - Expanded `InterfaceDetails` to include CAN-specific parameters
+    - Better integration of low-level types with `neli`
+    - Significant cleanup of the `nl` module
+    - Split the `nl` module into separate sources for higher and lower-level code
 
 ### What's New in Version 3.1
 
-- Added netlink functionality:
+- [#32](https://github.com/socketcan-rs/socketcan-rs/issues/32) Added netlink functionality:
     - Set the bitrate [PR #50](https://github.com/socketcan-rs/socketcan-rs/pull/50), and the FD data bitrate
     - Set the control modes (Loopback, Listen-Only, etc)
     - Set automatic restart delay time
@@ -31,21 +43,11 @@ Additional implementation of the netlink control of the CAN interface was added 
 - [PR #44](https://github.com/socketcan-rs/socketcan-rs/pull/44) Fix clippy warnings
 - [PR #43](https://github.com/socketcan-rs/socketcan-rs/pull/43) Implement AsPtr for CanAnyFrame
 
-### What's New in Version 3.0
-
-- Support for Rust async/await
-    - All of [tokio-socketcan](https://github.com/oefd/tokio-socketcan) has been merged into this crate and will be available with an `async-tokio` build feature.
-    - [#41](https://github.com/socketcan-rs/socketcan-rs/pull/41) Added initial support for `async-io` for use with `async-std` and `smol`
-    - Split `SocketOptions` trait out of `Socket` trait for use with async (breaking)
-    - Added cargo build features for `tokio` or `async-io`.
-    - Also created specific build features for `async-std` and `smol` which just bring in the `async-io` module and alias the module name to `async-std` or `smol`, respectively, and build examples for each.
-
 ## Next Steps
 
 A number of items still did not make it into a release. These will be added in v3.x, coming soon.
 
 - Issue [#22](https://github.com/socketcan-rs/socketcan-rs/issues/22) Timestamps, including optional hardware timestamps
-- Issue [#32](https://github.com/socketcan-rs/socketcan-rs/issues/32) A number of important netlink commands were added in v3.1, particularly the ability to set bitrates, reset the interface, and set control modes. But the implementation is still incomplete, particularly in regard to retrieving parameters and status from the interface.
 - Better documentation. This README will be expanded with basic usage information, along with better doc comments, and perhaps creation of the wiki
 
 
