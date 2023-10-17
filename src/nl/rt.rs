@@ -21,8 +21,9 @@
 use super::{as_bytes, as_bytes_mut};
 use libc::{c_char, c_uint};
 use neli::{
+    consts::rtnl::{RtaType, RtaTypeWrapper},
     err::{DeError, SerError},
-    FromBytes, Size, ToBytes,
+    impl_trait, neli_enum, FromBytes, Size, ToBytes,
 };
 use std::{
     io::{self, Cursor, Read, Write},
@@ -193,60 +194,47 @@ pub struct can_device_stats {
     pub restarts: u32,         // CAN controller re-starts
 }
 
-pub use neli::consts::rtnl::IflaCan;
+pub const IFLA_CAN_UNSPEC: u16 = 0;
+pub const IFLA_CAN_BITTIMING: u16 = 1;
+pub const IFLA_CAN_BITTIMING_CONST: u16 = 2;
+pub const IFLA_CAN_CLOCK: u16 = 3;
+pub const IFLA_CAN_STATE: u16 = 4;
+pub const IFLA_CAN_CTRLMODE: u16 = 5;
+pub const IFLA_CAN_RESTART_MS: u16 = 6;
+pub const IFLA_CAN_RESTART: u16 = 7;
+pub const IFLA_CAN_BERR_COUNTER: u16 = 8;
+pub const IFLA_CAN_DATA_BITTIMING: u16 = 9;
+pub const IFLA_CAN_DATA_BITTIMING_CONST: u16 = 10;
+pub const IFLA_CAN_TERMINATION: u16 = 11;
+pub const IFLA_CAN_TERMINATION_CONST: u16 = 12;
+pub const IFLA_CAN_BITRATE_CONST: u16 = 13;
+pub const IFLA_CAN_DATA_BITRATE_CONST: u16 = 14;
+pub const IFLA_CAN_BITRATE_MAX: u16 = 15;
+pub const IFLA_CAN_TDC: u16 = 16;
+pub const IFLA_CAN_CTRLMODE_EXT: u16 = 17;
 
-/*
-/// Currently missing from libc, from linux/can/netlink.h:
-///
 /// CAN netlink interface
 ///
-#[repr(u16)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[neli_enum(serialized_type = "libc::c_ushort")]
 pub enum IflaCan {
-    Unspec = 0,
-    BitTiming = 1,
-    BitTimingConst = 2,
-    Clock = 3,
-    State = 4,
-    CtrlMode = 5,
-    RestartMs = 6,
-    Restart = 7,
-    BerrCounter = 8,
-    DataBitTiming = 9,
-    DataBitTimingConst = 10,
-    Termination = 11,
-    TerminationConst = 12,
-    BitRateConst = 13,
-    DataBitRateConst = 14,
-    BitRateMax = 15,
-    Tdc = 16,
-    CtrlModeExt = 17,
+    Unspec = IFLA_CAN_UNSPEC,
+    BitTiming = IFLA_CAN_BITTIMING,
+    BitTimingConst = IFLA_CAN_BITTIMING_CONST,
+    Clock = IFLA_CAN_CLOCK,
+    State = IFLA_CAN_STATE,
+    CtrlMode = IFLA_CAN_CTRLMODE,
+    RestartMs = IFLA_CAN_RESTART_MS,
+    Restart = IFLA_CAN_RESTART,
+    BerrCounter = IFLA_CAN_BERR_COUNTER,
+    DataBitTiming = IFLA_CAN_DATA_BITTIMING,
+    DataBitTimingConst = IFLA_CAN_DATA_BITTIMING_CONST,
+    Termination = IFLA_CAN_TERMINATION,
+    TerminationConst = IFLA_CAN_TERMINATION_CONST,
+    BitRateConst = IFLA_CAN_BITRATE_CONST,
+    DataBitRateConst = IFLA_CAN_DATA_BITRATE_CONST,
+    BitRateMax = IFLA_CAN_BITRATE_MAX,
+    Tdc = IFLA_CAN_TDC,
+    CtrlModeExt = IFLA_CAN_CTRLMODE_EXT,
 }
 
-impl From<u16> for IflaCan {
-    fn from(val: u16) -> Self {
-        use IflaCan::*;
-
-        match val {
-            1 => BitTiming,
-            2 => BitTimingConst,
-            3 => Clock,
-            4 => State,
-            5 => CtrlMode,
-            6 => RestartMs,
-            7 => Restart,
-            8 => BerrCounter,
-            9 => DataBitTiming,
-            10 => DataBitTimingConst,
-            11 => Termination,
-            12 => TerminationConst,
-            13 => BitRateConst,
-            14 => DataBitRateConst,
-            15 => BitRateMax,
-            16 => Tdc,
-            17 => CtrlModeExt,
-            _ => Unspec,
-        }
-    }
-}
-*/
+impl RtaType for IflaCan {}
