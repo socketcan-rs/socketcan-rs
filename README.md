@@ -142,4 +142,4 @@ If you have [Nix](https://nixos.org/) installed, you can enter a development she
 nix develop
 ```
 
-> Notes: You must have a version of nix that supports flakes.
+> Note: You must have a version of nix that supports flakes.
