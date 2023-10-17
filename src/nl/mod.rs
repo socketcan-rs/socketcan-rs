@@ -78,7 +78,7 @@ use std::{
 /// Low-level Netlink CAN struct bindings.
 mod rt;
 
-use rt::{can_berr_counter, can_bittiming, can_bittiming_const, can_clock, can_ctrlmode, CanState};
+use rt::{can_ctrlmode, CanState};
 
 /// A result for Netlink errors.
 type NlResult<T> = Result<T, NlError>;
@@ -100,6 +100,15 @@ fn as_bytes_mut<T: Sized>(val: &mut T) -> &mut [u8] {
     let sz = std::mem::size_of::<T>();
     unsafe { std::slice::from_raw_parts_mut(val as *mut _ as *mut u8, sz) }
 }
+
+/// CAN bit-timing parameters
+pub type CanBitTiming = rt::can_bittiming;
+/// CAN bit-timing const parameters
+pub type CanBitTimingConst = rt::can_bittiming_const;
+/// CAN clock parameter
+pub type CanClock = rt::can_clock;
+/// CAN bus error counters
+pub type CanBerrCounter = rt::can_berr_counter;
 
 /// The details of the interface which can be obtained with the
 /// `CanInterface::details()` function.
@@ -156,24 +165,24 @@ impl TryFrom<u32> for Mtu {
 #[derive(Debug, Default, Clone)]
 pub struct InterfaceCanParams {
     /// The CAN bit timing parameters
-    pub bit_timing: Option<can_bittiming>,
+    pub bit_timing: Option<CanBitTiming>,
     /// The bit timing const parameters
-    pub bit_timing_const: Option<can_bittiming_const>,
+    pub bit_timing_const: Option<CanBitTimingConst>,
     /// The CAN clock parameters
-    pub clock: Option<can_clock>,
+    pub clock: Option<CanClock>,
     /// The CAN bus state
     pub state: Option<CanState>,
     /// The automatic restart time (in millisec)
     /// Zero means auto-restart is disabled.
     pub restart_ms: u32,
     /// The bit error counter
-    pub berr_counter: Option<can_berr_counter>,
+    pub berr_counter: Option<CanBerrCounter>,
     /// The control mode bits
-    pub ctrl_mode: can_ctrlmode,
+    pub ctrl_mode: CanCtrlModes,
     /// The FD data bit timing
-    pub data_bit_timing: Option<can_bittiming>,
+    pub data_bit_timing: Option<CanBitTiming>,
     /// The FD data bit timing const parameters
-    pub data_bit_timing_const: Option<can_bittiming_const>,
+    pub data_bit_timing_const: Option<CanBitTimingConst>,
     /// The CANbus termination resistance
     pub termination: u16,
 }
@@ -190,33 +199,34 @@ impl TryFrom<&Rtattr<Ifla, Buffer>> for InterfaceCanParams {
                 for attr in info.get_attr_handle::<IflaCan>()?.get_attrs() {
                     match attr.rta_type {
                         IflaCan::BitTiming => {
-                            params.bit_timing = Some(attr.get_payload_as::<can_bittiming>()?);
+                            params.bit_timing = Some(attr.get_payload_as::<CanBitTiming>()?);
                         }
                         IflaCan::BitTimingConst => {
                             params.bit_timing_const =
-                                Some(attr.get_payload_as::<can_bittiming_const>()?);
+                                Some(attr.get_payload_as::<CanBitTimingConst>()?);
                         }
                         IflaCan::Clock => {
-                            params.clock = Some(attr.get_payload_as::<can_clock>()?);
+                            params.clock = Some(attr.get_payload_as::<CanClock>()?);
                         }
                         IflaCan::State => {
                             params.state = CanState::try_from(attr.get_payload_as::<u32>()?).ok();
                         }
                         IflaCan::CtrlMode => {
-                            params.ctrl_mode = attr.get_payload_as::<can_ctrlmode>()?;
+                            let ctrl_mode = attr.get_payload_as::<can_ctrlmode>()?;
+                            params.ctrl_mode = CanCtrlModes(ctrl_mode);
                         }
                         IflaCan::RestartMs => {
                             params.restart_ms = attr.get_payload_as::<u32>()?;
                         }
                         IflaCan::BerrCounter => {
-                            params.berr_counter = Some(attr.get_payload_as::<can_berr_counter>()?);
+                            params.berr_counter = Some(attr.get_payload_as::<CanBerrCounter>()?);
                         }
                         IflaCan::DataBitTiming => {
-                            params.data_bit_timing = Some(attr.get_payload_as::<can_bittiming>()?);
+                            params.data_bit_timing = Some(attr.get_payload_as::<CanBitTiming>()?);
                         }
                         IflaCan::DataBitTimingConst => {
                             params.data_bit_timing_const =
-                                Some(attr.get_payload_as::<can_bittiming_const>()?);
+                                Some(attr.get_payload_as::<CanBitTimingConst>()?);
                         }
                         IflaCan::Termination => {
                             params.termination = attr.get_payload_as::<u16>()?;
@@ -447,54 +457,6 @@ impl CanInterface {
         sock.recv::<'_, Rtm, Ifinfomsg>()
     }
 
-    // Send a netlink CAN command down to the kernel to set an attribute
-    // in the link info, such as bitrate, control modes, etc
-    ///
-    /// PRIVILEGED: This requires root privilege.
-    ///
-    fn set_can_param(&self, param: IflaCan, param_data: &[u8]) -> NlResult<()> {
-        let info = self.info_msg({
-            let mut data = Rtattr::new(None, IflaInfo::Data, Buffer::new())?;
-            data.add_nested_attribute(&Rtattr::new(None, param, param_data)?)?;
-
-            let mut link_info = Rtattr::new(None, Ifla::Linkinfo, Buffer::new())?;
-            link_info.add_nested_attribute(&Rtattr::new(None, IflaInfo::Kind, "can")?)?;
-            link_info.add_nested_attribute(&data)?;
-
-            let mut rtattrs = RtBuffer::new();
-            rtattrs.push(link_info);
-            rtattrs
-        });
-        Self::send_info_msg(Rtm::Newlink, info, &[])
-    }
-
-    /// Attempt to query an individual CAN parameter on the interface.
-    pub fn can_param<P>(&self, param: IflaCan) -> Result<Option<P>, NlInfoError>
-    where
-        P: for<'a> FromBytes<'a> + Clone,
-    {
-        if let Some(hdr) = self.query_details()? {
-            if let Ok(payload) = hdr.get_payload() {
-                for top_attr in payload.rtattrs.iter() {
-                    if top_attr.rta_type == Ifla::Linkinfo {
-                        for info in top_attr.get_attr_handle::<IflaInfo>()?.get_attrs() {
-                            if info.rta_type == IflaInfo::Data {
-                                for attr in info.get_attr_handle::<IflaCan>()?.get_attrs() {
-                                    if attr.rta_type == param {
-                                        return Ok(Some(attr.get_payload_as::<P>()?));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            Ok(None)
-        } else {
-            Err(NlError::NoAck)
-        }
-    }
-
     /// Bring down this interface.
     ///
     /// Use a netlink control socket to set the interface status to "down".
@@ -646,6 +608,59 @@ impl CanInterface {
         Self::send_info_msg(Rtm::Newlink, info, &[])
     }
 
+    /// Set a CAN-specific parameter.
+    ///
+    /// This send a netlink message down to the kernel to set an attribute
+    /// in the link info, such as bitrate, control modes, etc
+    ///
+    /// PRIVILEGED: This requires root privilege.
+    ///
+    pub fn set_can_param<P>(&self, param_type: IflaCan, param: P) -> NlResult<()>
+    where
+        P: ToBytes + neli::Size,
+    {
+        let info = self.info_msg({
+            let mut data = Rtattr::new(None, IflaInfo::Data, Buffer::new())?;
+            data.add_nested_attribute(&Rtattr::new(None, param_type, param)?)?;
+
+            let mut link_info = Rtattr::new(None, Ifla::Linkinfo, Buffer::new())?;
+            link_info.add_nested_attribute(&Rtattr::new(None, IflaInfo::Kind, "can")?)?;
+            link_info.add_nested_attribute(&data)?;
+
+            let mut rtattrs = RtBuffer::new();
+            rtattrs.push(link_info);
+            rtattrs
+        });
+        Self::send_info_msg(Rtm::Newlink, info, &[])
+    }
+
+    /// Attempt to query an individual CAN parameter on the interface.
+    pub fn can_param<P>(&self, param: IflaCan) -> Result<Option<P>, NlInfoError>
+    where
+        P: for<'a> FromBytes<'a> + Clone,
+    {
+        if let Some(hdr) = self.query_details()? {
+            if let Ok(payload) = hdr.get_payload() {
+                for top_attr in payload.rtattrs.iter() {
+                    if top_attr.rta_type == Ifla::Linkinfo {
+                        for info in top_attr.get_attr_handle::<IflaInfo>()?.get_attrs() {
+                            if info.rta_type == IflaInfo::Data {
+                                for attr in info.get_attr_handle::<IflaCan>()?.get_attrs() {
+                                    if attr.rta_type == param {
+                                        return Ok(Some(attr.get_payload_as::<P>()?));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(None)
+        } else {
+            Err(NlError::NoAck)
+        }
+    }
+
     /// Gets the current bit rate for the interface.
     pub fn bit_rate(&self) -> Result<Option<u32>, NlInfoError> {
         Ok(self.bit_timing()?.map(|timing| timing.bitrate))
@@ -676,35 +691,35 @@ impl CanInterface {
             sample_point
         );
 
-        self.set_bit_timing(can_bittiming {
+        self.set_bit_timing(CanBitTiming {
             bitrate,
             sample_point,
-            ..can_bittiming::default()
+            ..CanBitTiming::default()
         })
     }
 
     /// Gets the bit timing params for the interface
-    pub fn bit_timing(&self) -> Result<Option<can_bittiming>, NlInfoError> {
-        self.can_param::<can_bittiming>(IflaCan::BitTiming)
+    pub fn bit_timing(&self) -> Result<Option<CanBitTiming>, NlInfoError> {
+        self.can_param::<CanBitTiming>(IflaCan::BitTiming)
     }
 
     /// Sets the bit timing params for the interface
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn set_bit_timing(&self, timing: can_bittiming) -> NlResult<()> {
-        self.set_can_param(IflaCan::BitTiming, as_bytes(&timing))
+    pub fn set_bit_timing(&self, timing: CanBitTiming) -> NlResult<()> {
+        self.set_can_param(IflaCan::BitTiming, timing)
     }
 
     /// Gets the bit timing const data for the interface
-    pub fn bit_timing_const(&self) -> Result<Option<can_bittiming_const>, NlInfoError> {
-        self.can_param::<can_bittiming_const>(IflaCan::BitTimingConst)
+    pub fn bit_timing_const(&self) -> Result<Option<CanBitTimingConst>, NlInfoError> {
+        self.can_param::<CanBitTimingConst>(IflaCan::BitTimingConst)
     }
 
     /// Gets the clock frequency for the interface
     pub fn clock(&self) -> Result<Option<u32>, NlInfoError> {
         Ok(self
-            .can_param::<can_clock>(IflaCan::Clock)?
+            .can_param::<CanClock>(IflaCan::Clock)?
             .map(|clk| clk.freq))
     }
 
@@ -721,7 +736,7 @@ impl CanInterface {
     ///
     #[deprecated(since = "3.2.0", note = "Use `set_ctrlmodes` instead")]
     pub fn set_full_ctrlmode(&self, ctrlmode: can_ctrlmode) -> NlResult<()> {
-        self.set_can_param(IflaCan::CtrlMode, as_bytes(&ctrlmode))
+        self.set_can_param(IflaCan::CtrlMode, ctrlmode)
     }
 
     /// Set the full control mode (bit) collection.
@@ -734,7 +749,7 @@ impl CanInterface {
     {
         let modes = ctrlmode.into();
         let modes: can_ctrlmode = modes.into();
-        self.set_can_param(IflaCan::CtrlMode, as_bytes(&modes))
+        self.set_can_param(IflaCan::CtrlMode, modes)
     }
 
     /// Set or clear an individual control mode parameter.
@@ -755,7 +770,7 @@ impl CanInterface {
     /// PRIVILEGED: This requires root privilege.
     ///
     pub fn set_restart_ms(&self, restart_ms: u32) -> NlResult<()> {
-        self.set_can_param(IflaCan::RestartMs, &restart_ms.to_ne_bytes())
+        self.set_can_param(IflaCan::RestartMs, &restart_ms.to_ne_bytes()[..])
     }
 
     /// Manually restart the interface.
@@ -776,25 +791,25 @@ impl CanInterface {
         // too!
         // See: linux/drivers/net/can/dev/netlink.c
         let restart_data: u32 = 1;
-        self.set_can_param(IflaCan::Restart, &restart_data.to_ne_bytes())
+        self.set_can_param(IflaCan::Restart, &restart_data.to_ne_bytes()[..])
     }
 
-    /// Gets the bit error counter from the interface
-    pub fn berr_counter(&self) -> Result<Option<can_berr_counter>, NlInfoError> {
-        self.can_param::<can_berr_counter>(IflaCan::BerrCounter)
+    /// Gets the bus error counter from the interface
+    pub fn berr_counter(&self) -> Result<Option<CanBerrCounter>, NlInfoError> {
+        self.can_param::<CanBerrCounter>(IflaCan::BerrCounter)
     }
 
     /// Gets the data bit timing params for the interface
-    pub fn data_bit_timing(&self) -> Result<Option<can_bittiming>, NlInfoError> {
-        self.can_param::<can_bittiming>(IflaCan::DataBitTiming)
+    pub fn data_bit_timing(&self) -> Result<Option<CanBitTiming>, NlInfoError> {
+        self.can_param::<CanBitTiming>(IflaCan::DataBitTiming)
     }
 
     /// Sets the data bit timing params for the interface
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn set_data_bit_timing(&self, timing: can_bittiming) -> NlResult<()> {
-        self.set_can_param(IflaCan::DataBitTiming, as_bytes(&timing))
+    pub fn set_data_bit_timing(&self, timing: CanBitTiming) -> NlResult<()> {
+        self.set_can_param(IflaCan::DataBitTiming, timing)
     }
 
     /// Set the data bitrate and, optionally, data sample point of this
@@ -814,16 +829,16 @@ impl CanInterface {
     {
         let sample_point: u32 = sample_point.into().unwrap_or(0);
 
-        self.set_data_bit_timing(can_bittiming {
+        self.set_data_bit_timing(CanBitTiming {
             bitrate,
             sample_point,
-            ..can_bittiming::default()
+            ..CanBitTiming::default()
         })
     }
 
     /// Gets the data bit timing const params for the interface
-    pub fn data_bit_timing_const(&self) -> Result<Option<can_bittiming_const>, NlInfoError> {
-        self.can_param::<can_bittiming_const>(IflaCan::DataBitTimingConst)
+    pub fn data_bit_timing_const(&self) -> Result<Option<CanBitTimingConst>, NlInfoError> {
+        self.can_param::<CanBitTimingConst>(IflaCan::DataBitTimingConst)
     }
 
     /// Gets the CANbus termination for the interface
@@ -840,17 +855,17 @@ pub mod tests {
     fn test_as_bytes() {
         let bitrate = 500000;
         let sample_point = 750;
-        let timing = can_bittiming {
+        let timing = CanBitTiming {
             bitrate,
             sample_point,
-            ..can_bittiming::default()
+            ..CanBitTiming::default()
         };
 
         assert_eq!(
             unsafe {
                 std::slice::from_raw_parts::<'_, u8>(
                     &timing as *const _ as *const u8,
-                    std::mem::size_of::<can_bittiming>(),
+                    std::mem::size_of::<CanBitTiming>(),
                 )
             },
             as_bytes(&timing)

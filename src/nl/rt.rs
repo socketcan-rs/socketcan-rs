@@ -45,7 +45,7 @@ pub const EXT_FILTER_MST: c_uint = 1 << 7;
 /// at http://www.semiconductors.bosch.de/pdf/can2spec.pdf.
 ///
 #[repr(C)]
-#[derive(Debug, Default, Clone, Copy, FromBytes, ToBytes)]
+#[derive(Debug, Default, Clone, Copy, FromBytes, ToBytes, Size)]
 pub struct can_bittiming {
     pub bitrate: u32,      // Bit-rate in bits/second
     pub sample_point: u32, // Sample point in one-tenth of a percent
@@ -55,12 +55,6 @@ pub struct can_bittiming {
     pub phase_seg2: u32,   // Phase buffer segment 2 in TQs
     pub sjw: u32,          // Synchronisation jump width in TQs
     pub brp: u32,          // Bit-rate prescaler
-}
-
-impl Size for can_bittiming {
-    fn unpadded_size(&self) -> usize {
-        std::mem::size_of::<can_bittiming>()
-    }
 }
 
 /// CAN hardware-dependent bit-timing constant
@@ -97,18 +91,18 @@ impl<'a> FromBytes<'a> for can_bittiming_const {
     }
 }
 
+impl Size for can_bittiming_const {
+    fn unpadded_size(&self) -> usize {
+        std::mem::size_of::<can_bittiming_const>()
+    }
+}
+
 /// CAN clock parameters
 ///
 #[repr(C)]
-#[derive(Debug, Default, Clone, Copy, FromBytes, ToBytes)]
+#[derive(Debug, Default, Clone, Copy, FromBytes, ToBytes, Size)]
 pub struct can_clock {
     pub freq: u32, // CAN system clock frequency in Hz
-}
-
-impl Size for can_clock {
-    fn unpadded_size(&self) -> usize {
-        std::mem::size_of::<can_clock>()
-    }
 }
 
 /// CAN operational and error states
@@ -145,7 +139,7 @@ impl TryFrom<u32> for CanState {
 /// CAN bus error counters
 ///
 #[repr(C)]
-#[derive(Debug, Default, Copy, Clone, FromBytes, ToBytes)]
+#[derive(Debug, Default, Copy, Clone, FromBytes, ToBytes, Size)]
 pub struct can_berr_counter {
     pub txerr: u16,
     pub rxerr: u16,
@@ -157,7 +151,7 @@ pub struct can_berr_counter {
 /// the bit in the `flags` and send via `set_ctrlmode()`.
 ///
 #[repr(C)]
-#[derive(Debug, Default, Copy, Clone, FromBytes, ToBytes)]
+#[derive(Debug, Default, Copy, Clone, FromBytes, ToBytes, Size)]
 pub struct can_ctrlmode {
     pub mask: u32,
     pub flags: u32,
@@ -189,7 +183,7 @@ pub const CAN_TERMINATION_DISABLED: u32 = 0;
 /// CAN device statistics
 ///
 #[repr(C)]
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone, FromBytes)]
 pub struct can_device_stats {
     pub bus_error: u32,        // Bus errors
     pub error_warning: u32,    // Changes to error warning state
