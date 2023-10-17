@@ -444,7 +444,7 @@ impl CanInterface {
         );
 
         sock.send(hdr)?;
-        Ok(sock.recv::<'_, Rtm, Ifinfomsg>()?)
+        sock.recv::<'_, Rtm, Ifinfomsg>()
     }
 
     // Send a netlink CAN command down to the kernel to set an attribute

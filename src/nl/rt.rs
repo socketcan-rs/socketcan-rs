@@ -92,7 +92,7 @@ impl ToBytes for can_bittiming_const {
 impl<'a> FromBytes<'a> for can_bittiming_const {
     fn from_bytes(buf: &mut Cursor<&'a [u8]>) -> Result<Self, DeError> {
         let mut timing_const: can_bittiming_const = unsafe { mem::zeroed() };
-        buf.read(as_bytes_mut(&mut timing_const))?;
+        buf.read_exact(as_bytes_mut(&mut timing_const))?;
         Ok(timing_const)
     }
 }
