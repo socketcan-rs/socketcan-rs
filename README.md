@@ -134,3 +134,12 @@ The steps to install and add a virtual interface to Linux are in the `scripts/vc
 $ sudo ./scripts/vcan.sh
 $ cargo test --features=vcan_tests
 ```
+
+### Developing with Nix
+
+If you have [Nix](https://nixos.org/) installed, you can enter a development that includes the needed rust dependencies with
+```bash
+nix develop
+```
+
+> Notes: You must have a version of nix that supports flakes.
