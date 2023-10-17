@@ -40,7 +40,7 @@ use std::{
 
 use mio::{event, unix::SourceFd, Interest, Registry, Token};
 
-use crate::{CanAddr, CanFrame, Error, Result, Socket, SocketOptions};
+use crate::{CanAddr, CanAnyFrame, CanFdFrame, CanFrame, Error, Result, Socket, SocketOptions};
 use tokio::io::unix::AsyncFd;
 
 /// A Future representing the eventual writing of a CanFrame to the socket.
@@ -207,10 +207,71 @@ impl Sink<CanFrame> for CanSocket {
     }
 }
 
+/// A Future representing the eventual writing of a CanFrame to the socket.
+///
+/// Created by the CanSocket.write_frame() method
+#[derive(Debug)]
+pub struct CanFdWriteFuture {
+    socket: CanFdSocket,
+    frame: CanFdFrame,
+}
+
+impl Future for CanFdWriteFuture {
+    type Output = io::Result<()>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let _ = ready!(self.socket.0.poll_write_ready(cx))?;
+        match self.socket.0.get_ref().0.write_frame_insist(&self.frame) {
+            Ok(_) => Poll::Ready(Ok(())),
+            Err(err) => Poll::Ready(Err(err)),
+        }
+    }
+}
+
+/// A CanFdSocket wrapped for mio eventing
+/// to allow it be integrated in turn into tokio
+#[derive(Debug)]
+pub struct EventedCanFdSocket(crate::CanFdSocket);
+
+impl EventedCanFdSocket {
+    fn get_ref(&self) -> &crate::CanFdSocket {
+        &self.0
+    }
+}
+
+impl AsRawFd for EventedCanFdSocket {
+    fn as_raw_fd(&self) -> RawFd {
+        self.0.as_raw_fd()
+    }
+}
+
+impl event::Source for EventedCanFdSocket {
+    fn register(
+        &mut self,
+        registry: &Registry,
+        token: Token,
+        interests: Interest,
+    ) -> io::Result<()> {
+        SourceFd(&self.0.as_raw_fd()).register(registry, token, interests)
+    }
+
+    fn reregister(
+        &mut self,
+        registry: &Registry,
+        token: Token,
+        interests: Interest,
+    ) -> io::Result<()> {
+        SourceFd(&self.0.as_raw_fd()).reregister(registry, token, interests)
+    }
+
+    fn deregister(&mut self, registry: &Registry) -> io::Result<()> {
+        SourceFd(&self.0.as_raw_fd()).deregister(registry)
+    }
+}
 
 /// An asynchronous I/O wrapped CanFdSocket
 #[derive(Debug)]
-pub struct CanFdSocket(Async<crate::CanFdSocket>);
+pub struct CanFdSocket(AsyncFd<EventedCanFdSocket>);
 
 impl CanFdSocket {
     /// Open a named CAN device.
@@ -220,50 +281,84 @@ impl CanFdSocket {
     pub fn open(ifname: &str) -> io::Result<Self> {
         let sock = crate::CanFdSocket::open(ifname)?;
         sock.set_nonblocking(true)?;
-        Ok(Self(AsyncFd::new(EventedCanSocket(sock))?))
-    }
-
-    /// Writes a frame to the socket asynchronously.
-    pub async fn write_frame<F>(&self, frame: &F) -> io::Result<()>
-    where
-        F: Into<CanAnyFrame> + AsPtr,
-    {
-        self.0.write_with(|fd| fd.write_frame(frame)).await
+        Ok(Self(AsyncFd::new(EventedCanFdSocket(sock))?))
     }
 
     /// Write a CAN frame to the socket asynchronously
     ///
     /// This uses the semantics of socketcan's `write_frame_insist`,
     /// IE: it will automatically retry when it fails on an EINTR
-    pub fn write_frame(&self, frame: CanFdFrame) -> Result<CanWriteFuture> {
-        Ok(CanWriteFuture {
+    pub fn write_frame(&self, frame: CanFdFrame) -> Result<CanFdWriteFuture> {
+        Ok(CanFdWriteFuture {
             socket: self.try_clone()?,
             frame,
         })
     }
 
-    /// Reads a frame from the socket asynchronously.
-    pub async fn read_frame(&self) -> io::Result<CanAnyFrame> {
-        self.0.read_with(|fd| fd.read_frame()).await
+    /// Clone the CanFdSocket by using the `dup` syscall to get another
+    /// file descriptor. This method makes clones fairly cheap and
+    /// avoids complexity around ownership
+    fn try_clone(&self) -> Result<Self> {
+        let fd = self.as_raw_fd();
+        unsafe {
+            // essentially we're cheating and making it cheaper/easier
+            // to manage multiple references to the socket by relying
+            // on the posix behaviour of `dup()` which essentially lets
+            // the kernel worry about keeping track of references;
+            // as long as one of the duplicated file descriptors is open
+            // the socket as a whole isn't going to be closed.
+            let new_fd = libc::dup(fd);
+            let new = crate::CanFdSocket::from_raw_fd(new_fd);
+            Ok(Self(AsyncFd::new(EventedCanFdSocket(new))?))
+        }
     }
 }
 
 impl SocketOptions for CanFdSocket {}
 
-impl TryFrom<crate::CanFdSocket> for CanFdSocket {
-    type Error = io::Error;
-
-    fn try_from(sock: crate::CanFdSocket) -> Result<Self, Self::Error> {
-        Ok(Self(Async::new(sock)?))
-    }
-}
-
 impl AsRawFd for CanFdSocket {
     fn as_raw_fd(&self) -> RawFd {
-        self.0.as_raw_fd()
+        self.0.get_ref().as_raw_fd()
     }
 }
 
+impl Stream for CanFdSocket {
+    type Item = Result<CanAnyFrame>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
+        loop {
+            let mut ready_guard = ready!(self.0.poll_read_ready(cx))?;
+            match ready_guard.try_io(|inner| inner.get_ref().get_ref().read_frame()) {
+                Ok(result) => return Poll::Ready(Some(result.map_err(|e| e.into()))),
+                Err(_would_block) => continue,
+            }
+        }
+    }
+}
+
+impl Sink<CanFdFrame> for CanFdSocket {
+    type Error = Error;
+
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
+        let _ = ready!(self.0.poll_write_ready(cx))?;
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
+        let mut ready_guard = ready!(self.0.poll_write_ready(cx))?;
+        ready_guard.clear_ready();
+        Poll::Ready(Ok(()))
+    }
+
+    fn start_send(self: Pin<&mut Self>, item: CanFdFrame) -> Result<()> {
+        self.0.get_ref().0.write_frame_insist(&item)?;
+        Ok(())
+    }
+}
 
 /////////////////////////////////////////////////////////////////////////////
 

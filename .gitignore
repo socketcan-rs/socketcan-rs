@@ -4,3 +4,5 @@ Cargo.lock
 /.hgignore
 /.vscode
 /socketcan.v*
+/.envrc
+/.direnv
