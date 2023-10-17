@@ -207,7 +207,7 @@ impl Sink<CanFrame> for CanSocket {
     }
 }
 
-/// A Future representing the eventual writing of a CanFrame to the socket.
+/// A Future representing the eventual writing of a CanFdFrame to the socket.
 ///
 /// Created by the CanSocket.write_frame() method
 #[derive(Debug)]
@@ -284,7 +284,7 @@ impl CanFdSocket {
         Ok(Self(AsyncFd::new(EventedCanFdSocket(sock))?))
     }
 
-    /// Write a CAN frame to the socket asynchronously
+    /// Write a CANFd frame to the socket asynchronously
     ///
     /// This uses the semantics of socketcan's `write_frame_insist`,
     /// IE: it will automatically retry when it fails on an EINTR
