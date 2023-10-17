@@ -86,21 +86,6 @@ type NlResult<T> = Result<T, NlError>;
 /// A Netlink error from an info query
 type NlInfoError = NlError<Rtm, Ifinfomsg>;
 
-/// Gets a byte slice for any sized variable.
-///
-/// Note that this should normally be unsafe, but since we're only
-/// using it internally for types sent to the kernel, it's OK.
-fn as_bytes<T: Sized>(val: &T) -> &[u8] {
-    let sz = std::mem::size_of::<T>();
-    unsafe { std::slice::from_raw_parts::<'_, u8>(val as *const _ as *const u8, sz) }
-}
-
-/// Gets a mutable byte slice for any sized variable.
-fn as_bytes_mut<T: Sized>(val: &mut T) -> &mut [u8] {
-    let sz = std::mem::size_of::<T>();
-    unsafe { std::slice::from_raw_parts_mut(val as *mut _ as *mut u8, sz) }
-}
-
 /// CAN bit-timing parameters
 pub type CanBitTiming = rt::can_bittiming;
 /// CAN bit-timing const parameters
@@ -847,35 +832,13 @@ impl CanInterface {
     }
 }
 
+/////////////////////////////////////////////////////////////////////////////
+
+#[cfg(feature = "netlink_tests")]
 #[cfg(test)]
 pub mod tests {
     use super::*;
-
-    #[test]
-    fn test_as_bytes() {
-        let bitrate = 500000;
-        let sample_point = 750;
-        let timing = CanBitTiming {
-            bitrate,
-            sample_point,
-            ..CanBitTiming::default()
-        };
-
-        assert_eq!(
-            unsafe {
-                std::slice::from_raw_parts::<'_, u8>(
-                    &timing as *const _ as *const u8,
-                    std::mem::size_of::<CanBitTiming>(),
-                )
-            },
-            as_bytes(&timing)
-        );
-    }
-
-    #[cfg(feature = "netlink_tests")]
     use std::ops::Deref;
-
-    #[cfg(feature = "netlink_tests")]
     use serial_test::serial;
 
     /// RAII-style helper to create and clean-up a specific vcan interface for a single test.
@@ -892,14 +855,12 @@ pub mod tests {
     /// ```
     /// Please note that there is a limit to the length of interface names,
     /// namely 16 characters on Linux.
-    #[cfg(feature = "netlink_tests")]
     #[allow(missing_copy_implementations)]
     #[derive(Debug)]
     pub struct TemporaryInterface {
         interface: CanInterface,
     }
 
-    #[cfg(feature = "netlink_tests")]
     impl TemporaryInterface {
         #[allow(unused)]
         pub fn new(name: &str) -> NlResult<Self> {
@@ -909,7 +870,6 @@ pub mod tests {
         }
     }
 
-    #[cfg(feature = "netlink_tests")]
     impl Drop for TemporaryInterface {
         fn drop(&mut self) {
             assert!(CanInterface::open_iface(self.interface.if_index)
@@ -918,7 +878,6 @@ pub mod tests {
         }
     }
 
-    #[cfg(feature = "netlink_tests")]
     impl Deref for TemporaryInterface {
         type Target = CanInterface;
 
@@ -927,7 +886,6 @@ pub mod tests {
         }
     }
 
-    #[cfg(feature = "netlink_tests")]
     #[test]
     #[serial]
     fn up_down() {
@@ -940,7 +898,6 @@ pub mod tests {
         assert!(!interface.details().unwrap().is_up);
     }
 
-    #[cfg(feature = "netlink_tests")]
     #[test]
     #[serial]
     fn details() {
@@ -951,7 +908,6 @@ pub mod tests {
         assert!(!details.is_up);
     }
 
-    #[cfg(feature = "netlink_tests")]
     #[test]
     #[serial]
     fn mtu() {
