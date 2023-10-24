@@ -107,42 +107,31 @@ impl<T: Socket> event::Source for EventedCanSocket<T> {
 
 /// An asynchronous I/O wrapped CanSocket
 #[derive(Debug)]
-pub struct CanSocket(AsyncFd<EventedCanSocket>);
+pub struct AsyncCanSocket<T: Socket>(AsyncFd<EventedCanSocket<T>>);
 
-impl CanSocket {
+impl<T: Socket + FromRawFd> AsyncCanSocket<T> {
     /// Open a named CAN device such as "can0, "vcan0", etc
     pub fn open(ifname: &str) -> io::Result<Self> {
-        let sock = crate::CanSocket::open(ifname)?;
+        let sock = T::open(ifname)?;
         sock.set_nonblocking(true)?;
         Ok(Self(AsyncFd::new(EventedCanSocket(sock))?))
     }
 
     /// Open CAN device by kernel interface number
-    pub fn open_if(ifindex: u32) -> io::Result<CanSocket> {
-        let sock = crate::CanSocket::open_iface(ifindex)?;
+    pub fn open_if(ifindex: u32) -> io::Result<Self> {
+        let sock = T::open_iface(ifindex)?;
         sock.set_nonblocking(true)?;
         Ok(Self(AsyncFd::new(EventedCanSocket(sock))?))
     }
 
     /// Open a CAN socket by address
     pub fn open_addr(addr: &CanAddr) -> io::Result<Self> {
-        let sock = crate::CanSocket::open_addr(addr)?;
+        let sock = T::open_addr(addr)?;
         sock.set_nonblocking(true)?;
         Ok(Self(AsyncFd::new(EventedCanSocket(sock))?))
     }
 
-    /// Write a CAN frame to the socket asynchronously
-    ///
-    /// This uses the semantics of socketcan's `write_frame_insist`,
-    /// IE: it will automatically retry when it fails on an EINTR
-    pub fn write_frame(&self, frame: CanFrame) -> Result<CanWriteFuture> {
-        Ok(CanWriteFuture {
-            socket: self.try_clone()?,
-            frame,
-        })
-    }
-
-    /// Clone the CanSocket by using the `dup` syscall to get another
+    /// Clone the Async Socket by using the `dup` syscall to get another
     /// file descriptor. This method makes clones fairly cheap and
     /// avoids complexity around ownership
     fn try_clone(&self) -> Result<Self> {
@@ -155,17 +144,33 @@ impl CanSocket {
             // as long as one of the duplicated file descriptors is open
             // the socket as a whole isn't going to be closed.
             let new_fd = libc::dup(fd);
-            let new = crate::CanSocket::from_raw_fd(new_fd);
+            let new = T::from_raw_fd(new_fd);
             Ok(Self(AsyncFd::new(EventedCanSocket(new))?))
         }
     }
 }
 
-impl SocketOptions for CanSocket {}
+impl<T: Socket> SocketOptions for AsyncCanSocket<T> {}
 
-impl AsRawFd for CanSocket {
+impl<T: Socket> AsRawFd for AsyncCanSocket<T> {
     fn as_raw_fd(&self) -> RawFd {
         self.0.get_ref().0.as_raw_fd()
+    }
+}
+
+/// Asynchronous Can Socket
+pub type CanSocket = AsyncCanSocket<crate::CanSocket>;
+
+impl CanSocket {
+    /// Write a CAN frame to the socket asynchronously
+    ///
+    /// This uses the semantics of socketcan's `write_frame_insist`,
+    /// IE: it will automatically retry when it fails on an EINTR
+    pub fn write_frame(&self, frame: CanFrame) -> Result<CanWriteFuture> {
+        Ok(CanWriteFuture {
+            socket: self.try_clone()?,
+            frame,
+        })
     }
 }
 
@@ -207,6 +212,22 @@ impl Sink<CanFrame> for CanSocket {
     }
 }
 
+/// An Asynchronous CAN FD Socket
+pub type CanFdSocket = AsyncCanSocket<crate::CanFdSocket>;
+
+impl CanFdSocket {
+    /// Write a CAN FD frame to the socket asynchronously
+    ///
+    /// This uses the semantics of socketcan's `write_frame_insist`,
+    /// IE: it will automatically retry when it fails on an EINTR
+    pub fn write_frame(&self, frame: CanFdFrame) -> Result<CanFdWriteFuture> {
+        Ok(CanFdWriteFuture {
+            socket: self.try_clone()?,
+            frame,
+        })
+    }
+}
+
 /// A Future representing the eventual writing of a CanFdFrame to the socket.
 ///
 /// Created by the CanFdSocket.write_frame() method
@@ -225,70 +246,6 @@ impl Future for CanFdWriteFuture {
             Ok(_) => Poll::Ready(Ok(())),
             Err(err) => Poll::Ready(Err(err)),
         }
-    }
-}
-
-/// Asynchronous CAN FD socket
-#[derive(Debug)]
-pub struct CanFdSocket(AsyncFd<EventedCanSocket<crate::CanFdSocket>>);
-
-impl CanFdSocket {
-    /// Open a named CAN FD device such as "can0, "vcan0", etc
-    pub fn open(ifname: &str) -> io::Result<Self> {
-        let sock = crate::CanFdSocket::open(ifname)?;
-        sock.set_nonblocking(true)?;
-        Ok(Self(AsyncFd::new(EventedCanSocket(sock))?))
-    }
-
-    /// Open CAN FD device by kernel interface number
-    pub fn open_if(ifindex: u32) -> io::Result<CanFdSocket> {
-        let sock = crate::CanFdSocket::open_iface(ifindex)?;
-        sock.set_nonblocking(true)?;
-        Ok(Self(AsyncFd::new(EventedCanSocket(sock))?))
-    }
-
-    /// Open a CAN FD socket by address
-    pub fn open_addr(addr: &CanAddr) -> io::Result<Self> {
-        let sock = crate::CanFdSocket::open_addr(addr)?;
-        sock.set_nonblocking(true)?;
-        Ok(Self(AsyncFd::new(EventedCanSocket(sock))?))
-    }
-
-    /// Write a CAN FD frame to the socket asynchronously
-    ///
-    /// This uses the semantics of socketcan's `write_frame_insist`,
-    /// IE: it will automatically retry when it fails on an EINTR
-    pub fn write_frame(&self, frame: CanFdFrame) -> Result<CanFdWriteFuture> {
-        Ok(CanFdWriteFuture {
-            socket: self.try_clone()?,
-            frame,
-        })
-    }
-
-    /// Clone the CanFdSocket by using the `dup` syscall to get another
-    /// file descriptor. This method makes clones fairly cheap and
-    /// avoids complexity around ownership
-    fn try_clone(&self) -> Result<Self> {
-        let fd = self.as_raw_fd();
-        unsafe {
-            // essentially we're cheating and making it cheaper/easier
-            // to manage multiple references to the socket by relying
-            // on the posix behaviour of `dup()` which essentially lets
-            // the kernel worry about keeping track of references;
-            // as long as one of the duplicated file descriptors is open
-            // the socket as a whole isn't going to be closed.
-            let new_fd = libc::dup(fd);
-            let new = crate::CanFdSocket::from_raw_fd(new_fd);
-            Ok(Self(AsyncFd::new(EventedCanSocket(new))?))
-        }
-    }
-}
-
-impl SocketOptions for CanFdSocket {}
-
-impl AsRawFd for CanFdSocket {
-    fn as_raw_fd(&self) -> RawFd {
-        self.0.get_ref().0.as_raw_fd()
     }
 }
 
