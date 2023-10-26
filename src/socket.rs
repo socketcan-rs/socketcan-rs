@@ -18,14 +18,15 @@ use crate::{
 use libc::{
     can_frame, canid_t, fcntl, read, sa_family_t, setsockopt, sockaddr, sockaddr_can,
     sockaddr_storage, socklen_t, suseconds_t, time_t, timeval, write, EINPROGRESS, F_GETFL,
-    F_SETFL, O_NONBLOCK, SOCK_RAW, SOL_SOCKET, SO_RCVTIMEO, SO_SNDTIMEO,
+    F_SETFL, O_NONBLOCK, SOL_SOCKET, SO_RCVTIMEO, SO_SNDTIMEO,
 };
 use nix::net::if_::if_nametoindex;
+use socket2::SockAddr;
 use std::{
     fmt, io, mem,
     os::{
         raw::{c_int, c_void},
-        unix::io::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd},
+        unix::io::{AsFd, AsRawFd, BorrowedFd, IntoRawFd, OwnedFd, RawFd},
     },
     ptr,
     time::Duration,
@@ -126,16 +127,19 @@ impl CanAddr {
     /// This is a generic socket address container with enough space to hold
     /// any address type in the system.
     pub fn into_storage(self) -> (sockaddr_storage, socklen_t) {
-        let len = Self::len();
+        let can_addr = crate::as_bytes(&self.0);
+        let len = can_addr.len();
+
         let mut storage: sockaddr_storage = unsafe { mem::zeroed() };
-        unsafe {
-            ptr::copy_nonoverlapping(
-                &self.0 as *const _ as *const sockaddr_storage,
-                &mut storage,
-                len,
-            );
-        }
+        let sock_addr = crate::as_bytes_mut(&mut storage);
+
+        sock_addr[0..len].copy_from_slice(can_addr);
         (storage, len as socklen_t)
+    }
+
+    /// Converts the address into a `socket2::SockAddr`
+    pub fn into_sock_addr(self) -> SockAddr {
+        SockAddr::from(self)
     }
 }
 
@@ -163,6 +167,13 @@ impl From<sockaddr_can> for CanAddr {
     }
 }
 
+impl From<CanAddr> for SockAddr {
+    fn from(addr: CanAddr) -> Self {
+        let (storage, len) = addr.into_storage();
+        unsafe { SockAddr::new(storage, len) }
+    }
+}
+
 impl AsRef<sockaddr_can> for CanAddr {
     fn as_ref(&self) -> &sockaddr_can {
         &self.0
@@ -179,31 +190,24 @@ fn c_timeval_new(t: Duration) -> timeval {
 }
 
 /// Tries to open the CAN socket by the interface number.
-fn raw_open_socket(addr: &CanAddr) -> io::Result<c_int> {
-    let fd = unsafe { libc::socket(PF_CAN, SOCK_RAW, CAN_RAW) };
+fn raw_open_socket(addr: &CanAddr) -> io::Result<socket2::Socket> {
+    let af_can = socket2::Domain::from(AF_CAN);
+    let can_raw = socket2::Protocol::from(CAN_RAW);
 
-    if fd == -1 {
-        return Err(io::Error::last_os_error());
-    }
+	let sock = socket2::Socket::new_raw(af_can, socket2::Type::RAW, Some(can_raw))?;
 
-    let ret = unsafe { libc::bind(fd, addr.as_sockaddr_ptr(), CanAddr::len() as u32) };
-
-    if ret == -1 {
-        let err = io::Error::last_os_error();
-        unsafe { libc::close(fd) };
-        Err(err)
-    } else {
-        Ok(fd)
-    }
+    let addr = SockAddr::from(addr.clone());
+    sock.bind(&addr)?;
+    Ok(sock)
 }
 
 // Enable or disable FD mode on the socket, fd.
-fn set_fd_mode(fd: c_int, enable: bool) -> io::Result<c_int> {
+fn set_fd_mode(sock: socket2::Socket, enable: bool) -> io::Result<socket2::Socket> {
     let enable = enable as c_int;
 
     let ret = unsafe {
         setsockopt(
-            fd,
+            sock.as_raw_fd(),
             SOL_CAN_RAW,
             CAN_RAW_FD_FRAMES,
             &enable as *const _ as *const c_void,
@@ -214,7 +218,7 @@ fn set_fd_mode(fd: c_int, enable: bool) -> io::Result<c_int> {
     if ret == -1 {
         Err(io::Error::last_os_error())
     } else {
-        Ok(fd)
+        Ok(sock)
     }
 }
 
@@ -572,8 +576,8 @@ impl CanSocket {
 #[allow(missing_copy_implementations)]
 #[derive(Debug)]
 pub struct CanSocket {
-    /// The raw file descriptor
-    fd: OwnedFd,
+    /// The underlying socket
+    sock: socket2::Socket,
 }
 
 impl Socket for CanSocket {
@@ -582,11 +586,8 @@ impl Socket for CanSocket {
 
     /// Opens the socket by interface index.
     fn open_addr(addr: &CanAddr) -> io::Result<Self> {
-        raw_open_socket(addr).map(|fd| Self {
-            /// SAFETY: We just obtained this FD and no else has seen it.
-            /// Hence, it is fine to take exclusive ownership.
-            fd: unsafe { OwnedFd::from_raw_fd(fd) },
-        })
+        let sock = raw_open_socket(addr)?;
+        Ok(Self { sock })
     }
 
     /// Writes a normal CAN 2.0 frame to the socket.
@@ -594,7 +595,7 @@ impl Socket for CanSocket {
     where
         F: Into<CanFrame> + AsPtr,
     {
-        raw_write_frame(self.fd.as_raw_fd(), frame.as_ptr(), frame.size())
+        raw_write_frame(self.as_raw_fd(), frame.as_ptr(), frame.size())
     }
 
     /// Reads a normal CAN 2.0 frame from the socket.
@@ -602,7 +603,7 @@ impl Socket for CanSocket {
         let mut frame = can_frame_default();
         let n = mem::size_of::<can_frame>();
 
-        let rd = unsafe { read(self.fd.as_raw_fd(), &mut frame as *mut _ as *mut c_void, n) };
+        let rd = unsafe { read(self.as_raw_fd(), &mut frame as *mut _ as *mut c_void, n) };
 
         if rd as usize == n {
             Ok(frame.into())
@@ -617,29 +618,25 @@ impl SocketOptions for CanSocket {}
 // Has no effect: #[deprecated(since = "3.1", note = "Use AsFd::as_fd() instead.")]
 impl AsRawFd for CanSocket {
     fn as_raw_fd(&self) -> RawFd {
-        self.fd.as_raw_fd()
+        self.sock.as_raw_fd()
     }
 }
 
-impl FromRawFd for CanSocket {
-    unsafe fn from_raw_fd(fd: RawFd) -> CanSocket {
-        CanSocket {
-            /// Safety: The caller asserts that we may take ownership of this FD by passing it into
-            /// from_raw_fd().
-            fd: unsafe { OwnedFd::from_raw_fd(fd) },
-        }
+impl From<OwnedFd> for CanSocket {
+    fn from(fd: OwnedFd) -> Self {
+        Self { sock: socket2::Socket::from(fd) }
     }
 }
 
 impl IntoRawFd for CanSocket {
     fn into_raw_fd(self) -> RawFd {
-        self.fd.into_raw_fd()
+        self.sock.into_raw_fd()
     }
 }
 
 impl AsFd for CanSocket {
     fn as_fd(&self) -> BorrowedFd<'_> {
-        self.fd.as_fd()
+        self.sock.as_fd()
     }
 }
 
@@ -652,8 +649,8 @@ impl AsFd for CanSocket {
 #[allow(missing_copy_implementations)]
 #[derive(Debug)]
 pub struct CanFdSocket {
-    /// The raw file descriptor
-    fd: OwnedFd,
+    /// The underlying socket
+    sock: socket2::Socket,
 }
 
 impl Socket for CanFdSocket {
@@ -663,12 +660,8 @@ impl Socket for CanFdSocket {
     /// Opens the FD socket by interface index.
     fn open_addr(addr: &CanAddr) -> io::Result<Self> {
         raw_open_socket(addr)
-            .and_then(|fd| set_fd_mode(fd, true))
-            .map(|fd| Self {
-                /// SAFETY: We just obtained this FD and no else has seen it.
-                /// Hence, it is fine to take exclusive ownership.
-                fd: unsafe { OwnedFd::from_raw_fd(fd) },
-            })
+            .and_then(|sock| set_fd_mode(sock, true))
+            .map(|sock| Self { sock })
     }
 
     /// Writes any type of CAN frame to the socket.
@@ -676,7 +669,7 @@ impl Socket for CanFdSocket {
     where
         F: Into<Self::FrameType> + AsPtr,
     {
-        raw_write_frame(self.fd.as_raw_fd(), frame.as_ptr(), frame.size())
+        raw_write_frame(self.as_raw_fd(), frame.as_ptr(), frame.size())
     }
 
     /// Reads either type of CAN frame from the socket.
@@ -685,7 +678,7 @@ impl Socket for CanFdSocket {
 
         let rd = unsafe {
             read(
-                self.fd.as_raw_fd(),
+                self.as_raw_fd(),
                 &mut fdframe as *mut _ as *mut c_void,
                 CANFD_MTU,
             )
@@ -716,29 +709,25 @@ impl SocketOptions for CanFdSocket {}
 // Has no effect: #[deprecated(since = "3.1", note = "Use AsFd::as_fd() instead.")]
 impl AsRawFd for CanFdSocket {
     fn as_raw_fd(&self) -> RawFd {
-        self.fd.as_raw_fd()
+        self.sock.as_raw_fd()
     }
 }
 
-impl FromRawFd for CanFdSocket {
-    unsafe fn from_raw_fd(fd: RawFd) -> CanFdSocket {
-        CanFdSocket {
-            /// Safety: The caller asserts that we may take ownership of this FD by passing it into
-            /// from_raw_fd().
-            fd: unsafe { OwnedFd::from_raw_fd(fd) },
-        }
+impl From<OwnedFd> for CanFdSocket {
+    fn from(fd: OwnedFd) -> CanFdSocket {
+        Self { sock: socket2::Socket::from(fd) }
     }
 }
 
 impl IntoRawFd for CanFdSocket {
     fn into_raw_fd(self) -> RawFd {
-        self.fd.as_raw_fd()
+        self.sock.into_raw_fd()
     }
 }
 
 impl AsFd for CanFdSocket {
     fn as_fd(&self) -> BorrowedFd<'_> {
-        self.fd.as_fd()
+        self.sock.as_fd()
     }
 }
 
@@ -785,5 +774,32 @@ impl From<(u32, u32)> for CanFilter {
 impl AsRef<libc::can_filter> for CanFilter {
     fn as_ref(&self) -> &libc::can_filter {
         &self.0
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::as_bytes;
+
+    const IDX: u32 = 42;
+
+    #[test]
+    fn test_addr() {
+        let _addr = CanAddr::new(IDX);
+
+        assert_eq!(mem::size_of::<sockaddr_can>(), CanAddr::len());
+    }
+
+    #[test]
+    fn test_addr_to_sock_addr() {
+        let addr = CanAddr::new(IDX);
+
+        let (sock_addr, len) = addr.clone().into_storage();
+
+        assert_eq!(CanAddr::len() as socklen_t, len);
+        assert_eq!(as_bytes(&addr), &as_bytes(&sock_addr)[0..len as usize]);
     }
 }

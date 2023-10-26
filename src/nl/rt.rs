@@ -28,21 +28,7 @@ use std::{
     io::{self, Cursor, Read, Write},
     mem,
 };
-
-/// Gets a byte slice for any sized variable.
-///
-/// Note that this should normally be unsafe, but since we're only
-/// using it internally for types sent to the kernel, it's OK.
-fn as_bytes<T: Sized>(val: &T) -> &[u8] {
-    let sz = std::mem::size_of::<T>();
-    unsafe { std::slice::from_raw_parts::<'_, u8>(val as *const _ as *const u8, sz) }
-}
-
-/// Gets a mutable byte slice for any sized variable.
-fn as_bytes_mut<T: Sized>(val: &mut T) -> &mut [u8] {
-    let sz = std::mem::size_of::<T>();
-    unsafe { std::slice::from_raw_parts_mut(val as *mut _ as *mut u8, sz) }
-}
+use crate::{as_bytes, as_bytes_mut};
 
 pub const EXT_FILTER_VF: c_uint = 1 << 0;
 pub const EXT_FILTER_BRVLAN: c_uint = 1 << 1;

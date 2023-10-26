@@ -32,7 +32,7 @@
 //!
 //! The Linux socketcan subsystem makes the CAN bus available as a regular
 //! networking device. Opening an network interface allows receiving all CAN
-//! messages received on it. A device CAN be opened multiple times, every
+//! messages received on it. A device can be opened multiple times, every
 //! client will receive all CAN frames simultaneously.
 //!
 //! Similarly, CAN frames can be sent to the bus by multiple client
@@ -151,6 +151,24 @@ pub mod smol {
 pub mod async_std {
     pub use crate::async_io::*;
 }
+
+// ===== helper functions =====
+
+/// Gets a byte slice for any sized variable.
+///
+/// Note that this should normally be unsafe, but since we're only
+/// using it internally for types sent to the kernel, it's OK.
+pub(crate) fn as_bytes<T: Sized>(val: &T) -> &[u8] {
+    let sz = std::mem::size_of::<T>();
+    unsafe { std::slice::from_raw_parts::<'_, u8>(val as *const _ as *const u8, sz) }
+}
+
+/// Gets a mutable byte slice for any sized variable.
+pub(crate) fn as_bytes_mut<T: Sized>(val: &mut T) -> &mut [u8] {
+    let sz = std::mem::size_of::<T>();
+    unsafe { std::slice::from_raw_parts_mut(val as *mut _ as *mut u8, sz) }
+}
+
 
 // ===== embedded_can I/O traits =====
 
