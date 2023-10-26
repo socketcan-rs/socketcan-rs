@@ -31,7 +31,7 @@ use std::{
     future::Future,
     io,
     os::unix::{
-        io::{AsRawFd, FromRawFd},
+        io::{AsRawFd, FromRawFd, OwnedFd},
         prelude::RawFd,
     },
     pin::Pin,
@@ -109,7 +109,7 @@ impl<T: Socket> event::Source for EventedCanSocket<T> {
 #[derive(Debug)]
 pub struct AsyncCanSocket<T: Socket>(AsyncFd<EventedCanSocket<T>>);
 
-impl<T: Socket + FromRawFd> AsyncCanSocket<T> {
+impl<T: Socket + From<OwnedFd>> AsyncCanSocket<T> {
     /// Open a named CAN device such as "can0, "vcan0", etc
     pub fn open(ifname: &str) -> io::Result<Self> {
         let sock = T::open(ifname)?;
@@ -143,8 +143,8 @@ impl<T: Socket + FromRawFd> AsyncCanSocket<T> {
             // the kernel worry about keeping track of references;
             // as long as one of the duplicated file descriptors is open
             // the socket as a whole isn't going to be closed.
-            let new_fd = libc::dup(fd);
-            let new = T::from_raw_fd(new_fd);
+            let new_fd = OwnedFd::from_raw_fd(libc::dup(fd));
+            let new = T::from(new_fd);
             Ok(Self(AsyncFd::new(EventedCanSocket(new))?))
         }
     }

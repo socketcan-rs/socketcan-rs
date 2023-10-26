@@ -115,6 +115,9 @@ pub use embedded_can::{
 pub mod errors;
 pub use errors::{CanError, CanErrorDecodingFailure, ConstructionError, Error, Result};
 
+pub mod addr;
+pub use addr::CanAddr;
+
 pub mod frame;
 pub use frame::{
     CanAnyFrame, CanDataFrame, CanErrorFrame, CanFdFrame, CanFrame, CanRemoteFrame, Frame,
@@ -124,7 +127,7 @@ pub use frame::{
 pub mod dump;
 
 pub mod socket;
-pub use socket::{CanAddr, CanFdSocket, CanFilter, CanSocket, ShouldRetry, Socket, SocketOptions};
+pub use socket::{CanFdSocket, CanFilter, CanSocket, ShouldRetry, Socket, SocketOptions};
 
 #[cfg(feature = "netlink")]
 pub mod nl;
