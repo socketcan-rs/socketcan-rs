@@ -297,6 +297,7 @@ mod tests {
     use futures::{select, try_join};
     use futures_timer::Delay;
     use std::{io, time::Duration};
+    use serial_test::serial;
 
     /// Receive a frame from the CanSocket
     async fn recv_frame(mut socket: CanSocket) -> Result<CanSocket> {
@@ -336,6 +337,7 @@ mod tests {
     /// Attempt delivery of two messages, using a oneshot channel
     /// to prompt the second message in order to demonstrate that
     /// waiting for CAN reads is not blocking.
+    #[serial]
     #[tokio::test]
     async fn test_receive() -> Result<()> {
         let socket1 = CanSocket::open("vcan0").unwrap();
@@ -354,6 +356,7 @@ mod tests {
         Ok(())
     }
 
+    #[serial]
     #[tokio::test]
     async fn test_receive_can_fd() -> Result<()> {
         let socket1 = CanFdSocket::open("vcan0").unwrap();
@@ -372,6 +375,7 @@ mod tests {
         Ok(())
     }
 
+    #[serial]
     #[tokio::test]
     async fn test_sink_stream() -> Result<()> {
         let socket1 = CanSocket::open("vcan0").unwrap();
@@ -405,6 +409,7 @@ mod tests {
         Ok(())
     }
 
+    #[serial]
     #[tokio::test]
     async fn test_sink_stream_fd() -> Result<()> {
         let socket1 = CanFdSocket::open("vcan0").unwrap();
