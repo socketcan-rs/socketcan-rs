@@ -22,6 +22,11 @@ Additional implementation of the netlink control of the CAN interface was added 
 
 v3.2 increased the interface configuration coverage with Netlink, allowing an application to set most interface CAN parameters and query them all back.
 
+### What's New in Version 3.3
+
+- [#53](https://github.com/socketcan-rs/socketcan-rs/pull/53) Added CanFD support for tokio
+- Serialized tokio unit tests and put them behind the "vcan_tests" feature
+
 ### What's New in Version 3.2
 
 - [#32](https://github.com/socketcan-rs/socketcan-rs/issues/32) Further expanded netlink functionality:
@@ -31,17 +36,6 @@ v3.2 increased the interface configuration coverage with Netlink, allowing an ap
     - Better integration of low-level types with `neli`
     - Significant cleanup of the `nl` module
     - Split the `nl` module into separate sources for higher and lower-level code
-
-### What's New in Version 3.1
-
-- [#32](https://github.com/socketcan-rs/socketcan-rs/issues/32) Added netlink functionality:
-    - Set the bitrate [PR #50](https://github.com/socketcan-rs/socketcan-rs/pull/50), and the FD data bitrate
-    - Set the control modes (Loopback, Listen-Only, etc)
-    - Set automatic restart delay time
-    - Manual restart
-- [PR #45](https://github.com/socketcan-rs/socketcan-rs/pull/45) Dump handles extended IDs
-- [PR #44](https://github.com/socketcan-rs/socketcan-rs/pull/44) Fix clippy warnings
-- [PR #43](https://github.com/socketcan-rs/socketcan-rs/pull/43) Implement AsPtr for CanAnyFrame
 
 ## Next Steps
 
