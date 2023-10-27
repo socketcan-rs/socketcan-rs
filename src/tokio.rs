@@ -40,7 +40,7 @@ use std::{
 
 use mio::{event, unix::SourceFd, Interest, Registry, Token};
 
-use crate::{CanAddr, CanFrame, Error, Result, Socket, SocketOptions};
+use crate::{CanAddr, CanAnyFrame, CanFdFrame, CanFrame, Error, Result, Socket, SocketOptions};
 use tokio::io::unix::AsyncFd;
 
 /// A Future representing the eventual writing of a CanFrame to the socket.
@@ -67,21 +67,21 @@ impl Future for CanWriteFuture {
 /// A CanSocket wrapped for mio eventing
 /// to allow it be integrated in turn into tokio
 #[derive(Debug)]
-pub struct EventedCanSocket(crate::CanSocket);
+pub struct EventedCanSocket<T: Socket = crate::CanSocket>(T);
 
-impl EventedCanSocket {
-    fn get_ref(&self) -> &crate::CanSocket {
+impl<T: Socket> EventedCanSocket<T> {
+    fn get_ref(&self) -> &T {
         &self.0
     }
 }
 
-impl AsRawFd for EventedCanSocket {
+impl<T: Socket> AsRawFd for EventedCanSocket<T> {
     fn as_raw_fd(&self) -> RawFd {
         self.0.as_raw_fd()
     }
 }
 
-impl event::Source for EventedCanSocket {
+impl<T: Socket> event::Source for EventedCanSocket<T> {
     fn register(
         &mut self,
         registry: &Registry,
@@ -107,42 +107,31 @@ impl event::Source for EventedCanSocket {
 
 /// An asynchronous I/O wrapped CanSocket
 #[derive(Debug)]
-pub struct CanSocket(AsyncFd<EventedCanSocket>);
+pub struct AsyncCanSocket<T: Socket>(AsyncFd<EventedCanSocket<T>>);
 
-impl CanSocket {
+impl<T: Socket + FromRawFd> AsyncCanSocket<T> {
     /// Open a named CAN device such as "can0, "vcan0", etc
     pub fn open(ifname: &str) -> io::Result<Self> {
-        let sock = crate::CanSocket::open(ifname)?;
+        let sock = T::open(ifname)?;
         sock.set_nonblocking(true)?;
         Ok(Self(AsyncFd::new(EventedCanSocket(sock))?))
     }
 
     /// Open CAN device by kernel interface number
-    pub fn open_if(ifindex: u32) -> io::Result<CanSocket> {
-        let sock = crate::CanSocket::open_iface(ifindex)?;
+    pub fn open_if(ifindex: u32) -> io::Result<Self> {
+        let sock = T::open_iface(ifindex)?;
         sock.set_nonblocking(true)?;
         Ok(Self(AsyncFd::new(EventedCanSocket(sock))?))
     }
 
     /// Open a CAN socket by address
     pub fn open_addr(addr: &CanAddr) -> io::Result<Self> {
-        let sock = crate::CanSocket::open_addr(addr)?;
+        let sock = T::open_addr(addr)?;
         sock.set_nonblocking(true)?;
         Ok(Self(AsyncFd::new(EventedCanSocket(sock))?))
     }
 
-    /// Write a CAN frame to the socket asynchronously
-    ///
-    /// This uses the semantics of socketcan's `write_frame_insist`,
-    /// IE: it will automatically retry when it fails on an EINTR
-    pub fn write_frame(&self, frame: CanFrame) -> Result<CanWriteFuture> {
-        Ok(CanWriteFuture {
-            socket: self.try_clone()?,
-            frame,
-        })
-    }
-
-    /// Clone the CanSocket by using the `dup` syscall to get another
+    /// Clone the Async Socket by using the `dup` syscall to get another
     /// file descriptor. This method makes clones fairly cheap and
     /// avoids complexity around ownership
     fn try_clone(&self) -> Result<Self> {
@@ -155,17 +144,33 @@ impl CanSocket {
             // as long as one of the duplicated file descriptors is open
             // the socket as a whole isn't going to be closed.
             let new_fd = libc::dup(fd);
-            let new = crate::CanSocket::from_raw_fd(new_fd);
+            let new = T::from_raw_fd(new_fd);
             Ok(Self(AsyncFd::new(EventedCanSocket(new))?))
         }
     }
 }
 
-impl SocketOptions for CanSocket {}
+impl<T: Socket> SocketOptions for AsyncCanSocket<T> {}
 
-impl AsRawFd for CanSocket {
+impl<T: Socket> AsRawFd for AsyncCanSocket<T> {
     fn as_raw_fd(&self) -> RawFd {
         self.0.get_ref().0.as_raw_fd()
+    }
+}
+
+/// Asynchronous Can Socket
+pub type CanSocket = AsyncCanSocket<crate::CanSocket>;
+
+impl CanSocket {
+    /// Write a CAN frame to the socket asynchronously
+    ///
+    /// This uses the semantics of socketcan's `write_frame_insist`,
+    /// IE: it will automatically retry when it fails on an EINTR
+    pub fn write_frame(&self, frame: CanFrame) -> Result<CanWriteFuture> {
+        Ok(CanWriteFuture {
+            socket: self.try_clone()?,
+            frame,
+        })
     }
 }
 
@@ -207,6 +212,81 @@ impl Sink<CanFrame> for CanSocket {
     }
 }
 
+/// An Asynchronous CAN FD Socket
+pub type CanFdSocket = AsyncCanSocket<crate::CanFdSocket>;
+
+impl CanFdSocket {
+    /// Write a CAN FD frame to the socket asynchronously
+    ///
+    /// This uses the semantics of socketcan's `write_frame_insist`,
+    /// IE: it will automatically retry when it fails on an EINTR
+    pub fn write_frame(&self, frame: CanFdFrame) -> Result<CanFdWriteFuture> {
+        Ok(CanFdWriteFuture {
+            socket: self.try_clone()?,
+            frame,
+        })
+    }
+}
+
+/// A Future representing the eventual writing of a CanFdFrame to the socket.
+///
+/// Created by the CanFdSocket.write_frame() method
+#[derive(Debug)]
+pub struct CanFdWriteFuture {
+    socket: CanFdSocket,
+    frame: CanFdFrame,
+}
+
+impl Future for CanFdWriteFuture {
+    type Output = io::Result<()>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let _ = ready!(self.socket.0.poll_write_ready(cx))?;
+        match self.socket.0.get_ref().0.write_frame_insist(&self.frame) {
+            Ok(_) => Poll::Ready(Ok(())),
+            Err(err) => Poll::Ready(Err(err)),
+        }
+    }
+}
+
+impl Stream for CanFdSocket {
+    type Item = Result<CanAnyFrame>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
+        loop {
+            let mut ready_guard = ready!(self.0.poll_read_ready(cx))?;
+            match ready_guard.try_io(|inner| inner.get_ref().get_ref().read_frame()) {
+                Ok(result) => return Poll::Ready(Some(result.map_err(|e| e.into()))),
+                Err(_would_block) => continue,
+            }
+        }
+    }
+}
+
+impl Sink<CanFdFrame> for CanFdSocket {
+    type Error = Error;
+
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
+        let _ = ready!(self.0.poll_write_ready(cx))?;
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
+        let mut ready_guard = ready!(self.0.poll_write_ready(cx))?;
+        ready_guard.clear_ready();
+        Poll::Ready(Ok(()))
+    }
+
+    fn start_send(self: Pin<&mut Self>, item: CanFdFrame) -> Result<()> {
+        self.0.get_ref().0.write_frame_insist(&item)?;
+        Ok(())
+    }
+}
+
 /////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
@@ -228,9 +308,27 @@ mod tests {
         )
     }
 
+    /// Receive a frame from the CanFdSocket
+    async fn recv_frame_fd(mut socket: CanFdSocket) -> Result<CanFdSocket> {
+        // let mut frame_stream = socket;
+        const TIMEOUT: Duration = Duration::from_millis(100);
+        select!(
+            frame = socket.next().fuse() => if let Some(_frame) = frame { Ok(socket) } else { panic!("unexpected") },
+            _timeout = Delay::new(TIMEOUT).fuse() => Err(io::ErrorKind::TimedOut.into()),
+        )
+    }
+
     /// Write a test frame to the CanSocket
     async fn write_frame(socket: &CanSocket) -> Result<()> {
         let test_frame = CanFrame::new(StandardId::new(0x1).unwrap(), &[0]).unwrap();
+        socket.write_frame(test_frame)?.await?;
+        Ok(())
+    }
+
+    /// Write a test frame to the CanSocket
+    async fn write_frame_fd(socket: &CanFdSocket) -> Result<()> {
+        let test_frame =
+            CanFdFrame::new(StandardId::new(0x1).unwrap(), &[0, 0, 0, 0, 0, 0, 0, 0, 0]).unwrap();
         socket.write_frame(test_frame)?.await?;
         Ok(())
     }
@@ -257,6 +355,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_receive_can_fd() -> Result<()> {
+        let socket1 = CanFdSocket::open("vcan0").unwrap();
+        let socket2 = CanFdSocket::open("vcan0").unwrap();
+
+        let send_frames = future::try_join(write_frame_fd(&socket1), write_frame_fd(&socket1));
+
+        let recv_frames = async {
+            let socket2 = recv_frame_fd(socket2).await?;
+            let _socket2 = recv_frame_fd(socket2).await;
+            Ok(())
+        };
+
+        try_join!(recv_frames, send_frames)?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_sink_stream() -> Result<()> {
         let socket1 = CanSocket::open("vcan0").unwrap();
         let socket2 = CanSocket::open("vcan0").unwrap();
@@ -271,6 +387,45 @@ mod tests {
         let count_ids_less_than_3 = stream
             .map(|x| x.unwrap())
             .take_while(|frame| future::ready(frame.raw_id() < 3))
+            .fold(0u8, |acc, _frame| async move { acc + 1 });
+
+        let send_frames = async {
+            let _frame_1 = sink.send(frame_id_1).await?;
+            let _frame_2 = sink.send(frame_id_2).await?;
+            let _frame_3 = sink.send(frame_id_3).await?;
+            println!("Sent 3 frames");
+            Ok::<(), Error>(())
+        };
+
+        let (x, frame_send_r) = futures::future::join(count_ids_less_than_3, send_frames).await;
+        frame_send_r?;
+
+        assert_eq!(x, 2);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_sink_stream_fd() -> Result<()> {
+        let socket1 = CanFdSocket::open("vcan0").unwrap();
+        let socket2 = CanFdSocket::open("vcan0").unwrap();
+
+        let frame_id_1 = CanFdFrame::from_raw_id(0x01, &[0u8]).unwrap();
+        let frame_id_2 = CanFdFrame::from_raw_id(0x02, &[0u8]).unwrap();
+        let frame_id_3 = CanFdFrame::from_raw_id(0x03, &[0u8]).unwrap();
+
+        let (mut sink, _stream) = socket1.split();
+        let (_sink, stream) = socket2.split();
+
+        let count_ids_less_than_3 = stream
+            .map(|x| x.unwrap())
+            .take_while(|frame| {
+                if let CanAnyFrame::Fd(frame) = frame {
+                    future::ready(frame.raw_id() < 3)
+                } else {
+                    future::ready(false)
+                }
+            })
             .fold(0u8, |acc, _frame| async move { acc + 1 });
 
         let send_frames = async {
