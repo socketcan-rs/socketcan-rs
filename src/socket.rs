@@ -16,9 +16,8 @@ use crate::{
     CanAddr, CanAnyFrame, CanFdFrame, CanFrame,
 };
 use libc::{
-    can_frame, canid_t, fcntl, read, setsockopt,
-    socklen_t, suseconds_t, time_t, timeval, write, AF_CAN, EINPROGRESS, F_GETFL,
-    F_SETFL, O_NONBLOCK, SOL_SOCKET, SO_RCVTIMEO, SO_SNDTIMEO,
+    can_frame, canid_t, read, setsockopt,
+    socklen_t, write, AF_CAN, EINPROGRESS,
 };
 use socket2::SockAddr;
 use std::{
@@ -77,13 +76,6 @@ impl<E: fmt::Debug> ShouldRetry for io::Result<E> {
 }
 
 // ===== Private local helper functions =====
-
-fn c_timeval_new(t: Duration) -> timeval {
-    timeval {
-        tv_sec: t.as_secs() as time_t,
-        tv_usec: t.subsec_micros() as suseconds_t,
-    }
-}
 
 /// Tries to open the CAN socket by the interface number.
 fn raw_open_socket(addr: &CanAddr) -> io::Result<socket2::Socket> {
@@ -230,27 +222,20 @@ pub trait Socket: AsRawFd {
     where
         Self: Sized;
 
+    /// Gets a shared reference to the underlying socket object
+    fn as_raw_socket(&self) -> &socket2::Socket;
+
+    /// Gets a mutable reference to the underlying socket object
+    fn as_raw_socket_mut(&mut self) -> &mut socket2::Socket;
+
+    /// Determines if the socket is currently in nonblocking mode.
+    fn nonblocking(&self) -> io::Result<bool> {
+        self.as_raw_socket().nonblocking()
+    }
+
     /// Change socket to non-blocking mode or back to blocking mode.
     fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
-        // retrieve current flags
-        let oldfl = unsafe { fcntl(self.as_raw_fd(), F_GETFL) };
-
-        if oldfl == -1 {
-            return Err(io::Error::last_os_error());
-        }
-
-        let newfl = if nonblocking {
-            oldfl | O_NONBLOCK
-        } else {
-            oldfl & !O_NONBLOCK
-        };
-
-        let ret = unsafe { fcntl(self.as_raw_fd(), F_SETFL, newfl) };
-
-        if ret != 0 {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(())
+        self.as_raw_socket().set_nonblocking(nonblocking)
     }
 
     /// The type of CAN frame that can be read and written by the socket.
@@ -259,27 +244,39 @@ pub trait Socket: AsRawFd {
     /// with the primary difference between a `CanFrame` and a `CanFdFrame`.
     type FrameType;
 
+    /// Gets the read timout on the socket, if any.
+    fn read_timeout(&self) -> io::Result<Option<Duration>> {
+        self.as_raw_socket().read_timeout()
+    }
+
     /// Sets the read timeout on the socket
     ///
     /// For convenience, the result value can be checked using
     /// `ShouldRetry::should_retry` when a timeout is set.
-    fn set_read_timeout(&self, duration: Duration) -> io::Result<()> {
-        set_socket_option(
-            self.as_raw_fd(),
-            SOL_SOCKET,
-            SO_RCVTIMEO,
-            &c_timeval_new(duration),
-        )
+    ///
+    /// If the duration is set to `None` then write calls will block
+    /// indefinitely.
+    fn set_read_timeout<D>(&self, duration: D) -> io::Result<()>
+    where
+        D: Into<Option<Duration>>,
+    {
+        self.as_raw_socket().set_read_timeout(duration.into())
+    }
+
+    /// Gets the write timout on the socket, if any.
+    fn write_timeout(&self) -> io::Result<Option<Duration>> {
+        self.as_raw_socket().write_timeout()
     }
 
     /// Sets the write timeout on the socket
-    fn set_write_timeout(&self, duration: Duration) -> io::Result<()> {
-        set_socket_option(
-            self.as_raw_fd(),
-            SOL_SOCKET,
-            SO_SNDTIMEO,
-            &c_timeval_new(duration),
-        )
+    ///
+    /// If the duration is set to `None` then write calls will block
+    /// indefinitely.
+    fn set_write_timeout<D>(&self, duration: D) -> io::Result<()>
+    where
+        D: Into<Option<Duration>>,
+    {
+        self.as_raw_socket().set_write_timeout(duration.into())
     }
 
     /// Blocking read a single can frame.
@@ -486,6 +483,16 @@ impl Socket for CanSocket {
         Ok(Self { sock })
     }
 
+    /// Gets a shared reference to the underlying socket object
+    fn as_raw_socket(&self) -> &socket2::Socket {
+        &self.sock
+    }
+
+    /// Gets a mutable reference to the underlying socket object
+    fn as_raw_socket_mut(&mut self) -> &mut socket2::Socket {
+        &mut self.sock
+    }
+
     /// Writes a normal CAN 2.0 frame to the socket.
     fn write_frame<F>(&self, frame: &F) -> io::Result<()>
     where
@@ -558,6 +565,16 @@ impl Socket for CanFdSocket {
         raw_open_socket(addr)
             .and_then(|sock| set_fd_mode(sock, true))
             .map(|sock| Self { sock })
+    }
+
+    /// Gets a shared reference to the underlying socket object
+    fn as_raw_socket(&self) -> &socket2::Socket {
+        &self.sock
+    }
+
+    /// Gets a mutable reference to the underlying socket object
+    fn as_raw_socket_mut(&mut self) -> &mut socket2::Socket {
+        &mut self.sock
     }
 
     /// Writes any type of CAN frame to the socket.
