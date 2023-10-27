@@ -289,6 +289,7 @@ impl Sink<CanFdFrame> for CanFdSocket {
 
 /////////////////////////////////////////////////////////////////////////////
 
+#[cfg(feature = "vcan_tests")]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -299,10 +300,10 @@ mod tests {
     use std::{io, time::Duration};
     use serial_test::serial;
 
+    const TIMEOUT: Duration = Duration::from_millis(100);
+
     /// Receive a frame from the CanSocket
     async fn recv_frame(mut socket: CanSocket) -> Result<CanSocket> {
-        // let mut frame_stream = socket;
-        const TIMEOUT: Duration = Duration::from_millis(100);
         select!(
             frame = socket.next().fuse() => if let Some(_frame) = frame { Ok(socket) } else { panic!("unexpected") },
             _timeout = Delay::new(TIMEOUT).fuse() => Err(io::ErrorKind::TimedOut.into()),
@@ -311,8 +312,6 @@ mod tests {
 
     /// Receive a frame from the CanFdSocket
     async fn recv_frame_fd(mut socket: CanFdSocket) -> Result<CanFdSocket> {
-        // let mut frame_stream = socket;
-        const TIMEOUT: Duration = Duration::from_millis(100);
         select!(
             frame = socket.next().fuse() => if let Some(_frame) = frame { Ok(socket) } else { panic!("unexpected") },
             _timeout = Delay::new(TIMEOUT).fuse() => Err(io::ErrorKind::TimedOut.into()),
