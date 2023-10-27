@@ -84,6 +84,15 @@ impl From<io::ErrorKind> for Error {
 /// A result that can derive from any of the CAN errors.
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// An I/O specific error
+pub type IoError = io::Error;
+
+/// A kind of I/O error
+pub type IoErrorKind = io::ErrorKind;
+
+/// An I/O specific result
+pub type IoResult<T> = std::io::Result<T>;
+
 // ===== CanError ====
 
 /// A CAN bus error derived from an error frame.

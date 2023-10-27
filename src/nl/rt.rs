@@ -18,6 +18,7 @@
 
 #![allow(non_camel_case_types, unused)]
 
+use crate::{as_bytes, as_bytes_mut};
 use libc::{c_char, c_uint};
 use neli::{
     consts::rtnl::{RtaType, RtaTypeWrapper},
@@ -28,7 +29,6 @@ use std::{
     io::{self, Cursor, Read, Write},
     mem,
 };
-use crate::{as_bytes, as_bytes_mut};
 
 pub const EXT_FILTER_VF: c_uint = 1 << 0;
 pub const EXT_FILTER_BRVLAN: c_uint = 1 << 1;

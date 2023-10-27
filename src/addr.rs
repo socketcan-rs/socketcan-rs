@@ -11,19 +11,12 @@
 
 //! SocketCAN address type.
 
-use libc::{
-    sa_family_t, sockaddr, sockaddr_can,
-    sockaddr_storage, socklen_t,
-};
+use libc::{sa_family_t, sockaddr, sockaddr_can, sockaddr_storage, socklen_t};
 use nix::net::if_::if_nametoindex;
 use socket2::SockAddr;
-use std::{
-    fmt, io, mem,
-    os::raw::c_int,
-};
+use std::{fmt, io, mem, os::raw::c_int};
 
 pub use libc::{AF_CAN, CAN_RAW, PF_CAN};
-
 
 /// CAN socket address.
 ///

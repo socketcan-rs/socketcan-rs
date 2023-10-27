@@ -113,7 +113,10 @@ pub use embedded_can::{
 };
 
 pub mod errors;
-pub use errors::{CanError, CanErrorDecodingFailure, ConstructionError, Error, Result};
+pub use errors::{
+    CanError, CanErrorDecodingFailure, ConstructionError, Error, IoError, IoErrorKind, IoResult,
+    Result,
+};
 
 pub mod addr;
 pub use addr::CanAddr;
@@ -171,7 +174,6 @@ pub(crate) fn as_bytes_mut<T: Sized>(val: &mut T) -> &mut [u8] {
     let sz = std::mem::size_of::<T>();
     unsafe { std::slice::from_raw_parts_mut(val as *mut _ as *mut u8, sz) }
 }
-
 
 // ===== embedded_can I/O traits =====
 

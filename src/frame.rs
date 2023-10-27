@@ -113,6 +113,26 @@ pub trait AsPtr {
     fn size(&self) -> usize {
         std::mem::size_of::<Self::Inner>()
     }
+
+    /// Gets a byte slice to the inner type
+    fn as_bytes(&self) -> &[u8] {
+        unsafe {
+            std::slice::from_raw_parts::<'_, u8>(
+                self.as_ptr() as *const _ as *const u8,
+                self.size(),
+            )
+        }
+    }
+
+    /// Gets a mutable byte slice to the inner type
+    fn as_bytes_mut(&mut self) -> &[u8] {
+        unsafe {
+            std::slice::from_raw_parts::<'_, u8>(
+                self.as_mut_ptr() as *mut _ as *mut u8,
+                self.size(),
+            )
+        }
+    }
 }
 
 // ===== Frame trait =====
