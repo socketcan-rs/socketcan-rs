@@ -297,8 +297,8 @@ mod tests {
     use embedded_can::Frame as EmbeddedFrame;
     use futures::{select, try_join};
     use futures_timer::Delay;
-    use std::{io, time::Duration};
     use serial_test::serial;
+    use std::{io, time::Duration};
 
     const TIMEOUT: Duration = Duration::from_millis(100);
 

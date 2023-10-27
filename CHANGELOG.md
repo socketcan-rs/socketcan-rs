@@ -2,6 +2,12 @@
 
 The change log for the Rust [socketcan](https://crates.io/crates/socketcan) library.
 
+## [Version 3.3.0](https://github.com/socketcan-rs/socketcan-rs/compare/v3.2.0..v3.3.0)  (2023-10-27)
+
+- [#53](https://github.com/socketcan-rs/socketcan-rs/pull/53) Added CanFD support for tokio
+- Serialized tokio unit tests and put them behind the "vcan_tests" feature
+
+
 ## [Version 3.2.0](https://github.com/socketcan-rs/socketcan-rs/compare/v3.1.0..v3.2.0)  (2023-10-16)
 
 - [#32](https://github.com/socketcan-rs/socketcan-rs/issues/32) Further expanded netlink functionality:
