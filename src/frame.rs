@@ -10,6 +10,25 @@
 // to those terms.
 
 //! CAN bus frames.
+//!
+//! At the lowest level, [libc](https://crates.io/crates/libc) defines the
+//! CAN frames as low-level structs that are binary compatible with the C
+//! data types sent to and from the kernel:
+//! - [can_frame](https://docs.rs/libc/latest/libc/struct.can_frame.html)
+//! The Classic CAN 2.0 frame with up to 8 bytes of data.
+//! - [canfd_frame](https://docs.rs/libc/latest/libc/struct.canfd_frame.html)
+//! The CAN Flexible Data Rate frame with up to 64 bytes of data.
+//!
+//! The classic frame represents three possibilities:
+//! - `CanDataFrame` - A standard CAN frame that can contain up to 8 bytes of
+//! data.
+//! - `CanRemoteFrame` - A CAN Remote frame which is meant to request a
+//! transmission by another node on the bus. It contain no data.
+//! - `CanErrorFrame` - This is an incoming (only) frame that contains
+//! information about a problem on the bus or in the driver. Error frames
+//! can not be sent to the bus, but can be converted to standard Rust
+//! [Error](https://doc.rust-lang.org/std/error/trait.Error.html) types.
+//!
 
 use crate::{CanError, ConstructionError};
 use bitflags::bitflags;
@@ -208,6 +227,28 @@ pub trait Frame: EmbeddedFrame {
 
 // ===== CanAnyFrame =====
 
+/// An FD socket can read a raw classic 2.0 or FD frame.
+#[allow(missing_debug_implementations)]
+#[derive(Clone, Copy)]
+pub enum CanRawFrame {
+    /// A classic CAN 2.0 frame, with up to 8-bytes of data
+    Classic(can_frame),
+    /// A flexible data rate frame, with up to 64-bytes of data
+    Fd(canfd_frame),
+}
+
+impl From<can_frame> for CanRawFrame {
+    fn from(frame: can_frame) -> Self {
+        Self::Classic(frame)
+    }
+}
+
+impl From<canfd_frame> for CanRawFrame {
+    fn from(frame: canfd_frame) -> Self {
+        Self::Fd(frame)
+    }
+}
+
 /// Any frame type.
 #[derive(Clone, Copy, Debug)]
 pub enum CanAnyFrame {
@@ -243,9 +284,33 @@ impl From<CanFrame> for CanAnyFrame {
     }
 }
 
+impl From<can_frame> for CanAnyFrame {
+    fn from(frame: can_frame) -> Self {
+        let frame = CanFrame::from(frame);
+        frame.into()
+    }
+}
+
 impl From<CanFdFrame> for CanAnyFrame {
     fn from(frame: CanFdFrame) -> Self {
         Self::Fd(frame)
+    }
+}
+
+impl From<canfd_frame> for CanAnyFrame {
+    fn from(frame: canfd_frame) -> Self {
+        let frame = CanFdFrame::from(frame);
+        frame.into()
+    }
+}
+
+impl From<CanRawFrame> for CanAnyFrame {
+    fn from(frame: CanRawFrame) -> Self {
+        use CanRawFrame::*;
+        match frame {
+            Classic(frame) => frame.into(),
+            Fd(frame) => frame.into(),
+        }
     }
 }
 
@@ -645,7 +710,10 @@ impl AsRef<can_frame> for CanDataFrame {
 
 // ===== CanRemoteFrame =====
 
-/// The classic CAN 2.0 frame with up to 8-bytes of data.
+/// The classic CAN 2.0 remote request frame.
+///
+/// This is is meant to request a transmission by another node on the bus.
+/// It contain no data.
 ///
 /// This is highly compatible with the `can_frame` from libc.
 /// ([ref](https://docs.rs/libc/latest/libc/struct.can_frame.html))

@@ -14,7 +14,7 @@
 use crate::{
     as_bytes, as_bytes_mut,
     frame::{can_frame_default, canfd_frame_default, AsPtr, CAN_ERR_MASK},
-    CanAddr, CanAnyFrame, CanFdFrame, CanFrame, IoError, IoErrorKind, IoResult,
+    CanAddr, CanAnyFrame, CanFdFrame, CanFrame, CanRawFrame, IoError, IoErrorKind, IoResult,
 };
 use libc::{canid_t, socklen_t, AF_CAN, EINPROGRESS};
 use socket2::SockAddr;
@@ -122,7 +122,7 @@ pub fn set_socket_option<T>(fd: c_int, level: c_int, name: c_int, val: &T) -> Io
     }
 }
 
-/// Sets a collection of multiple socke options with one call.
+/// Sets a collection of multiple socket options with one call.
 #[deprecated(since = "3.4.0", note = "Moved into `SocketOptions` trait")]
 pub fn set_socket_option_mult<T>(
     fd: c_int,
@@ -285,7 +285,9 @@ pub trait Socket: AsRawFd {
     }
 }
 
-/// Traits for setting CAN socket options
+/// Traits for setting CAN socket options.
+///
+/// These are blocking calls, even when implemented on asynchronous sockets.
 pub trait SocketOptions: AsRawFd {
     /// Sets an option on the socket.
     ///
@@ -468,7 +470,7 @@ impl CanSocket {
 
 // ===== CanSocket =====
 
-/// A socket for a classic CAN 2.0 device.
+/// A socket for classic CAN 2.0 devices.
 ///
 /// This provides an interface to read and write classic CAN 2.0 frames to
 /// the bus, with up to 8 bytes of data per frame. It wraps a Linux socket
@@ -480,6 +482,15 @@ impl CanSocket {
 #[allow(missing_copy_implementations)]
 #[derive(Debug)]
 pub struct CanSocket(socket2::Socket);
+
+impl CanSocket {
+    /// Reads a low-level libc `can_frame` from the socket.
+    pub fn read_raw_frame(&self) -> IoResult<libc::can_frame> {
+        let mut frame = can_frame_default();
+        self.as_raw_socket().read_exact(as_bytes_mut(&mut frame))?;
+        Ok(frame)
+    }
+}
 
 impl Socket for CanSocket {
     /// CanSocket reads/writes classic CAN 2.0 frames.
@@ -511,8 +522,7 @@ impl Socket for CanSocket {
 
     /// Reads a normal CAN 2.0 frame from the socket.
     fn read_frame(&self) -> IoResult<CanFrame> {
-        let mut frame = can_frame_default();
-        self.as_raw_socket().read_exact(as_bytes_mut(&mut frame))?;
+        let frame = self.read_raw_frame()?;
         Ok(frame.into())
     }
 }
@@ -544,6 +554,22 @@ impl AsFd for CanSocket {
     }
 }
 
+impl Read for CanSocket {
+    fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
+        self.0.read(buf)
+    }
+}
+
+impl Write for CanSocket {
+    fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
+        self.0.write(buf)
+    }
+
+    fn flush(&mut self) -> IoResult<()> {
+        self.0.flush()
+    }
+}
+
 // ===== CanFdSocket =====
 
 /// A socket for CAN FD devices.
@@ -571,6 +597,27 @@ impl CanFdSocket {
 
         match ret {
             0 => Ok(sock),
+            _ => Err(IoError::last_os_error()),
+        }
+    }
+
+    /// Reads a raw CAN frame from the socket.
+    ///
+    /// This might be either type of CAN frame, a classic CAN 2.0 frame
+    /// or an FD frame.
+    pub fn read_raw_frame(&self) -> IoResult<CanRawFrame> {
+        let mut fdframe = canfd_frame_default();
+
+        match self.as_raw_socket().read(as_bytes_mut(&mut fdframe))? {
+            // If we only get 'can_frame' number of bytes, then the return is,
+            // by definition, a can_frame, so we just copy the bytes into the
+            // proper type.
+            CAN_MTU => {
+                let mut frame = can_frame_default();
+                as_bytes_mut(&mut frame)[..CAN_MTU].copy_from_slice(as_bytes(&fdframe));
+                Ok(frame.into())
+            }
+            CANFD_MTU => Ok(fdframe.into()),
             _ => Err(IoError::last_os_error()),
         }
     }

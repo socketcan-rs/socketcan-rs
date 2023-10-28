@@ -123,7 +123,8 @@ pub use addr::CanAddr;
 
 pub mod frame;
 pub use frame::{
-    CanAnyFrame, CanDataFrame, CanErrorFrame, CanFdFrame, CanFrame, CanRemoteFrame, Frame,
+    CanAnyFrame, CanDataFrame, CanErrorFrame, CanFdFrame, CanFrame, CanRawFrame, CanRemoteFrame,
+    Frame,
 };
 
 #[cfg(feature = "dump")]
