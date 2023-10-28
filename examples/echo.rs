@@ -17,7 +17,19 @@ use socketcan::{CanFrame, CanSocket, Frame, Socket};
 use std::{
     env,
     sync::atomic::{AtomicBool, Ordering},
+    time::Duration,
 };
+
+fn frame_to_string<F: Frame>(frame: &F) -> String {
+    let id = frame.raw_id();
+
+    let data_string = frame
+        .data()
+        .iter()
+        .fold(String::from(""), |a, b| format!("{} {:02x}", a, b));
+
+    format!("{:08X}  [{}] {}", id, frame.dlc(), data_string)
+}
 
 fn main() -> anyhow::Result<()> {
     let iface = env::args().nth(1).unwrap_or_else(|| "vcan0".into());
@@ -25,18 +37,15 @@ fn main() -> anyhow::Result<()> {
     let mut sock = CanSocket::open(&iface)
         .with_context(|| format!("Failed to open socket on interface {}", iface))?;
 
-    sock.set_nonblocking(true)
-        .with_context(|| "Failed to make socket non-blocking")?;
-
     static QUIT: AtomicBool = AtomicBool::new(false);
 
     ctrlc::set_handler(|| {
         QUIT.store(true, Ordering::Relaxed);
     })
-    .expect("Failed to set signal handler");
+    .expect("Failed to set ^C handler");
 
     while !QUIT.load(Ordering::Relaxed) {
-        if let Ok(frame) = sock.receive() {
+        if let Ok(frame) = sock.read_frame_timeout(Duration::from_millis(100)) {
             println!("{}", frame_to_string(&frame));
 
             let new_id = frame.raw_id() + 0x01;
@@ -52,13 +61,3 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn frame_to_string<F: Frame>(frame: &F) -> String {
-    let id = frame.raw_id();
-
-    let data_string = frame
-        .data()
-        .iter()
-        .fold(String::from(""), |a, b| format!("{} {:02x}", a, b));
-
-    format!("{:08X}  [{}] {}", id, frame.dlc(), data_string)
-}
