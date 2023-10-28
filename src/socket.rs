@@ -584,7 +584,7 @@ impl Socket for CanFdSocket {
     fn open_addr(addr: &CanAddr) -> IoResult<Self> {
         raw_open_socket(addr)
             .and_then(|sock| Self::set_fd_mode(sock, true))
-            .map(|sock| Self(sock))
+            .map(Self)
     }
 
     /// Gets a shared reference to the underlying socket object
