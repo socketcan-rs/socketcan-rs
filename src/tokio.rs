@@ -26,10 +26,13 @@
 //!     Ok(())
 //! }
 //! ```
+use crate::{
+    CanAddr, CanAnyFrame, CanFdFrame, CanFrame, Error, IoResult, Result, Socket, SocketOptions,
+};
 use futures::{prelude::*, ready, task::Context};
+use mio::{event, unix::SourceFd, Interest, Registry, Token};
 use std::{
     future::Future,
-    io,
     os::unix::{
         io::{AsRawFd, FromRawFd, OwnedFd},
         prelude::RawFd,
@@ -37,10 +40,6 @@ use std::{
     pin::Pin,
     task::Poll,
 };
-
-use mio::{event, unix::SourceFd, Interest, Registry, Token};
-
-use crate::{CanAddr, CanAnyFrame, CanFdFrame, CanFrame, Error, Result, Socket, SocketOptions};
 use tokio::io::unix::AsyncFd;
 
 /// A Future representing the eventual writing of a CanFrame to the socket.
@@ -53,7 +52,7 @@ pub struct CanWriteFuture {
 }
 
 impl Future for CanWriteFuture {
-    type Output = io::Result<()>;
+    type Output = IoResult<()>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let _ = ready!(self.socket.0.poll_write_ready(cx))?;
@@ -82,12 +81,7 @@ impl<T: Socket> AsRawFd for EventedCanSocket<T> {
 }
 
 impl<T: Socket> event::Source for EventedCanSocket<T> {
-    fn register(
-        &mut self,
-        registry: &Registry,
-        token: Token,
-        interests: Interest,
-    ) -> io::Result<()> {
+    fn register(&mut self, registry: &Registry, token: Token, interests: Interest) -> IoResult<()> {
         SourceFd(&self.0.as_raw_fd()).register(registry, token, interests)
     }
 
@@ -96,11 +90,11 @@ impl<T: Socket> event::Source for EventedCanSocket<T> {
         registry: &Registry,
         token: Token,
         interests: Interest,
-    ) -> io::Result<()> {
+    ) -> IoResult<()> {
         SourceFd(&self.0.as_raw_fd()).reregister(registry, token, interests)
     }
 
-    fn deregister(&mut self, registry: &Registry) -> io::Result<()> {
+    fn deregister(&mut self, registry: &Registry) -> IoResult<()> {
         SourceFd(&self.0.as_raw_fd()).deregister(registry)
     }
 }
@@ -111,21 +105,21 @@ pub struct AsyncCanSocket<T: Socket>(AsyncFd<EventedCanSocket<T>>);
 
 impl<T: Socket + From<OwnedFd>> AsyncCanSocket<T> {
     /// Open a named CAN device such as "can0, "vcan0", etc
-    pub fn open(ifname: &str) -> io::Result<Self> {
+    pub fn open(ifname: &str) -> IoResult<Self> {
         let sock = T::open(ifname)?;
         sock.set_nonblocking(true)?;
         Ok(Self(AsyncFd::new(EventedCanSocket(sock))?))
     }
 
     /// Open CAN device by kernel interface number
-    pub fn open_if(ifindex: u32) -> io::Result<Self> {
+    pub fn open_if(ifindex: u32) -> IoResult<Self> {
         let sock = T::open_iface(ifindex)?;
         sock.set_nonblocking(true)?;
         Ok(Self(AsyncFd::new(EventedCanSocket(sock))?))
     }
 
     /// Open a CAN socket by address
-    pub fn open_addr(addr: &CanAddr) -> io::Result<Self> {
+    pub fn open_addr(addr: &CanAddr) -> IoResult<Self> {
         let sock = T::open_addr(addr)?;
         sock.set_nonblocking(true)?;
         Ok(Self(AsyncFd::new(EventedCanSocket(sock))?))
@@ -238,7 +232,7 @@ pub struct CanFdWriteFuture {
 }
 
 impl Future for CanFdWriteFuture {
-    type Output = io::Result<()>;
+    type Output = IoResult<()>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let _ = ready!(self.socket.0.poll_write_ready(cx))?;
@@ -293,12 +287,12 @@ impl Sink<CanFdFrame> for CanFdSocket {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CanFrame, Frame, StandardId};
+    use crate::{CanFrame, Frame, IoErrorKind, StandardId};
     use embedded_can::Frame as EmbeddedFrame;
     use futures::{select, try_join};
     use futures_timer::Delay;
     use serial_test::serial;
-    use std::{io, time::Duration};
+    use std::time::Duration;
 
     const TIMEOUT: Duration = Duration::from_millis(100);
 
@@ -306,7 +300,7 @@ mod tests {
     async fn recv_frame(mut socket: CanSocket) -> Result<CanSocket> {
         select!(
             frame = socket.next().fuse() => if let Some(_frame) = frame { Ok(socket) } else { panic!("unexpected") },
-            _timeout = Delay::new(TIMEOUT).fuse() => Err(io::ErrorKind::TimedOut.into()),
+            _timeout = Delay::new(TIMEOUT).fuse() => Err(IoErrorKind::TimedOut.into()),
         )
     }
 
@@ -314,7 +308,7 @@ mod tests {
     async fn recv_frame_fd(mut socket: CanFdSocket) -> Result<CanFdSocket> {
         select!(
             frame = socket.next().fuse() => if let Some(_frame) = frame { Ok(socket) } else { panic!("unexpected") },
-            _timeout = Delay::new(TIMEOUT).fuse() => Err(io::ErrorKind::TimedOut.into()),
+            _timeout = Delay::new(TIMEOUT).fuse() => Err(IoErrorKind::TimedOut.into()),
         )
     }
 

@@ -68,7 +68,7 @@ impl<E: fmt::Debug> ShouldRetry for IoResult<E> {
     fn should_retry(&self) -> bool {
         match *self {
             Err(ref e) => e.should_retry(),
-            _ => false
+            _ => false,
         }
     }
 }
@@ -84,7 +84,6 @@ fn raw_open_socket(addr: &CanAddr) -> IoResult<socket2::Socket> {
     sock.bind(&SockAddr::from(*addr))?;
     Ok(sock)
 }
-
 
 /// `setsockopt` wrapper
 ///
@@ -228,7 +227,7 @@ pub trait Socket: AsRawFd {
         self.as_raw_socket().set_read_timeout(duration.into())
     }
 
-    /// Gets the write timout on the socket, if any.
+    /// Gets the write timeout on the socket, if any.
     fn write_timeout(&self) -> IoResult<Option<Duration>> {
         self.as_raw_socket().write_timeout()
     }
@@ -480,10 +479,7 @@ impl CanSocket {
 /// (file) descriptor.
 #[allow(missing_copy_implementations)]
 #[derive(Debug)]
-pub struct CanSocket {
-    /// The underlying socket
-    sock: socket2::Socket,
-}
+pub struct CanSocket(socket2::Socket);
 
 impl Socket for CanSocket {
     /// CanSocket reads/writes classic CAN 2.0 frames.
@@ -492,17 +488,17 @@ impl Socket for CanSocket {
     /// Opens the socket by interface index.
     fn open_addr(addr: &CanAddr) -> IoResult<Self> {
         let sock = raw_open_socket(addr)?;
-        Ok(Self { sock })
+        Ok(Self(sock))
     }
 
     /// Gets a shared reference to the underlying socket object
     fn as_raw_socket(&self) -> &socket2::Socket {
-        &self.sock
+        &self.0
     }
 
     /// Gets a mutable reference to the underlying socket object
     fn as_raw_socket_mut(&mut self) -> &mut socket2::Socket {
-        &mut self.sock
+        &mut self.0
     }
 
     /// Writes a normal CAN 2.0 frame to the socket.
@@ -526,27 +522,25 @@ impl SocketOptions for CanSocket {}
 // Has no effect: #[deprecated(since = "3.1", note = "Use AsFd::as_fd() instead.")]
 impl AsRawFd for CanSocket {
     fn as_raw_fd(&self) -> RawFd {
-        self.sock.as_raw_fd()
+        self.0.as_raw_fd()
     }
 }
 
 impl From<OwnedFd> for CanSocket {
     fn from(fd: OwnedFd) -> Self {
-        Self {
-            sock: socket2::Socket::from(fd),
-        }
+        Self(socket2::Socket::from(fd))
     }
 }
 
 impl IntoRawFd for CanSocket {
     fn into_raw_fd(self) -> RawFd {
-        self.sock.into_raw_fd()
+        self.0.into_raw_fd()
     }
 }
 
 impl AsFd for CanSocket {
     fn as_fd(&self) -> BorrowedFd<'_> {
-        self.sock.as_fd()
+        self.0.as_fd()
     }
 }
 
@@ -558,10 +552,7 @@ impl AsFd for CanSocket {
 /// or CAN Flexible Data (FD) frames with up to 64-bytes of data.
 #[allow(missing_copy_implementations)]
 #[derive(Debug)]
-pub struct CanFdSocket {
-    /// The underlying socket
-    sock: socket2::Socket,
-}
+pub struct CanFdSocket(socket2::Socket);
 
 impl CanFdSocket {
     // Enable or disable FD mode on a socket.
@@ -593,17 +584,17 @@ impl Socket for CanFdSocket {
     fn open_addr(addr: &CanAddr) -> IoResult<Self> {
         raw_open_socket(addr)
             .and_then(|sock| Self::set_fd_mode(sock, true))
-            .map(|sock| Self { sock })
+            .map(|sock| Self(sock))
     }
 
     /// Gets a shared reference to the underlying socket object
     fn as_raw_socket(&self) -> &socket2::Socket {
-        &self.sock
+        &self.0
     }
 
     /// Gets a mutable reference to the underlying socket object
     fn as_raw_socket_mut(&mut self) -> &mut socket2::Socket {
-        &mut self.sock
+        &mut self.0
     }
 
     /// Writes any type of CAN frame to the socket.
@@ -638,27 +629,25 @@ impl SocketOptions for CanFdSocket {}
 // Has no effect: #[deprecated(since = "3.1", note = "Use AsFd::as_fd() instead.")]
 impl AsRawFd for CanFdSocket {
     fn as_raw_fd(&self) -> RawFd {
-        self.sock.as_raw_fd()
+        self.0.as_raw_fd()
     }
 }
 
 impl From<OwnedFd> for CanFdSocket {
     fn from(fd: OwnedFd) -> CanFdSocket {
-        Self {
-            sock: socket2::Socket::from(fd),
-        }
+        Self(socket2::Socket::from(fd))
     }
 }
 
 impl IntoRawFd for CanFdSocket {
     fn into_raw_fd(self) -> RawFd {
-        self.sock.into_raw_fd()
+        self.0.into_raw_fd()
     }
 }
 
 impl AsFd for CanFdSocket {
     fn as_fd(&self) -> BorrowedFd<'_> {
-        self.sock.as_fd()
+        self.0.as_fd()
     }
 }
 

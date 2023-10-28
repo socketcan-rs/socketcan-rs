@@ -62,17 +62,22 @@ impl CanAddr {
         mem::size_of::<sockaddr_can>()
     }
 
+    /// Gets the underlying address as a byte slice
+    pub fn as_bytes(&self) -> &[u8] {
+        crate::as_bytes(&self.0)
+    }
+
     /// Converts the address into a `sockaddr_storage` type.
     /// This is a generic socket address container with enough space to hold
     /// any address type in the system.
     pub fn into_storage(self) -> (sockaddr_storage, socklen_t) {
-        let can_addr = crate::as_bytes(&self.0);
+        let can_addr = self.as_bytes();
         let len = can_addr.len();
 
         let mut storage: sockaddr_storage = unsafe { mem::zeroed() };
         let sock_addr = crate::as_bytes_mut(&mut storage);
 
-        sock_addr[0..len].copy_from_slice(can_addr);
+        sock_addr[..len].copy_from_slice(can_addr);
         (storage, len as socklen_t)
     }
 
