@@ -159,6 +159,11 @@ pub mod async_std {
     pub use crate::async_io::*;
 }
 
+#[cfg(feature = "enumerate")]
+pub mod enumerate;
+#[cfg(feature = "enumerate")]
+pub use enumerate::available_interfaces;
+
 // ===== helper functions =====
 
 /// Gets a byte slice for any sized variable.
