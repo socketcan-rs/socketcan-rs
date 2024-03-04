@@ -78,7 +78,8 @@ use std::{
 /// Low-level Netlink CAN struct bindings.
 mod rt;
 
-use rt::{can_ctrlmode, CanState};
+use rt::can_ctrlmode;
+pub use rt::CanState;
 
 /// A result for Netlink errors.
 type NlResult<T> = Result<T, NlError>;

@@ -111,12 +111,18 @@ pub struct can_clock {
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CanState {
-    ErrorActive,  // RX/TX error count < 96
-    ErrorWarning, // RX/TX error count < 128
-    ErrorPassive, // RX/TX error count < 256
-    BusOff,       // RX/TX error count >= 256
-    Stopped,      // Device is stopped
-    Sleeping,     // Device is sleeping
+    /// RX/TX error count < 96
+    ErrorActive,
+    /// RX/TX error count < 128
+    ErrorWarning,
+    /// RX/TX error count < 256
+    ErrorPassive,
+    /// RX/TX error count >= 256
+    BusOff,
+    /// Device is stopped
+    Stopped,
+    /// Device is sleeping
+    Sleeping,
 }
 
 impl TryFrom<u32> for CanState {
