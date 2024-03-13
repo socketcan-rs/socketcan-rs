@@ -249,7 +249,6 @@ impl From<canfd_frame> for CanRawFrame {
     }
 }
 
-
 /// Frame metadata
 #[derive(Clone, Copy, Debug)]
 pub struct CanFrameMetaData {

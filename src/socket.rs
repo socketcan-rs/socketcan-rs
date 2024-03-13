@@ -544,7 +544,7 @@ impl Socket for CanSocket {
                     loopback: header.flags().is_confirm(),
                 };
 
-                let fdframe = unsafe {assume_init(frame_slice)};
+                let fdframe = unsafe { assume_init(frame_slice) };
                 let mut frame = can_frame_default();
                 as_bytes_mut(&mut frame).copy_from_slice(&fdframe);
                 Ok((CanFrame::from(frame).into(), meta))
@@ -651,7 +651,7 @@ impl CanFdSocket {
 }
 
 unsafe fn assume_init(buf: &[MaybeUninit<u8>]) -> &[u8] {
-    unsafe {&*(buf as *const [MaybeUninit<u8>] as *const [u8])}
+    unsafe { &*(buf as *const [MaybeUninit<u8>] as *const [u8]) }
 }
 
 impl Socket for CanFdSocket {
@@ -718,7 +718,7 @@ impl Socket for CanFdSocket {
                     loopback: header.flags().is_confirm(),
                 };
 
-                let fdframe = unsafe {assume_init(&fdframe_slice[..CAN_MTU])};
+                let fdframe = unsafe { assume_init(&fdframe_slice[..CAN_MTU]) };
                 let mut frame = can_frame_default();
                 as_bytes_mut(&mut frame)[..CAN_MTU].copy_from_slice(&fdframe);
                 Ok((CanFrame::from(frame).into(), meta))
@@ -728,7 +728,7 @@ impl Socket for CanFdSocket {
                     loopback: header.flags().is_confirm(),
                 };
 
-                let fdframe = unsafe {assume_init(fdframe_slice)};
+                let fdframe = unsafe { assume_init(fdframe_slice) };
                 let mut frame = canfd_frame_default();
                 as_bytes_mut(&mut frame).copy_from_slice(&fdframe);
                 Ok((CanFdFrame::from(frame).into(), meta))
