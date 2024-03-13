@@ -151,6 +151,10 @@ pub fn set_socket_option_mult<T>(
     }
 }
 
+unsafe fn assume_init(buf: &[MaybeUninit<u8>]) -> &[u8] {
+    unsafe { &*(buf as *const [MaybeUninit<u8>] as *const [u8]) }
+}
+
 // ===== Common 'Socket' trait =====
 
 /// Common trait for SocketCAN sockets.
@@ -648,10 +652,6 @@ impl CanFdSocket {
             _ => Err(IoError::last_os_error()),
         }
     }
-}
-
-unsafe fn assume_init(buf: &[MaybeUninit<u8>]) -> &[u8] {
-    unsafe { &*(buf as *const [MaybeUninit<u8>] as *const [u8]) }
 }
 
 impl Socket for CanFdSocket {
