@@ -249,6 +249,14 @@ impl From<canfd_frame> for CanRawFrame {
     }
 }
 
+
+/// Frame metadata
+#[derive(Clone, Copy, Debug)]
+pub struct CanFrameMetaData {
+    /// Indicates the frame was sent out by the same socket
+    pub loopback: bool,
+}
+
 /// Any frame type.
 #[derive(Clone, Copy, Debug)]
 pub enum CanAnyFrame {
