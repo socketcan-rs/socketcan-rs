@@ -827,8 +827,8 @@ impl CanInterface {
     }
 
     /// Gets the CANbus termination for the interface
-    pub fn termination(&self) -> Result<Option<u32>, NlInfoError> {
-        self.can_param::<u32>(IflaCan::Termination)
+    pub fn termination(&self) -> Result<Option<u16>, NlInfoError> {
+        self.can_param::<u16>(IflaCan::Termination)
     }
 }
 
