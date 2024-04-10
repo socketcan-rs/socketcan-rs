@@ -181,6 +181,10 @@ impl<R: io::BufRead> Reader<R> {
         if let Some(&b'\n') = can_data.last() {
             can_data = &can_data[..can_data.len() - 1];
         };
+        // cut off \r
+        if let Some(&b'\r') = can_data.last() {
+            can_data = &can_data[..can_data.len() - 1];
+        };
 
         let mut flags = IdFlags::empty();
         flags.set(IdFlags::RTR, b"R" == can_data);
