@@ -826,9 +826,21 @@ impl CanInterface {
         self.can_param::<CanBitTimingConst>(IflaCan::DataBitTimingConst)
     }
 
+    /// Sets the CANbus termination for the interface
+    ///
+    /// Not all interfaces support setting a termination.
+    /// Termination is in ohms. Your interface most likely only supports
+    /// certain values. Common values are 0 and 120.
+    ///
+    /// PRIVILEGED: This requires root privilege.
+    ///
+    pub fn set_termination(&self, termination: u16) -> NlResult<()> {
+        self.set_can_param(IflaCan::Termination, termination)
+    }
+
     /// Gets the CANbus termination for the interface
-    pub fn termination(&self) -> Result<Option<u32>, NlInfoError> {
-        self.can_param::<u32>(IflaCan::Termination)
+    pub fn termination(&self) -> Result<Option<u16>, NlInfoError> {
+        self.can_param::<u16>(IflaCan::Termination)
     }
 }
 
