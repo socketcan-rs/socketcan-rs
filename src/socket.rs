@@ -21,7 +21,7 @@ use socket2::{MsgHdrMut, SockAddr};
 use std::{
     fmt,
     io::{Read, Write},
-    mem::{self, MaybeUninit},
+    mem,
     os::{
         raw::{c_int, c_void},
         unix::io::{AsFd, AsRawFd, BorrowedFd, IntoRawFd, OwnedFd, RawFd},
@@ -149,10 +149,6 @@ pub fn set_socket_option_mult<T>(
         0 => Ok(()),
         _ => Err(IoError::last_os_error()),
     }
-}
-
-unsafe fn assume_init(buf: &[MaybeUninit<u8>]) -> &[u8] {
-    unsafe { &*(buf as *const [MaybeUninit<u8>] as *const [u8]) }
 }
 
 // ===== Common 'Socket' trait =====
@@ -535,9 +531,9 @@ impl Socket for CanSocket {
 
     /// Reads a normal CAN 2.0 frame from the socket, including metadata.
     fn read_frame_with_meta(&self) -> IoResult<(CanFrame, CanFrameMetaData)> {
-        let frame_slice = &mut [mem::MaybeUninit::zeroed(); CAN_MTU];
+        let mut frame = Vec::with_capacity(CAN_MTU);
 
-        let buf = socket2::MaybeUninitSlice::new(frame_slice);
+        let buf = socket2::MaybeUninitSlice::new(frame.spare_capacity_mut());
         let buf_slice = &mut [buf];
 
         let mut header = MsgHdrMut::new().with_buffers(buf_slice);
@@ -548,10 +544,14 @@ impl Socket for CanSocket {
                     loopback: header.flags().is_confirm(),
                 };
 
-                let fdframe = unsafe { assume_init(frame_slice) };
-                let mut frame = can_frame_default();
-                as_bytes_mut(&mut frame).copy_from_slice(&fdframe);
-                Ok((CanFrame::from(frame).into(), meta))
+                // SAFETY: just received CAN_MTU bytes
+                unsafe {
+                    frame.set_len(CAN_MTU);
+                }
+
+                let mut ret = can_frame_default();
+                as_bytes_mut(&mut ret).copy_from_slice(&frame);
+                Ok((CanFrame::from(ret).into(), meta))
             }
             _ => Err(IoError::last_os_error()),
         }
@@ -702,9 +702,9 @@ impl Socket for CanFdSocket {
 
     /// Reads either type of CAN frame from the socket, including metadata.
     fn read_frame_with_meta(&self) -> IoResult<(CanAnyFrame, CanFrameMetaData)> {
-        let fdframe_slice = &mut [mem::MaybeUninit::zeroed(); CANFD_MTU];
+        let mut frame = Vec::with_capacity(CANFD_MTU);
 
-        let buf = socket2::MaybeUninitSlice::new(fdframe_slice);
+        let buf = socket2::MaybeUninitSlice::new(frame.spare_capacity_mut());
         let buf_slice = &mut [buf];
 
         let mut header = MsgHdrMut::new().with_buffers(buf_slice);
@@ -718,20 +718,28 @@ impl Socket for CanFdSocket {
                     loopback: header.flags().is_confirm(),
                 };
 
-                let fdframe = unsafe { assume_init(&fdframe_slice[..CAN_MTU]) };
-                let mut frame = can_frame_default();
-                as_bytes_mut(&mut frame)[..CAN_MTU].copy_from_slice(&fdframe);
-                Ok((CanFrame::from(frame).into(), meta))
+                // SAFETY: just received CAN_MTU bytes
+                unsafe {
+                    frame.set_len(CAN_MTU);
+                }
+
+                let mut ret = can_frame_default();
+                as_bytes_mut(&mut ret).copy_from_slice(&frame);
+                Ok((CanFrame::from(ret).into(), meta))
             }
             CANFD_MTU => {
                 let meta = CanFrameMetaData {
                     loopback: header.flags().is_confirm(),
                 };
 
-                let fdframe = unsafe { assume_init(fdframe_slice) };
-                let mut frame = canfd_frame_default();
-                as_bytes_mut(&mut frame).copy_from_slice(&fdframe);
-                Ok((CanFdFrame::from(frame).into(), meta))
+                // SAFETY: just received CANFD_MTU bytes
+                unsafe {
+                    frame.set_len(CANFD_MTU);
+                }
+
+                let mut ret = canfd_frame_default();
+                as_bytes_mut(&mut ret).copy_from_slice(&frame);
+                Ok((CanFdFrame::from(ret).into(), meta))
             }
             _ => Err(IoError::last_os_error()),
         }
