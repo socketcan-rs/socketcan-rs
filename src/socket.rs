@@ -645,7 +645,7 @@ impl CanFdSocket {
             // proper type.
             CAN_MTU => {
                 let mut frame = can_frame_default();
-                as_bytes_mut(&mut frame)[..CAN_MTU].copy_from_slice(as_bytes(&fdframe));
+                as_bytes_mut(&mut frame)[..CAN_MTU].copy_from_slice(&as_bytes(&fdframe)[..CAN_MTU]);
                 Ok(frame.into())
             }
             CANFD_MTU => Ok(fdframe.into()),
