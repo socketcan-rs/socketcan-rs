@@ -24,7 +24,7 @@ async fn main() -> Result<()> {
 
     while let Some(Ok(frame)) = sock_rx.next().await {
         if matches!(frame, CanFrame::Data(_)) {
-            sock_tx.write_frame(frame)?.await?;
+            sock_tx.write_frame(frame).await?;
         }
     }
 
