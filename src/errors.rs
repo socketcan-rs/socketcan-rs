@@ -91,7 +91,7 @@ pub type IoError = io::Error;
 pub type IoErrorKind = io::ErrorKind;
 
 /// An I/O specific result
-pub type IoResult<T> = std::io::Result<T>;
+pub type IoResult<T> = io::Result<T>;
 
 // ===== CanError ====
 

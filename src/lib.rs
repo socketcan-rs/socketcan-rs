@@ -233,7 +233,7 @@ impl embedded_can::nb::Can for CanSocket {
                     ErrorKind::WouldBlock => Err(nb::Error::WouldBlock),
                     // TODO: How to indicate buffer is full?
                     // ErrorKind::StorageFull => Ok(frame),
-                    _ => Err(crate::Error::from(err).into()),
+                    _ => Err(Error::from(err).into()),
                 }
             }
         }
