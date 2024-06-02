@@ -698,6 +698,22 @@ impl AsFd for CanFdSocket {
     }
 }
 
+impl Read for CanFdSocket {
+    fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
+        self.0.read(buf)
+    }
+}
+
+impl Write for CanFdSocket {
+    fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
+        self.0.write(buf)
+    }
+
+    fn flush(&mut self) -> IoResult<()> {
+        self.0.flush()
+    }
+}
+
 // ===== CanFilter =====
 
 /// The CAN filter defines which ID's can be accepted on a socket.
