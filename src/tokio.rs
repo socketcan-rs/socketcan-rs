@@ -31,6 +31,7 @@ use crate::{
 };
 use futures::{prelude::*, ready, task::Context};
 use std::{
+    io::{Read, Write},
     os::unix::{
         io::{AsRawFd, OwnedFd},
         prelude::RawFd,
@@ -40,6 +41,7 @@ use std::{
 };
 use tokio::io::unix::AsyncFd;
 use tokio::io::Interest;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 /// An asynchronous I/O wrapped CanSocket
 #[derive(Debug)]
@@ -133,6 +135,53 @@ impl Sink<CanFrame> for CanSocket {
     }
 }
 
+impl AsyncRead for CanSocket {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<IoResult<()>> {
+        loop {
+            let mut guard = ready!(self.0.poll_read_ready_mut(cx))?;
+
+            let unfilled = buf.initialize_unfilled();
+            match guard.try_io(|inner| inner.get_mut().read(unfilled)) {
+                Ok(Ok(len)) => {
+                    buf.advance(len);
+                    return Poll::Ready(Ok(()));
+                }
+                Ok(Err(err)) => return Poll::Ready(Err(err)),
+                Err(_would_block) => continue,
+            }
+        }
+    }
+}
+
+impl AsyncWrite for CanSocket {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<IoResult<usize>> {
+        loop {
+            let mut guard = ready!(self.0.poll_write_ready_mut(cx))?;
+
+            match guard.try_io(|inner| inner.get_mut().write(buf)) {
+                Ok(result) => return Poll::Ready(result),
+                Err(_would_block) => continue,
+            }
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<IoResult<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<IoResult<()>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
 /// An Asynchronous CAN FD Socket
 pub type CanFdSocket = AsyncCanSocket<crate::CanFdSocket>;
 
@@ -187,6 +236,53 @@ impl Sink<CanFdFrame> for CanFdSocket {
     fn start_send(self: Pin<&mut Self>, item: CanFdFrame) -> Result<()> {
         self.0.get_ref().write_frame_insist(&item)?;
         Ok(())
+    }
+}
+
+impl AsyncRead for CanFdSocket {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<IoResult<()>> {
+        loop {
+            let mut guard = ready!(self.0.poll_read_ready_mut(cx))?;
+
+            let unfilled = buf.initialize_unfilled();
+            match guard.try_io(|inner| inner.get_mut().read(unfilled)) {
+                Ok(Ok(len)) => {
+                    buf.advance(len);
+                    return Poll::Ready(Ok(()));
+                }
+                Ok(Err(err)) => return Poll::Ready(Err(err)),
+                Err(_would_block) => continue,
+            }
+        }
+    }
+}
+
+impl AsyncWrite for CanFdSocket {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<IoResult<usize>> {
+        loop {
+            let mut guard = ready!(self.0.poll_write_ready_mut(cx))?;
+
+            match guard.try_io(|inner| inner.get_mut().write(buf)) {
+                Ok(result) => return Poll::Ready(result),
+                Err(_would_block) => continue,
+            }
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<IoResult<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<IoResult<()>> {
+        Poll::Ready(Ok(()))
     }
 }
 
