@@ -265,7 +265,7 @@ pub mod tests {
             unsafe {
                 std::slice::from_raw_parts::<'_, u8>(
                     &timing as *const _ as *const u8,
-                    std::mem::size_of::<can_bittiming>(),
+                    mem::size_of::<can_bittiming>(),
                 )
             },
             as_bytes(&timing)

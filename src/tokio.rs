@@ -394,7 +394,7 @@ mod tests {
             Ok::<(), Error>(())
         };
 
-        let (x, frame_send_r) = futures::future::join(count_ids_less_than_3, send_frames).await;
+        let (x, frame_send_r) = future::join(count_ids_less_than_3, send_frames).await;
         frame_send_r?;
 
         assert_eq!(x, 2);
@@ -434,7 +434,7 @@ mod tests {
             Ok::<(), Error>(())
         };
 
-        let (x, frame_send_r) = futures::future::join(count_ids_less_than_3, send_frames).await;
+        let (x, frame_send_r) = future::join(count_ids_less_than_3, send_frames).await;
         frame_send_r?;
 
         assert_eq!(x, 2);
