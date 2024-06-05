@@ -130,7 +130,7 @@ pub trait AsPtr {
 
     /// The size of the inner type
     fn size(&self) -> usize {
-        std::mem::size_of::<Self::Inner>()
+        mem::size_of::<Self::Inner>()
     }
 
     /// Gets a byte slice to the inner type
