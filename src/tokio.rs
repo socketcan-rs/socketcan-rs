@@ -292,14 +292,26 @@ impl AsyncWrite for CanFdSocket {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CanFrame, Frame, IoErrorKind, StandardId};
+    use crate::{
+        frame::{can_frame_default, AsPtr},
+        CanFrame, Frame, IoErrorKind, StandardId,
+    };
     use embedded_can::Frame as EmbeddedFrame;
     use futures::{select, try_join};
     use futures_timer::Delay;
     use serial_test::serial;
     use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     const TIMEOUT: Duration = Duration::from_millis(100);
+
+    /// Receive a frame from the CanSocket
+    async fn recv_frame(socket: CanSocket) -> Result<CanSocket> {
+        select!(
+            frame = socket.read_frame().fuse() => if let Ok(_frame) = frame { Ok(socket) } else { panic!("unexpected") },
+            _timeout = Delay::new(TIMEOUT).fuse() => Err(IoErrorKind::TimedOut.into()),
+        )
+    }
 
     /// Receive a frame from the CanSocket using the `Stream` trait
     async fn recv_frame_with_stream(mut socket: CanSocket) -> Result<CanSocket> {
@@ -309,8 +321,31 @@ mod tests {
         )
     }
 
-    /// Receive a frame from the CanSocket
-    async fn recv_frame(socket: CanSocket) -> Result<CanSocket> {
+    /// Receive a frame from the CanSocket using the `tokio::io::AsyncRead` trait
+    async fn recv_frame_with_async_read(mut socket: CanSocket) -> Result<CanSocket> {
+        let mut frame = can_frame_default();
+        select!(
+            frame = socket.read_exact(crate::as_bytes_mut(&mut frame)).fuse() => if let Ok(_bytes_read) = frame { Ok(socket) } else { panic!("unexpected") },
+            _timeout = Delay::new(TIMEOUT).fuse() => Err(IoErrorKind::TimedOut.into()),
+        )
+    }
+
+    /// Write a test frame to the CanSocket
+    async fn write_frame(socket: &CanSocket) -> Result<()> {
+        let test_frame = CanFrame::new(StandardId::new(0x1).unwrap(), &[0]).unwrap();
+        socket.write_frame(test_frame).await?;
+        Ok(())
+    }
+
+    /// Write a test frame to the CanSocket using the `tokio::io::AsyncWrite` trait
+    async fn write_frame_with_async_write(socket: &mut CanSocket) -> Result<()> {
+        let test_frame = CanFrame::new(StandardId::new(0x1).unwrap(), &[0]).unwrap();
+        socket.write(test_frame.as_bytes()).await?;
+        Ok(())
+    }
+
+    /// Receive a frame from the CanFdSocket
+    async fn recv_frame_fd(socket: CanFdSocket) -> Result<CanFdSocket> {
         select!(
             frame = socket.read_frame().fuse() => if let Ok(_frame) = frame { Ok(socket) } else { panic!("unexpected") },
             _timeout = Delay::new(TIMEOUT).fuse() => Err(IoErrorKind::TimedOut.into()),
@@ -325,19 +360,13 @@ mod tests {
         )
     }
 
-    /// Receive a frame from the CanFdSocket
-    async fn recv_frame_fd(socket: CanFdSocket) -> Result<CanFdSocket> {
+    /// Receive a frame from the CanFdSocket using the `tokio::io::AsyncWrite` trait
+    async fn recv_frame_fd_with_async_read(mut socket: CanFdSocket) -> Result<CanFdSocket> {
+        let mut frame = can_frame_default();
         select!(
-            frame = socket.read_frame().fuse() => if let Ok(_frame) = frame { Ok(socket) } else { panic!("unexpected") },
+            frame = socket.read_exact(crate::as_bytes_mut(&mut frame)).fuse() => if let Ok(_bytes_read) = frame { Ok(socket) } else { panic!("unexpected") },
             _timeout = Delay::new(TIMEOUT).fuse() => Err(IoErrorKind::TimedOut.into()),
         )
-    }
-
-    /// Write a test frame to the CanSocket
-    async fn write_frame(socket: &CanSocket) -> Result<()> {
-        let test_frame = CanFrame::new(StandardId::new(0x1).unwrap(), &[0]).unwrap();
-        socket.write_frame(test_frame).await?;
-        Ok(())
     }
 
     /// Write a test frame to the CanSocket
@@ -345,6 +374,13 @@ mod tests {
         let test_frame =
             CanFdFrame::new(StandardId::new(0x1).unwrap(), &[0, 0, 0, 0, 0, 0, 0, 0, 0]).unwrap();
         socket.write_frame(test_frame).await?;
+        Ok(())
+    }
+
+    /// Write a test frame to the CanSocket using the `tokio::io::AsyncWrite` trait
+    async fn write_frame_fd_with_async_write(socket: &mut CanFdSocket) -> Result<()> {
+        let test_frame = CanFdFrame::new(StandardId::new(0x1).unwrap(), &[0]).unwrap();
+        socket.write(test_frame.as_bytes()).await?;
         Ok(())
     }
 
@@ -388,6 +424,24 @@ mod tests {
 
     #[serial]
     #[tokio::test]
+    async fn test_asyncread_and_asyncwrite() -> Result<()> {
+        let mut socket1 = CanSocket::open("vcan0").unwrap();
+        let socket2 = CanSocket::open("vcan0").unwrap();
+
+        let send_frames = write_frame_with_async_write(&mut socket1);
+
+        let recv_frames = async {
+            let _socket2 = recv_frame_with_async_read(socket2).await?;
+            Ok(())
+        };
+
+        try_join!(recv_frames, send_frames)?;
+
+        Ok(())
+    }
+
+    #[serial]
+    #[tokio::test]
     async fn test_receive_can_fd() -> Result<()> {
         let socket1 = CanFdSocket::open("vcan0").unwrap();
         let socket2 = CanFdSocket::open("vcan0").unwrap();
@@ -416,6 +470,24 @@ mod tests {
         let recv_frames = async {
             let socket2 = recv_frame_fd_with_stream(socket2).await?;
             let _socket2 = recv_frame_fd_with_stream(socket2).await;
+            Ok(())
+        };
+
+        try_join!(recv_frames, send_frames)?;
+
+        Ok(())
+    }
+
+    #[serial]
+    #[tokio::test]
+    async fn test_asyncread_and_asyncwrite_fd() -> Result<()> {
+        let mut socket1 = CanFdSocket::open("vcan0").unwrap();
+        let socket2 = CanFdSocket::open("vcan0").unwrap();
+
+        let send_frames = write_frame_fd_with_async_write(&mut socket1);
+
+        let recv_frames = async {
+            let _socket2 = recv_frame_fd_with_async_read(socket2).await?;
             Ok(())
         };
 
