@@ -14,7 +14,7 @@
 use libc::{sa_family_t, sockaddr, sockaddr_can, sockaddr_storage, socklen_t};
 use nix::net::if_::if_nametoindex;
 use socket2::SockAddr;
-use std::{fmt, io, mem, os::raw::c_int};
+use std::{fmt, io, mem, mem::size_of, os::raw::c_int};
 
 pub use libc::{AF_CAN, CAN_RAW, PF_CAN};
 
@@ -59,7 +59,7 @@ impl CanAddr {
 
     /// Gets the size of the address structure.
     pub fn len() -> usize {
-        mem::size_of::<sockaddr_can>()
+        size_of::<sockaddr_can>()
     }
 
     /// Gets the underlying address as a byte slice

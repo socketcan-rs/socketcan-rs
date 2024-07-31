@@ -37,6 +37,7 @@ use itertools::Itertools;
 use libc::{can_frame, canfd_frame, canid_t};
 use std::{
     ffi::c_void,
+    mem::size_of,
     {convert::TryFrom, fmt, matches, mem},
 };
 
@@ -130,7 +131,7 @@ pub trait AsPtr {
 
     /// The size of the inner type
     fn size(&self) -> usize {
-        mem::size_of::<Self::Inner>()
+        size_of::<Self::Inner>()
     }
 
     /// Gets a byte slice to the inner type
