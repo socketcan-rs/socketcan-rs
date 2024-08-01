@@ -103,7 +103,7 @@
     unsafe_op_in_unsafe_fn
 )]
 
-use std::io::ErrorKind;
+use std::{io::ErrorKind, mem::size_of};
 
 // Re-export the embedded_can crate so that applications can rely on
 // finding the same version we use.
@@ -171,13 +171,13 @@ pub use enumerate::available_interfaces;
 /// Note that this should normally be unsafe, but since we're only
 /// using it internally for types sent to the kernel, it's OK.
 pub(crate) fn as_bytes<T: Sized>(val: &T) -> &[u8] {
-    let sz = std::mem::size_of::<T>();
+    let sz = size_of::<T>();
     unsafe { std::slice::from_raw_parts::<'_, u8>(val as *const _ as *const u8, sz) }
 }
 
 /// Gets a mutable byte slice for any sized variable.
 pub(crate) fn as_bytes_mut<T: Sized>(val: &mut T) -> &mut [u8] {
-    let sz = std::mem::size_of::<T>();
+    let sz = size_of::<T>();
     unsafe { std::slice::from_raw_parts_mut(val as *mut _ as *mut u8, sz) }
 }
 

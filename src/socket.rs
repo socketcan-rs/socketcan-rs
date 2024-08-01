@@ -22,6 +22,7 @@ use std::{
     fmt,
     io::{Read, Write},
     mem,
+    mem::size_of,
     os::{
         raw::{c_int, c_void},
         unix::io::{AsFd, AsRawFd, BorrowedFd, IntoRawFd, OwnedFd, RawFd},
@@ -112,7 +113,7 @@ pub fn set_socket_option<T>(fd: c_int, level: c_int, name: c_int, val: &T) -> Io
             level,
             name,
             val as *const _ as *const c_void,
-            mem::size_of::<T>() as socklen_t,
+            size_of::<T>() as socklen_t,
         )
     };
 
@@ -140,7 +141,7 @@ pub fn set_socket_option_mult<T>(
                 level,
                 name,
                 values.as_ptr().cast(),
-                mem::size_of_val(values) as socklen_t,
+                size_of_val(values) as socklen_t,
             )
         }
     };
@@ -313,7 +314,7 @@ pub trait SocketOptions: AsRawFd {
                 level,
                 name,
                 val as *const _ as *const c_void,
-                mem::size_of::<T>() as socklen_t,
+                size_of::<T>() as socklen_t,
             )
         };
 
@@ -335,7 +336,7 @@ pub trait SocketOptions: AsRawFd {
                     level,
                     name,
                     values.as_ptr().cast(),
-                    mem::size_of_val(values) as socklen_t,
+                    size_of_val(values) as socklen_t,
                 )
             }
         };
@@ -591,7 +592,7 @@ impl CanFdSocket {
                 SOL_CAN_RAW,
                 CAN_RAW_FD_FRAMES,
                 &enable as *const _ as *const c_void,
-                mem::size_of::<c_int>() as u32,
+                size_of::<c_int>() as u32,
             )
         };
 

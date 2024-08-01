@@ -28,6 +28,7 @@ use neli::{
 use std::{
     io::{self, Cursor, Read, Write},
     mem,
+    mem::size_of,
 };
 
 pub const EXT_FILTER_VF: c_uint = 1 << 0;
@@ -94,7 +95,7 @@ impl<'a> FromBytes<'a> for can_bittiming_const {
 
 impl Size for can_bittiming_const {
     fn unpadded_size(&self) -> usize {
-        mem::size_of::<can_bittiming_const>()
+        size_of::<can_bittiming_const>()
     }
 }
 
