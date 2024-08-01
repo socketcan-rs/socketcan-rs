@@ -137,7 +137,7 @@ mod tests {
     fn test_addr() {
         let _addr = CanAddr::new(IDX);
 
-        assert_eq!(mem::size_of::<sockaddr_can>(), CanAddr::len());
+        assert_eq!(size_of::<sockaddr_can>(), CanAddr::len());
     }
 
     #[test]

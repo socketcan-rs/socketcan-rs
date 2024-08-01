@@ -32,6 +32,7 @@ vcan_tests = ["netlink"]
 utils = ["clap", "anyhow"]
 tokio = ["dep:tokio", "mio", "futures"]
 async-std = ["dep:async-std", "dep:async-io"]
+async-io = ["dep:async-io"]
 enumerate = ["dep:libudev"]
 
 [dependencies]
