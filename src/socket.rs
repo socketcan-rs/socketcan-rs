@@ -21,8 +21,7 @@ use socket2::SockAddr;
 use std::{
     fmt,
     io::{Read, Write},
-    mem,
-    mem::size_of,
+    mem::{size_of, size_of_val},
     os::{
         raw::{c_int, c_void},
         unix::io::{AsFd, AsRawFd, BorrowedFd, IntoRawFd, OwnedFd, RawFd},
