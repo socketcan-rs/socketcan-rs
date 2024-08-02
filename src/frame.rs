@@ -15,19 +15,19 @@
 //! CAN frames as low-level structs that are binary compatible with the C
 //! data types sent to and from the kernel:
 //! - [can_frame](https://docs.rs/libc/latest/libc/struct.can_frame.html)
-//! The Classic CAN 2.0 frame with up to 8 bytes of data.
+//!   The Classic CAN 2.0 frame with up to 8 bytes of data.
 //! - [canfd_frame](https://docs.rs/libc/latest/libc/struct.canfd_frame.html)
-//! The CAN Flexible Data Rate frame with up to 64 bytes of data.
+//!   The CAN Flexible Data Rate frame with up to 64 bytes of data.
 //!
 //! The classic frame represents three possibilities:
-//! - `CanDataFrame` - A standard CAN frame that can contain up to 8 bytes of
-//! data.
+//! - `CanDataFrame` - A standard CAN frame that can contain up to 8 bytes
+//!   of data.
 //! - `CanRemoteFrame` - A CAN Remote frame which is meant to request a
-//! transmission by another node on the bus. It contain no data.
+//!   transmission by another node on the bus. It contain no data.
 //! - `CanErrorFrame` - This is an incoming (only) frame that contains
-//! information about a problem on the bus or in the driver. Error frames
-//! can not be sent to the bus, but can be converted to standard Rust
-//! [Error](https://doc.rust-lang.org/std/error/trait.Error.html) types.
+//!   information about a problem on the bus or in the driver. Error frames
+//!   can not be sent to the bus, but can be converted to standard Rust
+//!   [Error](https://doc.rust-lang.org/std/error/trait.Error.html) types.
 //!
 
 use crate::{CanError, ConstructionError};
@@ -891,7 +891,7 @@ impl CanErrorFrame {
     /// - The error flag is forced on
     /// - The other, non-error, flags are forced off
     /// - The frame data is always padded with zero's to 8 bytes,
-    /// regardless of the length of the `data` parameter provided.
+    ///   regardless of the length of the `data` parameter provided.
     pub fn new_error(can_id: canid_t, data: &[u8]) -> Result<Self, ConstructionError> {
         match data.len() {
             n if n <= CAN_MAX_DLEN => {
