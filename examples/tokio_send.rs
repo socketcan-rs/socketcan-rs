@@ -29,7 +29,7 @@ async fn main() -> Result<()> {
         let frame = CanFrame::new(id, &[0]).unwrap();
 
         println!("Writing on vcan0");
-        socket_tx.write_frame(frame)?.await?;
+        socket_tx.write_frame(frame).await?;
 
         println!("Waiting 3 seconds");
         Delay::new(Duration::from_secs(3)).await?;

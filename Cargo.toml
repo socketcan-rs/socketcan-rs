@@ -67,7 +67,7 @@ futures-timer = "0.3"
 futures-util = "0.3"
 serial_test = { version = "2.0", features = ["async"]}
 async-std = { version = "1.12", features = ["attributes"]}
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "io-util"] }
 futures = "0.3"
 
 
