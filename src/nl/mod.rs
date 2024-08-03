@@ -429,7 +429,7 @@ impl CanInterface {
     /// has specific, non-default, generic parameters.
     fn open_route_socket<T, P>() -> Result<NlSocketHandle, NlError<T, P>> {
         // retrieve PID
-        let pid = unistd::getpid().as_raw() as u32;
+        let pid = unistd::Pid::this().as_raw() as u32;
 
         // open and bind socket
         // groups is set to None(0), because we want no notifications
@@ -641,7 +641,7 @@ impl CanInterface {
     /// Set a CAN-specific set of parameters.
     ///
     /// This sends a netlink message down to the kernel to set multiple
-    /// attributes in the link info, such as bitrate, control modes, etc. 
+    /// attributes in the link info, such as bitrate, control modes, etc.
     ///
     /// If you have many attributes to set this is preferred to calling
     /// [set_can_params][CanInterface::set_can_param] multiple times, since this only sends a

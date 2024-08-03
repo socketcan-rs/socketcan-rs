@@ -248,10 +248,16 @@ pub trait Socket: AsRawFd {
 
     /// Blocking read a single can frame with timeout.
     fn read_frame_timeout(&self, timeout: Duration) -> IoResult<Self::FrameType> {
-        use nix::poll::{poll, PollFd, PollFlags};
-        let pollfd = PollFd::new(self.as_raw_fd(), PollFlags::POLLIN);
+        use nix::poll::{poll, PollFd, PollFlags, PollTimeout};
+        let pollfd = PollFd::new(
+            unsafe { BorrowedFd::borrow_raw(self.as_raw_fd()) },
+            PollFlags::POLLIN,
+        );
 
-        match poll(&mut [pollfd], timeout.as_millis() as c_int)? {
+        match poll(
+            &mut [pollfd],
+            timeout.try_into().unwrap_or(PollTimeout::MAX),
+        )? {
             0 => Err(IoErrorKind::TimedOut.into()),
             _ => self.read_frame(),
         }
