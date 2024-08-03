@@ -154,23 +154,23 @@ pub struct InterfaceCanParams {
     pub bit_timing: Option<CanBitTiming>,
     /// The bit timing const parameters
     pub bit_timing_const: Option<CanBitTimingConst>,
-    /// The CAN clock parameters
+    /// The CAN clock parameters (read only)
     pub clock: Option<CanClock>,
-    /// The CAN bus state
+    /// The CAN bus state (read-only)
     pub state: Option<CanState>,
     /// The automatic restart time (in millisec)
     /// Zero means auto-restart is disabled.
-    pub restart_ms: u32,
-    /// The bit error counter
+    pub restart_ms: Option<u32>,
+    /// The bit error counter (read-only)
     pub berr_counter: Option<CanBerrCounter>,
     /// The control mode bits
-    pub ctrl_mode: CanCtrlModes,
+    pub ctrl_mode: Option<CanCtrlModes>,
     /// The FD data bit timing
     pub data_bit_timing: Option<CanBitTiming>,
     /// The FD data bit timing const parameters
     pub data_bit_timing_const: Option<CanBitTimingConst>,
     /// The CANbus termination resistance
-    pub termination: u16,
+    pub termination: Option<u16>,
 }
 
 impl TryFrom<&Rtattr<Ifla, Buffer>> for InterfaceCanParams {
@@ -199,10 +199,10 @@ impl TryFrom<&Rtattr<Ifla, Buffer>> for InterfaceCanParams {
                         }
                         IflaCan::CtrlMode => {
                             let ctrl_mode = attr.get_payload_as::<can_ctrlmode>()?;
-                            params.ctrl_mode = CanCtrlModes(ctrl_mode);
+                            params.ctrl_mode = Some(CanCtrlModes(ctrl_mode));
                         }
                         IflaCan::RestartMs => {
-                            params.restart_ms = attr.get_payload_as::<u32>()?;
+                            params.restart_ms = Some(attr.get_payload_as::<u32>()?);
                         }
                         IflaCan::BerrCounter => {
                             params.berr_counter = Some(attr.get_payload_as::<CanBerrCounter>()?);
@@ -215,7 +215,7 @@ impl TryFrom<&Rtattr<Ifla, Buffer>> for InterfaceCanParams {
                                 Some(attr.get_payload_as::<CanBitTimingConst>()?);
                         }
                         IflaCan::Termination => {
-                            params.termination = attr.get_payload_as::<u16>()?;
+                            params.termination = Some(attr.get_payload_as::<u16>()?);
                         }
                         _ => (),
                     }
