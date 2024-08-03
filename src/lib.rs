@@ -137,7 +137,7 @@ pub use socket::{CanFdSocket, CanFilter, CanSocket, ShouldRetry, Socket, SocketO
 pub mod nl;
 
 #[cfg(feature = "netlink")]
-pub use nl::{CanCtrlMode, CanInterface};
+pub use nl::{CanCtrlMode, CanInterface, SetCanParams};
 
 /// Optional tokio support
 #[cfg(feature = "tokio")]
