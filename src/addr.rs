@@ -11,6 +11,8 @@
 
 //! SocketCAN address type.
 
+use crate::frame::id_to_canid_t;
+use embedded_can::Id;
 use libc::{sa_family_t, sockaddr, sockaddr_can, sockaddr_storage, socklen_t};
 use nix::net::if_::if_nametoindex;
 use socket2::SockAddr;
@@ -41,10 +43,54 @@ impl CanAddr {
         addr
     }
 
+    /// Creates a new CAN J1939 socket address for the specified interface
+    /// by index.
+    pub fn new_j1939(ifindex: u32, name: u64, pgn: u32, jaddr: u8) -> Self {
+        let mut addr = Self::new(ifindex);
+        addr.0.can_addr.j1939.name = name;
+        addr.0.can_addr.j1939.pgn = pgn;
+        addr.0.can_addr.j1939.addr = jaddr;
+        addr
+    }
+
+    /// Creates a new CAN ISO-TP socket address for the specified interface
+    /// by index.
+    pub fn new_isotp<R, T>(ifindex: u32, rx_id: R, tx_id: T) -> Self
+    where
+        R: Into<Id>,
+        T: Into<Id>,
+    {
+        let mut addr = Self::new(ifindex);
+        addr.0.can_addr.tp.rx_id = id_to_canid_t(rx_id);
+        addr.0.can_addr.tp.tx_id = id_to_canid_t(tx_id);
+        addr
+    }
+
     /// Try to create an address from an interface name.
     pub fn from_iface(ifname: &str) -> io::Result<Self> {
         let ifindex = if_nametoindex(ifname)?;
         Ok(Self::new(ifindex))
+    }
+
+    /// Try to create a J1939 address from an interface name.
+    pub fn from_iface_j1939(ifname: &str, name: u64, pgn: u32, jaddr: u8) -> io::Result<Self> {
+        let mut addr = Self::from_iface(ifname)?;
+        addr.0.can_addr.j1939.name = name;
+        addr.0.can_addr.j1939.pgn = pgn;
+        addr.0.can_addr.j1939.addr = jaddr;
+        Ok(addr)
+    }
+
+    /// Try to create a ISO-TP address from an interface name.
+    pub fn from_iface_isotp<R, T>(ifname: &str, rx_id: R, tx_id: T) -> io::Result<Self>
+    where
+        R: Into<Id>,
+        T: Into<Id>,
+    {
+        let mut addr = Self::from_iface(ifname)?;
+        addr.0.can_addr.tp.rx_id = id_to_canid_t(rx_id);
+        addr.0.can_addr.tp.tx_id = id_to_canid_t(tx_id);
+        Ok(addr)
     }
 
     /// Gets the address of the structure as a `sockaddr_can` pointer.
@@ -68,8 +114,8 @@ impl CanAddr {
     }
 
     /// Converts the address into a `sockaddr_storage` type.
-    /// This is a generic socket address container with enough space to hold
-    /// any address type in the system.
+    /// The storage type is a generic socket address container with enough
+    /// space to hold any address in the system (not just CAN addresses).
     pub fn into_storage(self) -> (sockaddr_storage, socklen_t) {
         let can_addr = self.as_bytes();
         let len = can_addr.len();
