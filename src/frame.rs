@@ -1186,8 +1186,20 @@ impl EmbeddedFrame for CanFdFrame {
     }
 
     /// Data length code
+    /// 
+    /// Returns 0 if the data length is invalid.
     fn dlc(&self) -> usize {
-        self.0.len as usize
+        match self.0.len {
+            0..=8 => self.0.len as usize,
+            12 => 0x09,
+            16 => 0x0A,
+            20 => 0x0B,
+            24 => 0x0C,
+            32 => 0x0D,
+            48 => 0x0E,
+            64 => 0x0F,
+            _ => 0x00, // invalid data length
+        }
     }
 
     /// A slice into the actual data.
