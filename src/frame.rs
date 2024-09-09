@@ -1297,6 +1297,9 @@ mod tests {
     const DATA: &[u8] = &[0, 1, 2, 3];
     const DATA_LEN: usize = DATA.len();
 
+    const EXT_DATA: &[u8] = &[0xAB; 32];
+    const EXT_DATA_DLC: usize = 0x0D;
+
     const EMPTY_DATA: &[u8] = &[];
     const ZERO_DATA: &[u8] = &[0u8; DATA_LEN];
 
@@ -1538,6 +1541,10 @@ mod tests {
         assert_eq!(EXT_LOW_ID, frame.id());
         assert!(!frame.is_standard());
         assert!(frame.is_extended());
+
+        let frame = CanFdFrame::new(STD_ID, EXT_DATA).unwrap();
+        assert_eq!(frame.dlc(), EXT_DATA_DLC);
+        assert_eq!(frame.data(), EXT_DATA);
     }
 
     #[test]
