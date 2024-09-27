@@ -88,6 +88,10 @@ name = "tokio_print_frames"
 required-features = ["tokio"]
 
 [[example]]
+name = "tokio_print_frames_timestamp"
+required-features = ["tokio"]
+
+[[example]]
 name = "tokio_average"
 required-features = ["tokio"]
 

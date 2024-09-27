@@ -131,7 +131,7 @@ pub use frame::{
 pub mod dump;
 
 pub mod socket;
-pub use socket::{CanFdSocket, CanFilter, CanSocket, ShouldRetry, Socket, SocketOptions};
+pub use socket::{CanFdSocket, CanFilter, CanSocket, CanSocketTimestamp, ShouldRetry, Socket, SocketOptions};
 
 #[cfg(feature = "netlink")]
 pub mod nl;

@@ -606,6 +606,7 @@ impl CanSocketTimestamp {
     /// This is the same like `open_addr` but allows specifing a `mode`.
     pub fn open_with_timestamping_mode(addr: &CanAddr, mode: TimestampingMode) -> IoResult<Self> {
         let sock = raw_open_socket(addr)?;
+        sock.set_nonblocking(true)?;
         nix::sys::socket::setsockopt(sock.as_raw_fd(), sockopt::Timestamping, &mode.into())?;
         Ok(Self(sock))
     }
