@@ -1075,6 +1075,10 @@ impl AsRef<can_frame> for CanErrorFrame {
 ///
 /// This is highly compatible with the `canfd_frame` from libc.
 /// ([ref](https://docs.rs/libc/latest/libc/struct.canfd_frame.html))
+///
+/// Payload data that is greater than 8 bytes and whose data length does
+/// not match a valid CANFD data length is padded with 0 bytes to the
+/// next higher valid CANFD data length.
 #[derive(Clone, Copy)]
 pub struct CanFdFrame(canfd_frame);
 
