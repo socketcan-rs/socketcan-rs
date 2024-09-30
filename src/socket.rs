@@ -910,6 +910,7 @@ impl CanFdSocketTimestamp {
         let sock = raw_open_socket(addr)
             .and_then(|sock| set_fd_mode(sock, true))
             .map(Self)?;
+        sock.set_nonblocking(true)?;
         nix::sys::socket::setsockopt(sock.as_raw_fd(), sockopt::Timestamping, &mode.into())?;
         Ok(sock)
     }
