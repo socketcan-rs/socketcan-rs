@@ -122,20 +122,15 @@ impl CanAddr {
         mem::size_of::<sockaddr_can>()
     }
 
-    /// Converts the address into a `sockaddr_storage` type.
+    /// Converts the CAN address into a `sockaddr_storage` type.
     /// This is a generic socket address container with enough space to hold
     /// any address type in the system.
     pub fn into_storage(self) -> (sockaddr_storage, socklen_t) {
-        let len = Self::len();
         let mut storage: sockaddr_storage = unsafe { mem::zeroed() };
         unsafe {
-            ptr::copy_nonoverlapping(
-                &self.0 as *const _ as *const sockaddr_storage,
-                &mut storage,
-                len,
-            );
+            ptr::copy_nonoverlapping(&self.0, &mut storage as *mut _ as *mut sockaddr_can, 1);
         }
-        (storage, len as socklen_t)
+        (storage, Self::len() as socklen_t)
     }
 }
 
@@ -700,7 +695,7 @@ impl Socket for CanFdSocket {
                     ptr::copy_nonoverlapping(
                         &fdframe as *const _ as *const can_frame,
                         &mut frame,
-                        CAN_MTU,
+                        1,
                     );
                 }
                 Ok(CanFrame::from(frame).into())

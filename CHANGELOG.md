@@ -2,6 +2,11 @@
 
 The change log for the Rust [socketcan](https://crates.io/crates/socketcan) library.
 
+## [Version 3.3.1](https://github.com/socketcan-rs/socketcan-rs/compare/v3.3.0..v3.3.1)  (2023-10-27)
+
+- [#78](https://github.com/socketcan-rs/socketcan-rs/issues/78) Memory error receiving CAN FD frames.
+
+
 ## [Version 3.3.0](https://github.com/socketcan-rs/socketcan-rs/compare/v3.2.0..v3.3.0)  (2023-10-27)
 
 - [#53](https://github.com/socketcan-rs/socketcan-rs/pull/53) Added CanFD support for tokio
