@@ -27,7 +27,8 @@
 //! }
 //! ```
 use crate::{
-    CanAddr, CanAnyFrame, CanFdFrame, CanFrame, Error, IoResult, Result, Socket, SocketOptions,
+    socket::TimestampingMode, CanAddr, CanAnyFrame, CanFdFrame, CanFrame, Error, IoResult, Result,
+    Socket, SocketOptions,
 };
 use futures::{prelude::*, ready, task::Context};
 use std::{
@@ -38,6 +39,7 @@ use std::{
     },
     pin::Pin,
     task::Poll,
+    time::SystemTime,
 };
 use tokio::io::unix::AsyncFd;
 use tokio::io::Interest;
@@ -182,6 +184,118 @@ impl AsyncWrite for CanSocket {
     }
 }
 
+/// Asynchronous Can Socket with timestamps
+pub type CanSocketTimestamp = AsyncCanSocket<crate::CanSocketTimestamp>;
+
+impl CanSocketTimestamp {
+    /// Opens a socket with the specified [CanAddr] and [TimestampingMode]
+    ///
+    /// This is the same like `open_addr` but allows specifing a `mode`.
+    pub fn open_with_timestamping_mode(addr: &CanAddr, mode: TimestampingMode) -> IoResult<Self> {
+        let sock = crate::CanSocketTimestamp::open_with_timestamping_mode(addr, mode)?;
+        Ok(Self(AsyncFd::new(sock)?))
+    }
+
+    /// Write a CAN frame to the socket asynchronously
+    pub async fn write_frame(&self, frame: CanFrame) -> IoResult<()> {
+        self.0
+            .async_io(Interest::WRITABLE, |inner| inner.write_frame(&frame))
+            .await
+    }
+
+    /// Read a CAN frame from the socket asynchronously
+    pub async fn read_frame(&self) -> IoResult<(CanFrame, Option<SystemTime>)> {
+        self.0
+            .async_io(Interest::READABLE, |inner| inner.read_frame())
+            .await
+    }
+}
+
+impl Stream for CanSocketTimestamp {
+    type Item = Result<(CanFrame, Option<SystemTime>)>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
+        loop {
+            let mut ready_guard = ready!(self.0.poll_read_ready(cx))?;
+            match ready_guard.try_io(|inner| inner.get_ref().read_frame()) {
+                Ok(result) => return Poll::Ready(Some(result.map_err(|e| e.into()))),
+                Err(_would_block) => continue,
+            }
+        }
+    }
+}
+
+impl Sink<CanFrame> for CanSocketTimestamp {
+    type Error = Error;
+
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
+        let _ = ready!(self.0.poll_write_ready(cx))?;
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
+        let mut ready_guard = ready!(self.0.poll_write_ready(cx))?;
+        ready_guard.clear_ready();
+        Poll::Ready(Ok(()))
+    }
+
+    fn start_send(self: Pin<&mut Self>, item: CanFrame) -> Result<()> {
+        self.0.get_ref().write_frame_insist(&item)?;
+        Ok(())
+    }
+}
+
+impl AsyncRead for CanSocketTimestamp {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<IoResult<()>> {
+        loop {
+            let mut guard = ready!(self.0.poll_read_ready_mut(cx))?;
+
+            let unfilled = buf.initialize_unfilled();
+            match guard.try_io(|inner| inner.get_mut().read(unfilled)) {
+                Ok(Ok(len)) => {
+                    buf.advance(len);
+                    return Poll::Ready(Ok(()));
+                }
+                Ok(Err(err)) => return Poll::Ready(Err(err)),
+                Err(_would_block) => continue,
+            }
+        }
+    }
+}
+
+impl AsyncWrite for CanSocketTimestamp {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<IoResult<usize>> {
+        loop {
+            let mut guard = ready!(self.0.poll_write_ready_mut(cx))?;
+
+            match guard.try_io(|inner| inner.get_mut().write(buf)) {
+                Ok(result) => return Poll::Ready(result),
+                Err(_would_block) => continue,
+            }
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<IoResult<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<IoResult<()>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
 /// An Asynchronous CAN FD Socket
 pub type CanFdSocket = AsyncCanSocket<crate::CanFdSocket>;
 
@@ -262,6 +376,118 @@ impl AsyncRead for CanFdSocket {
 }
 
 impl AsyncWrite for CanFdSocket {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<IoResult<usize>> {
+        loop {
+            let mut guard = ready!(self.0.poll_write_ready_mut(cx))?;
+
+            match guard.try_io(|inner| inner.get_mut().write(buf)) {
+                Ok(result) => return Poll::Ready(result),
+                Err(_would_block) => continue,
+            }
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<IoResult<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<IoResult<()>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
+/// An Asynchronous CAN FD Socket with timestamps
+pub type CanFdSocketTimestamp = AsyncCanSocket<crate::CanFdSocketTimestamp>;
+
+impl CanFdSocketTimestamp {
+    /// Opens a socket with the specified [CanAddr] and [TimestampingMode]
+    ///
+    /// This is the same like `open_addr` but allows specifing a `mode`.
+    pub fn open_with_timestamping_mode(addr: &CanAddr, mode: TimestampingMode) -> IoResult<Self> {
+        let sock = crate::CanFdSocketTimestamp::open_with_timestamping_mode(addr, mode)?;
+        Ok(Self(AsyncFd::new(sock)?))
+    }
+
+    /// Write a CAN FD frame to the socket asynchronously
+    pub async fn write_frame(&self, frame: CanFdFrame) -> IoResult<()> {
+        self.0
+            .async_io(Interest::WRITABLE, |inner| inner.write_frame(&frame))
+            .await
+    }
+
+    /// Reads a CAN FD frame from the socket asynchronously
+    pub async fn read_frame(&self) -> IoResult<(CanAnyFrame, Option<SystemTime>)> {
+        self.0
+            .async_io(Interest::READABLE, |inner| inner.read_frame())
+            .await
+    }
+}
+
+impl Stream for CanFdSocketTimestamp {
+    type Item = Result<(CanAnyFrame, Option<SystemTime>)>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
+        loop {
+            let mut ready_guard = ready!(self.0.poll_read_ready(cx))?;
+            match ready_guard.try_io(|inner| inner.get_ref().read_frame()) {
+                Ok(result) => return Poll::Ready(Some(result.map_err(|e| e.into()))),
+                Err(_would_block) => continue,
+            }
+        }
+    }
+}
+
+impl Sink<CanFdFrame> for CanFdSocketTimestamp {
+    type Error = Error;
+
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
+        let _ = ready!(self.0.poll_write_ready(cx))?;
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
+        let mut ready_guard = ready!(self.0.poll_write_ready(cx))?;
+        ready_guard.clear_ready();
+        Poll::Ready(Ok(()))
+    }
+
+    fn start_send(self: Pin<&mut Self>, item: CanFdFrame) -> Result<()> {
+        self.0.get_ref().write_frame_insist(&item)?;
+        Ok(())
+    }
+}
+
+impl AsyncRead for CanFdSocketTimestamp {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<IoResult<()>> {
+        loop {
+            let mut guard = ready!(self.0.poll_read_ready_mut(cx))?;
+
+            let unfilled = buf.initialize_unfilled();
+            match guard.try_io(|inner| inner.get_mut().read(unfilled)) {
+                Ok(Ok(len)) => {
+                    buf.advance(len);
+                    return Poll::Ready(Ok(()));
+                }
+                Ok(Err(err)) => return Poll::Ready(Err(err)),
+                Err(_would_block) => continue,
+            }
+        }
+    }
+}
+
+impl AsyncWrite for CanFdSocketTimestamp {
     fn poll_write(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,

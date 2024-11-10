@@ -2,7 +2,7 @@
 name = "socketcan"
 version = "3.4.0-pre.0"
 edition = "2021"
-rust-version = "1.70"
+rust-version = "1.76"
 authors = [
     "Marc Brinkmann <git@marcbrinkmann.de>",
     "Frank Pagliughi <fpagliughi@mindspring.com>"
@@ -85,6 +85,10 @@ required-features = ["tokio"]
 
 [[example]]
 name = "tokio_print_frames"
+required-features = ["tokio"]
+
+[[example]]
+name = "tokio_print_frames_timestamp"
 required-features = ["tokio"]
 
 [[example]]

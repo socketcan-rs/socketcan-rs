@@ -47,7 +47,7 @@ A number of items still did not make it into a release. These will be added in v
 
 ## Minimum Supported Rust Version (MSRV)
 
-The current version of the crate targets Rust Edition 2021 with an MSRV of Rust v1.70.0.
+The current version of the crate targets Rust Edition 2021 with an MSRV of Rust v1.76.0.
 
 Note that, the core library can likely compile with an earlier version if dependencies are carefully selected, but tests are being done with the latest stable compiler and the stated MSRV.
 
