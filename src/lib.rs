@@ -121,6 +121,9 @@ pub use errors::{
 pub mod addr;
 pub use addr::CanAddr;
 
+pub mod id;
+pub use id::CanId;
+
 pub mod frame;
 pub use frame::{
     CanAnyFrame, CanDataFrame, CanErrorFrame, CanFdFrame, CanFrame, CanRawFrame, CanRemoteFrame,
