@@ -24,7 +24,7 @@
 //! [csv](https://crates.io/crates/csv) crate.
 
 use crate::{
-    frame::{FdFlags, IdFlags},
+    id::{FdFlags, IdFlags},
     CanDataFrame, CanFdFrame,
 };
 use embedded_can::StandardId;

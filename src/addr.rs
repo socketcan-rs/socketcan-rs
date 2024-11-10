@@ -11,7 +11,7 @@
 
 //! SocketCAN address type.
 
-use crate::frame::id_to_canid_t;
+use crate::id::id_to_canid_t;
 use embedded_can::Id;
 use libc::{sa_family_t, sockaddr, sockaddr_can, sockaddr_storage, socklen_t};
 use nix::net::if_::if_nametoindex;

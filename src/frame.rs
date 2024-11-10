@@ -30,8 +30,10 @@
 //!   [Error](https://doc.rust-lang.org/std/error/trait.Error.html) types.
 //!
 
-use crate::{CanError, ConstructionError};
-use bitflags::bitflags;
+use crate::{
+    id::{id_from_raw, id_to_canid_t, CanId, FdFlags, IdFlags},
+    CanError, ConstructionError,
+};
 use embedded_can::{ExtendedId, Frame as EmbeddedFrame, Id, StandardId};
 use itertools::Itertools;
 use libc::{can_frame, canfd_frame, canid_t};
@@ -40,65 +42,11 @@ use std::{
     mem::size_of,
     {convert::TryFrom, fmt, matches, mem},
 };
-
-pub use libc::{
+// TODO: Remove these on the next major ver update.
+pub use crate::id::{
     CANFD_BRS, CANFD_ESI, CANFD_MAX_DLEN, CAN_EFF_FLAG, CAN_EFF_MASK, CAN_ERR_FLAG, CAN_ERR_MASK,
     CAN_MAX_DLEN, CAN_RTR_FLAG, CAN_SFF_MASK,
 };
-
-/// An error mask that will cause SocketCAN to report all errors
-pub const ERR_MASK_ALL: u32 = CAN_ERR_MASK;
-
-/// An error mask that will cause SocketCAN to silently drop all errors
-pub const ERR_MASK_NONE: u32 = 0;
-
-bitflags! {
-    /// Bit flags in the composite SocketCAN ID word.
-    pub struct IdFlags: canid_t {
-        /// Indicates frame uses a 29-bit extended ID
-        const EFF = CAN_EFF_FLAG;
-        /// Indicates a remote request frame.
-        const RTR = CAN_RTR_FLAG;
-        /// Indicates an error frame.
-        const ERR = CAN_ERR_FLAG;
-    }
-
-    /// Bit flags for the Flexible Data (FD) frames.
-    pub struct FdFlags: u8 {
-        /// Bit rate switch (second bit rate for payload data)
-        const BRS = CANFD_BRS as u8;
-        /// Error state indicator of the transmitting node
-        const ESI = CANFD_ESI as u8;
-    }
-}
-
-/// Gets the canid_t value from an Id
-/// If it's an extended ID, the CAN_EFF_FLAG bit is also set.
-pub fn id_to_canid_t(id: impl Into<Id>) -> canid_t {
-    let id = id.into();
-    match id {
-        Id::Standard(id) => id.as_raw() as canid_t,
-        Id::Extended(id) => id.as_raw() | CAN_EFF_FLAG,
-    }
-}
-
-/// Determines if the ID is a 29-bit extended ID.
-pub fn id_is_extended(id: &Id) -> bool {
-    matches!(id, Id::Extended(_))
-}
-
-/// Creates a CAN ID from a raw integer value.
-///
-/// If the `id` is <= 0x7FF, it's assumed to be a standard ID, otherwise
-/// it is created as an Extened ID. If you require an Extended ID <= 0x7FF,
-/// create it explicitly.
-pub fn id_from_raw(id: u32) -> Option<Id> {
-    let id = match id {
-        n if n <= CAN_SFF_MASK => StandardId::new(n as u16)?.into(),
-        n => ExtendedId::new(n)?.into(),
-    };
-    Some(id)
-}
 
 // ===== can_frame =====
 
@@ -196,8 +144,8 @@ pub trait Frame: EmbeddedFrame {
         IdFlags::from_bits_truncate(self.id_word())
     }
 
-    /// Return the CAN ID as the embedded HAL Id type.
-    fn hal_id(&self) -> Id {
+    /// Return the CAN ID.
+    fn can_id(&self) -> CanId {
         if self.is_extended() {
             ExtendedId::new(self.id_word() & CAN_EFF_MASK)
                 .unwrap()
@@ -207,6 +155,11 @@ pub trait Frame: EmbeddedFrame {
                 .unwrap()
                 .into()
         }
+    }
+
+    /// Return the CAN ID as the embedded HAL Id type.
+    fn hal_id(&self) -> Id {
+        self.can_id().as_id()
     }
 
     /// Get the data length

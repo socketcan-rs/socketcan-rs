@@ -13,7 +13,8 @@
 
 use crate::{
     as_bytes, as_bytes_mut,
-    frame::{can_frame_default, canfd_frame_default, AsPtr, CAN_ERR_MASK},
+    frame::{can_frame_default, canfd_frame_default, AsPtr},
+    id::CAN_ERR_MASK,
     CanAddr, CanAnyFrame, CanFdFrame, CanFrame, CanRawFrame, IoError, IoErrorKind, IoResult,
 };
 use libc::{canid_t, socklen_t, AF_CAN, EINPROGRESS};
