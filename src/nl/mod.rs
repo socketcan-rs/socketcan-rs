@@ -334,6 +334,29 @@ impl CanCtrlModes {
     pub fn clear(&mut self) {
         self.0 = can_ctrlmode::default();
     }
+
+    /// Test if this CanCtrlModes has a specific `mode` turned on
+    ///
+    /// This can be useful for inspecting an [InterfaceCanParams] obtained from
+    /// [CanInterface::details].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use socketcan::nl::CanCtrlModes;
+    /// use socketcan::CanCtrlMode;
+    ///
+    /// let modes = CanCtrlModes::new(0x20, 0x20); // This is bit 5 (CanCtrlMode::Fd)
+    /// assert_eq!(modes.has_mode(CanCtrlMode::Fd), true);
+    /// assert_eq!(modes.has_mode(CanCtrlMode::ListenOnly), false);
+    /// ```
+    pub fn has_mode(&self, mode: CanCtrlMode) -> bool {
+        if (mode.mask() & self.0.flags) != 0 {
+            return true;
+        }
+
+        false
+    }
 }
 
 impl From<can_ctrlmode> for CanCtrlModes {
