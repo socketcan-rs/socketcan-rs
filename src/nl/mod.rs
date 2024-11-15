@@ -453,7 +453,7 @@ impl CanInterface {
     /// has specific, non-default, generic parameters.
     fn open_route_socket<T, P>() -> Result<NlSocketHandle, NlError<T, P>> {
         // retrieve PID
-        let pid = unistd::getpid().as_raw() as u32;
+        let pid = unistd::Pid::this().as_raw() as u32;
 
         // open and bind socket
         // groups is set to None(0), because we want no notifications
