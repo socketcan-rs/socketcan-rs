@@ -222,7 +222,7 @@ impl<R: io::BufRead> Reader<R> {
     }
 }
 
-impl<'a, R: io::Read> Iterator for CanDumpRecords<'a, io::BufReader<R>> {
+impl<R: io::Read> Iterator for CanDumpRecords<'_, io::BufReader<R>> {
     type Item = Result<(u64, super::CanAnyFrame), ParseError>;
 
     fn next(&mut self) -> Option<Self::Item> {

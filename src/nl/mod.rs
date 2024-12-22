@@ -331,6 +331,7 @@ impl CanCtrlModes {
     }
 
     /// Clears all of the mode flags in the collection
+    #[inline]
     pub fn clear(&mut self) {
         self.0 = can_ctrlmode::default();
     }
@@ -350,12 +351,9 @@ impl CanCtrlModes {
     /// assert_eq!(modes.has_mode(CanCtrlMode::Fd), true);
     /// assert_eq!(modes.has_mode(CanCtrlMode::ListenOnly), false);
     /// ```
+    #[inline]
     pub fn has_mode(&self, mode: CanCtrlMode) -> bool {
-        if (mode.mask() & self.0.flags) != 0 {
-            return true;
-        }
-
-        false
+        (mode.mask() & self.0.flags) != 0
     }
 }
 

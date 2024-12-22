@@ -264,12 +264,13 @@ pub trait Socket: AsRawFd {
         }
     }
 
-    /// Write a single can frame.
-    ///
-    /// Note that this function can fail with an `EAGAIN` error or similar.
-    /// Use `write_frame_insist` if you need to be sure that the message got
-    /// sent or failed.
-    //fn write_frame(&self, frame: &Self::FrameType) -> IoResult<()>;
+    //
+    // /// Write a single can frame.
+    // ///
+    // /// Note that this function can fail with an `EAGAIN` error or similar.
+    // /// Use `write_frame_insist` if you need to be sure that the message got
+    // /// sent or failed.
+    // fn write_frame(&self, frame: &Self::FrameType) -> IoResult<()>;
 
     /// Writes a normal CAN 2.0 frame to the socket.
     fn write_frame<F>(&self, frame: &F) -> IoResult<()>
