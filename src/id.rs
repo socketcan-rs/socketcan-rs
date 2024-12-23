@@ -30,6 +30,8 @@ pub const ERR_MASK_NONE: u32 = 0;
 
 bitflags! {
     /// Bit flags in the composite SocketCAN ID word.
+    #[repr(transparent)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct IdFlags: canid_t {
         /// Indicates frame uses a 29-bit extended ID
         const EFF = CAN_EFF_FLAG;
@@ -40,6 +42,8 @@ bitflags! {
     }
 
     /// Bit flags for the Flexible Data (FD) frames.
+    #[repr(transparent)]
+    #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq, Hash)]
     pub struct FdFlags: u8 {
         /// Bit rate switch (second bit rate for payload data)
         const BRS = CANFD_BRS as u8;

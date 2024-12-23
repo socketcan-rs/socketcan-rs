@@ -31,7 +31,7 @@
 //!
 
 use crate::{
-    id::{id_from_raw, id_to_canid_t, CanId, FdFlags, IdFlags},
+    id::CanId,
     CanError, ConstructionError,
 };
 use embedded_can::{ExtendedId, Frame as EmbeddedFrame, Id, StandardId};
@@ -42,10 +42,12 @@ use std::{
     mem::size_of,
     {convert::TryFrom, fmt, matches, mem},
 };
+
 // TODO: Remove these on the next major ver update.
 pub use crate::id::{
     CANFD_BRS, CANFD_ESI, CANFD_MAX_DLEN, CAN_EFF_FLAG, CAN_EFF_MASK, CAN_ERR_FLAG, CAN_ERR_MASK,
-    CAN_MAX_DLEN, CAN_RTR_FLAG, CAN_SFF_MASK,
+    CAN_MAX_DLEN, CAN_RTR_FLAG, CAN_SFF_MASK, ERR_MASK_ALL, ERR_MASK_NONE,
+    FdFlags, IdFlags, id_from_raw, id_to_canid_t, id_is_extended,
 };
 
 // ===== can_frame =====

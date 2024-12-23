@@ -15,7 +15,7 @@ use crate::{
     as_bytes, as_bytes_mut,
     frame::{can_frame_default, canfd_frame_default, AsPtr},
     id::CAN_ERR_MASK,
-    CanAddr, CanAnyFrame, CanFdFrame, CanFrame, CanRawFrame, IoError, IoErrorKind, IoResult,
+    CanAnyFrame, CanFdFrame, CanFrame, CanRawFrame, IoError, IoErrorKind, IoResult,
 };
 use libc::{canid_t, socklen_t, AF_CAN, EINPROGRESS};
 use socket2::SockAddr;
@@ -35,6 +35,9 @@ pub use libc::{
     CANFD_MTU, CAN_MTU, CAN_RAW, CAN_RAW_ERR_FILTER, CAN_RAW_FD_FRAMES, CAN_RAW_FILTER,
     CAN_RAW_JOIN_FILTERS, CAN_RAW_LOOPBACK, CAN_RAW_RECV_OWN_MSGS, SOL_CAN_BASE, SOL_CAN_RAW,
 };
+
+// TODO: This can be removed on the next major version update
+pub use crate::CanAddr;
 
 /// Check an error return value for timeouts.
 ///
