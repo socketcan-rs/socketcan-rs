@@ -2,6 +2,27 @@
 
 The change log for the Rust [socketcan](https://crates.io/crates/socketcan) library.
 
+## Unreleased in this branch
+
+- Added a 'CanId' type with more flexibility than embedded_can::Id
+- Moved from UD utility functions and types from frame module to id
+- InterfaceCanParams now has all items as Option<>. Can be used to get or set multiple options.
+- [#58](https://github.com/socketcan-rs/socketcan-rs/pull/58) Add new API to enumerate available SocketCAN interfaces
+- [#60](https://github.com/socketcan-rs/socketcan-rs/pull/60) Make `CanState` public
+- [#61](https://github.com/socketcan-rs/socketcan-rs/pull/61) `CanFdSocket` read_frame crash fix
+- [#64](https://github.com/socketcan-rs/socketcan-rs/pull/64) Make termination u16 and add `set_termination`
+- [#65](https://github.com/socketcan-rs/socketcan-rs/pull/65) Dump parsing also optionally trims off CR at the line end
+- [#66](https://github.com/socketcan-rs/socketcan-rs/pull/66) 1CanInterface1: add 1set_can_params1 method to set multiple parameters
+- [#67](https://github.com/socketcan-rs/socketcan-rs/pull/67) Improved tokio async implementation
+- [#68](https://github.com/socketcan-rs/socketcan-rs/pull/68) remove unnecessary qualifications
+- [#73](https://github.com/socketcan-rs/socketcan-rs/pull/73) Update some dependencies
+    - `itertools` to v0.13, `nix` to v0.29, `bitflags` to v2.6, `mio` to v1
+- [#75](https://github.com/socketcan-rs/socketcan-rs/pull/75) Fix DLC and add padding for CANFD frames
+- [#76](https://github.com/socketcan-rs/socketcan-rs/pull/76) Add CanCtrlModes::has_mode(mode: CanCtrlMode)
+- [#80](https://github.com/socketcan-rs/socketcan-rs/pull/80) Friendly non-Linux compilation error
+    - Remove unused byte_conv dependency
+
+
 ## [Version 3.3.0](https://github.com/socketcan-rs/socketcan-rs/compare/v3.2.0..v3.3.0)  (2023-10-27)
 
 - [#53](https://github.com/socketcan-rs/socketcan-rs/pull/53) Added CanFD support for tokio

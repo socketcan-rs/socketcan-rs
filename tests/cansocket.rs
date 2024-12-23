@@ -11,7 +11,7 @@
 
 #[cfg(feature = "vcan_tests")]
 use socketcan::{
-    frame::{ERR_MASK_ALL, ERR_MASK_NONE},
+    id::{ERR_MASK_ALL, ERR_MASK_NONE},
     CanFrame, CanSocket, EmbeddedFrame, ShouldRetry, Socket, SocketOptions, StandardId,
 };
 
