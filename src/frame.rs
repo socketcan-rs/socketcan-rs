@@ -163,6 +163,7 @@ pub trait Frame: EmbeddedFrame {
 
     /// Get the data length
     fn len(&self) -> usize {
+        // For standard frames, dlc == len
         self.dlc()
     }
 
@@ -1023,6 +1024,9 @@ impl AsRef<can_frame> for CanErrorFrame {
 
 // ===== CanFdFrame =====
 
+// Valid extended data lengths
+const VALID_EXT_DLENGTHS: [usize; 7] = [12, 16, 20, 24, 32, 48, 64];
+
 /// The CAN flexible data rate frame with up to 64-bytes of data.
 ///
 /// This is highly compatible with the `canfd_frame` from libc.
@@ -1041,7 +1045,7 @@ impl CanFdFrame {
         Self::init(can_id, data, flags).ok()
     }
 
-    /// Initialize a FD frame from the raw components.
+    /// Initialize an FD frame from the raw components.
     pub(crate) fn init(
         can_id: u32,
         data: &[u8],
@@ -1052,19 +1056,8 @@ impl CanFdFrame {
                 let mut frame = canfd_frame_default();
                 frame.can_id = can_id;
                 frame.flags = fd_flags.bits();
-                if n > 8 && !CanFdFrame::is_valid_data_len(n) {
-                    // data must be 0 padded to the next valid DataLength
-                    let new_len = CanFdFrame::next_valid_ext_dlen(n);
-                    let mut padded_data: Vec<u8> = Vec::from(data);
-                    padded_data.resize(new_len, 0);
-                    frame.len = new_len as u8;
-                    frame.data[..new_len].copy_from_slice(&padded_data);
-                } else {
-                    // payload length is a valid CANFD data length so no padding is required
-                    frame.len = n as u8;
-                    frame.data[..n].copy_from_slice(data);
-                }
-
+                frame.data[..n].copy_from_slice(data);
+                frame.len = Self::next_valid_ext_dlen(n) as u8;
                 Ok(Self(frame))
             }
             _ => Err(ConstructionError::TooMuchData),
@@ -1110,18 +1103,18 @@ impl CanFdFrame {
 
     /// Checks whether a given length is a valid CANFD data length.
     ///
-    /// Valid values are `0`, `1`, `2`, `3`, `4`, `5`, `6`, `7`, `8`,
-    /// `12`, `16`, `20`, `24`, `32`, `48` or `64`.
-    fn is_valid_data_len(len: usize) -> bool {
-        (0..=8).contains(&len) || [12, 16, 20, 24, 32, 48, 64].contains(&len)
+    /// Valid values are `0` - `8`, `12`, `16`, `20`, `24`, `32`, `48` or `64`.
+    pub fn is_valid_data_len(len: usize) -> bool {
+        len <= CAN_MAX_DLEN || VALID_EXT_DLENGTHS.contains(&len)
     }
 
-    /// Returns the next larger valid CANFD extended data length into which the given
-    /// length fits, up to a maximum of CANFD_MAX_DLEN.
-    fn next_valid_ext_dlen(len: usize) -> usize {
-        let valid_ext_dlengths: [usize; 7] = [12, 16, 20, 24, 32, 48, 64];
-
-        for valid_ext_len in valid_ext_dlengths {
+    /// Returns the next larger valid CANFD extended data length into which
+    /// the given length fits, up to a maximum of CANFD_MAX_DLEN.
+    pub fn next_valid_ext_dlen(len: usize) -> usize {
+        if len <= CAN_MAX_DLEN {
+            return len;
+        }
+        for valid_ext_len in VALID_EXT_DLENGTHS {
             if valid_ext_len >= len {
                 return valid_ext_len;
             }
@@ -1205,6 +1198,12 @@ impl Frame for CanFdFrame {
         self.0.can_id
     }
 
+    /// Get the data length
+    fn len(&self) -> usize {
+        // For FD frames, len not always equal to dlc
+        self.0.len as usize
+    }
+
     /// Sets the CAN ID for the frame
     fn set_id(&mut self, id: impl Into<Id>) {
         self.0.can_id = id_to_canid_t(id);
@@ -1214,17 +1213,9 @@ impl Frame for CanFdFrame {
     fn set_data(&mut self, data: &[u8]) -> Result<(), ConstructionError> {
         match data.len() {
             n if n <= CANFD_MAX_DLEN => {
-                if n > 8 && !CanFdFrame::is_valid_data_len(n) {
-                    // data must be 0 padded to the next valid DataLength
-                    let new_len = CanFdFrame::next_valid_ext_dlen(n);
-                    let mut padded_data: Vec<u8> = Vec::from(data);
-                    padded_data.resize(new_len, 0);
-                    self.0.len = new_len as u8;
-                    self.0.data[..new_len].copy_from_slice(&padded_data);
-                } else {
-                    self.0.len = n as u8;
-                    self.0.data[..n].copy_from_slice(data);
-                }
+                self.0.data[..n].copy_from_slice(data);
+                self.0.data[n..].fill(0);
+                self.0.len = Self::next_valid_ext_dlen(n) as u8;
                 Ok(())
             }
             _ => Err(ConstructionError::TooMuchData),
@@ -1258,7 +1249,7 @@ impl fmt::UpperHex for CanFdFrame {
 
 impl From<CanDataFrame> for CanFdFrame {
     fn from(frame: CanDataFrame) -> Self {
-        let n = frame.dlc();
+        let n = frame.len();
 
         let mut fdframe = canfd_frame_default();
         fdframe.can_id = frame.id_word();
@@ -1352,7 +1343,10 @@ mod tests {
         assert!(frame.is_data_frame());
         assert!(!frame.is_remote_frame());
         assert!(!frame.is_error_frame());
-        assert_eq!(DATA, frame.data());
+        assert_eq!(frame.data(), DATA);
+        assert_eq!(frame.len(), DATA.len());
+        assert_eq!(frame.data().len(), DATA.len());
+        assert_eq!(frame.dlc(), DATA.len());
 
         let frame = CanFrame::from(frame);
         assert_eq!(STD_ID, frame.id());
@@ -1362,7 +1356,10 @@ mod tests {
         assert!(frame.is_data_frame());
         assert!(!frame.is_remote_frame());
         assert!(!frame.is_error_frame());
-        assert_eq!(DATA, frame.data());
+        assert_eq!(frame.data(), DATA);
+        assert_eq!(frame.len(), DATA.len());
+        assert_eq!(frame.data().len(), DATA.len());
+        assert_eq!(frame.dlc(), DATA.len());
 
         let frame = CanDataFrame::from_raw_id(StandardId::MAX.as_raw() as u32, DATA).unwrap();
         assert_eq!(STD_ID, frame.id());
@@ -1372,7 +1369,10 @@ mod tests {
         assert!(frame.is_data_frame());
         assert!(!frame.is_remote_frame());
         assert!(!frame.is_error_frame());
-        assert_eq!(DATA, frame.data());
+        assert_eq!(frame.data(), DATA);
+        assert_eq!(frame.len(), DATA.len());
+        assert_eq!(frame.data().len(), DATA.len());
+        assert_eq!(frame.dlc(), DATA.len());
 
         let frame = CanFrame::new(EXT_ID, DATA).unwrap();
         assert_eq!(EXT_ID, frame.id());
@@ -1382,7 +1382,10 @@ mod tests {
         assert!(frame.is_data_frame());
         assert!(!frame.is_remote_frame());
         assert!(!frame.is_error_frame());
-        assert_eq!(DATA, frame.data());
+        assert_eq!(frame.data(), DATA);
+        assert_eq!(frame.len(), DATA.len());
+        assert_eq!(frame.data().len(), DATA.len());
+        assert_eq!(frame.dlc(), DATA.len());
 
         let frame = CanFrame::from_raw_id(ExtendedId::MAX.as_raw(), DATA).unwrap();
         assert_eq!(EXT_ID, frame.id());
@@ -1392,7 +1395,10 @@ mod tests {
         assert!(frame.is_data_frame());
         assert!(!frame.is_remote_frame());
         assert!(!frame.is_error_frame());
-        assert_eq!(DATA, frame.data());
+        assert_eq!(frame.data(), DATA);
+        assert_eq!(frame.len(), DATA.len());
+        assert_eq!(frame.data().len(), DATA.len());
+        assert_eq!(frame.dlc(), DATA.len());
 
         // Should keep Extended flag even if ID <= 0x7FF (standard range)
         let frame = CanFrame::new(EXT_LOW_ID, DATA).unwrap();
@@ -1507,15 +1513,12 @@ mod tests {
         assert!(!frame.is_remote_frame());
         assert!(frame.is_error_frame());
 
-        let err = frame.into_error();
-        match err {
+        match frame.into_error() {
             CanError::ProtocolViolation { vtype, location } => {
                 assert_eq!(vtype, errors::ViolationType::BitStuffingError);
                 assert_eq!(location, errors::Location::Id0400);
             }
-            _ => {
-                assert!(false);
-            }
+            _ => assert!(false),
         }
     }
 
@@ -1546,16 +1549,54 @@ mod tests {
         assert_eq!(EXT_LOW_ID, frame.id());
         assert!(!frame.is_standard());
         assert!(frame.is_extended());
+    }
 
-        let mut frame = CanFdFrame::new(STD_ID, EXT_DATA).unwrap();
-        assert_eq!(frame.dlc(), EXT_DATA_DLC);
-        assert_eq!(frame.data(), EXT_DATA);
-        frame.set_data(EXT_DATA_INVALID_DLEN).unwrap();
+    #[test]
+    fn test_fd_ext_data_len() {
+        assert!(CanFdFrame::is_valid_data_len(8));
+        assert!(CanFdFrame::is_valid_data_len(12));
+        assert!(CanFdFrame::is_valid_data_len(24));
+        assert!(CanFdFrame::is_valid_data_len(64));
+
+        assert!(!CanFdFrame::is_valid_data_len(28));
+        assert!(!CanFdFrame::is_valid_data_len(42));
+        assert!(!CanFdFrame::is_valid_data_len(65));
+
+        assert_eq!(CanFdFrame::next_valid_ext_dlen(9), 12);
+        assert_eq!(CanFdFrame::next_valid_ext_dlen(13), 16);
+        assert_eq!(CanFdFrame::next_valid_ext_dlen(17), 20);
+        assert_eq!(CanFdFrame::next_valid_ext_dlen(21), 24);
+        assert_eq!(CanFdFrame::next_valid_ext_dlen(25), 32);
+        assert_eq!(CanFdFrame::next_valid_ext_dlen(33), 48);
+        assert_eq!(CanFdFrame::next_valid_ext_dlen(49), 64);
+
+        assert_eq!(CanFdFrame::next_valid_ext_dlen(99), 64);
+    }
+
+    #[test]
+    fn test_fd_frame_padding() {
+        // Creating a frame w/ invalid length should "pad up"
+        let mut frame = CanFdFrame::new(STD_ID, EXT_DATA_INVALID_DLEN).unwrap();
+
         assert_eq!(frame.data(), EXT_DATA_PADDED);
+        assert_eq!(frame.len(), EXT_DATA_PADDED.len());
+        assert_eq!(frame.data().len(), frame.len());
         assert_eq!(frame.dlc(), EXT_DATA_PADDED_DLC);
 
-        let frame = CanFdFrame::new(STD_ID, EXT_DATA_INVALID_DLEN).unwrap();
+        // Creating a frame w/ valid length
+        frame = CanFdFrame::new(STD_ID, EXT_DATA).unwrap();
+
+        assert_eq!(frame.data(), EXT_DATA);
+        assert_eq!(frame.len(), EXT_DATA.len());
+        assert_eq!(frame.data().len(), frame.len());
+        assert_eq!(frame.dlc(), EXT_DATA_DLC);
+
+        // Setting frame data to smaller length should pad w/ zeros
+        frame.set_data(EXT_DATA_INVALID_DLEN).unwrap();
+
         assert_eq!(frame.data(), EXT_DATA_PADDED);
+        assert_eq!(frame.len(), EXT_DATA_PADDED.len());
+        assert_eq!(frame.data().len(), frame.len());
         assert_eq!(frame.dlc(), EXT_DATA_PADDED_DLC);
     }
 
