@@ -200,8 +200,7 @@ impl<R: io::BufRead> Reader<R> {
         };
 
         let frame: CanAnyFrame = if is_fd_frame {
-            CanFdFrame::init(can_id, &data, fd_flags)
-                .map(CanAnyFrame::Fd)
+            CanFdFrame::init(can_id, &data, fd_flags).map(CanAnyFrame::Fd)
         } else {
             CanDataFrame::init(can_id, &data)
                 .map(CanFrame::Data)
@@ -318,8 +317,7 @@ mod test {
     // Issue #74
     #[test]
     fn test_extended_id_fd() {
-        let input: &[u8] =
-            b"(1234.567890) can0 12345678##500112233445566778899AABBCCDDEEFF";
+        let input: &[u8] = b"(1234.567890) can0 12345678##500112233445566778899AABBCCDDEEFF";
 
         let mut reader = Reader::from_reader(input);
         let rec = reader.next_record().unwrap().unwrap();

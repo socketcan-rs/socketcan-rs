@@ -12,6 +12,8 @@ if (( $EUID != 0 )); then
   exit 1
 fi
 
+# Default to use "vcan0" if none is specified on the cmd line
+
 IFACE=vcan0
 [ -n "$1" ] && IFACE=$1
 
@@ -26,7 +28,9 @@ if [ -z "${VCAN_LOADED}" ]; then
 fi
 
 # Add and set up the CAN interface
+# Request an MTU size of 72 to allow for FD frames
 
 ip link add type vcan && \
+    ip link set "${IFACE}" mtu 72
     ip link set up "${IFACE}"
 

@@ -16,6 +16,18 @@ use embedded_can::{blocking::Can, Frame as EmbeddedFrame, StandardId};
 use socketcan::{CanFrame, CanSocket, Frame, Socket};
 use std::env;
 
+fn frame_to_string<F: Frame>(frame: &F) -> String {
+    let id = frame.raw_id();
+    let data_string = frame
+        .data()
+        .iter()
+        .fold(String::from(""), |a, b| format!("{} {:02x}", a, b));
+
+    format!("{:X}  [{}] {}", id, frame.dlc(), data_string)
+}
+
+// --------------------------------------------------------------------------
+
 fn main() -> anyhow::Result<()> {
     let iface = env::args().nth(1).unwrap_or_else(|| "vcan0".into());
 
@@ -32,14 +44,4 @@ fn main() -> anyhow::Result<()> {
     sock.transmit(&frame).context("Transmitting frame")?;
 
     Ok(())
-}
-
-fn frame_to_string<F: Frame>(frame: &F) -> String {
-    let id = frame.raw_id();
-    let data_string = frame
-        .data()
-        .iter()
-        .fold(String::from(""), |a, b| format!("{} {:02x}", a, b));
-
-    format!("{:X}  [{}] {}", id, frame.dlc(), data_string)
 }

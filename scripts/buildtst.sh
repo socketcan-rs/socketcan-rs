@@ -46,7 +46,7 @@ for VER in stable ${MSRV} ; do
         cargo +"${VER}" clippy --features="$FEATURES"
     [ "$?" -ne 0 ] && exit 1
 
-    for FEATURE in "tokio" "async-std" "smol"; do
+    for FEATURE in "tokio" "async-std" "smol" "utils" "enumerate" "utils"; do
         printf "\n\nBuilding with feature [%s]...\n" "${FEATURE}" "${VER}"
         FEATURES="${FEATURE} vcan_tests"
         cargo clean && \
