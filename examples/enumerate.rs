@@ -23,7 +23,7 @@ fn main() {
             };
 
             for iface in interfaces {
-                println!("{}", iface);
+                println!("  {}", iface);
             }
         }
         Err(e) => {

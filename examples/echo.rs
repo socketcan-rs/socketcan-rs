@@ -10,6 +10,18 @@
 // @author Natesh Narain <nnaraindev@gmail.com>
 // @date Jul 05 2022
 //
+//! Listen on a CAN interface and echo any CAN 2.0 data frames back to
+//! the bus.
+//!
+//! The frames are sent back on CAN ID +1.
+//!
+//! You can test send frames to the application like this:
+//!
+//!```text
+//! $ cansend can0 110#00112233
+//! $ cansend can0 110#0011223344556677
+//!```
+//!
 
 use anyhow::Context;
 use embedded_can::{blocking::Can, Frame as EmbeddedFrame};
@@ -26,10 +38,12 @@ fn frame_to_string<F: Frame>(frame: &F) -> String {
     let data_string = frame
         .data()
         .iter()
-        .fold(String::from(""), |a, b| format!("{} {:02x}", a, b));
+        .fold(String::new(), |a, b| format!("{} {:02X}", a, b));
 
     format!("{:08X}  [{}] {}", id, frame.dlc(), data_string)
 }
+
+// --------------------------------------------------------------------------
 
 fn main() -> anyhow::Result<()> {
     let iface = env::args().nth(1).unwrap_or_else(|| "vcan0".into());
