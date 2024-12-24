@@ -27,7 +27,7 @@
 //! }
 //! ```
 use crate::{
-    CanAddr, CanAnyFrame, CanFdFrame, CanFrame, Error, IoResult, Result, Socket, SocketOptions,
+    frame::AsPtr, CanAddr, CanAnyFrame, CanFrame, Error, IoResult, Result, Socket, SocketOptions,
 };
 use futures::{prelude::*, ready, task::Context};
 use std::{
@@ -187,9 +187,12 @@ pub type CanFdSocket = AsyncCanSocket<crate::CanFdSocket>;
 
 impl CanFdSocket {
     /// Write a CAN FD frame to the socket asynchronously
-    pub async fn write_frame(&self, frame: CanFdFrame) -> IoResult<()> {
+    pub async fn write_frame<F>(&self, frame: &F) -> IoResult<()>
+    where
+        F: Into<CanAnyFrame> + AsPtr,
+    {
         self.0
-            .async_io(Interest::WRITABLE, |inner| inner.write_frame(&frame))
+            .async_io(Interest::WRITABLE, |inner| inner.write_frame(frame))
             .await
     }
 
@@ -215,7 +218,7 @@ impl Stream for CanFdSocket {
     }
 }
 
-impl Sink<CanFdFrame> for CanFdSocket {
+impl Sink<CanAnyFrame> for CanFdSocket {
     type Error = Error;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
@@ -233,7 +236,7 @@ impl Sink<CanFdFrame> for CanFdSocket {
         Poll::Ready(Ok(()))
     }
 
-    fn start_send(self: Pin<&mut Self>, item: CanFdFrame) -> Result<()> {
+    fn start_send(self: Pin<&mut Self>, item: CanAnyFrame) -> Result<()> {
         self.0.get_ref().write_frame_insist(&item)?;
         Ok(())
     }
@@ -294,7 +297,7 @@ mod tests {
     use super::*;
     use crate::{
         frame::{can_frame_default, AsPtr},
-        CanFrame, Frame, IoErrorKind, StandardId,
+        CanFdFrame, CanFrame, Frame, IoErrorKind, StandardId,
     };
     use embedded_can::Frame as EmbeddedFrame;
     use futures::{select, try_join};
@@ -369,11 +372,18 @@ mod tests {
         )
     }
 
-    /// Write a test frame to the CanSocket
-    async fn write_frame_fd(socket: &CanFdSocket) -> Result<()> {
+    /// Write a test CANFD frame to the CanSocket
+    async fn write_frame_fd_canfd(socket: &CanFdSocket) -> Result<()> {
         let test_frame =
             CanFdFrame::new(StandardId::new(0x1).unwrap(), &[0, 0, 0, 0, 0, 0, 0, 0, 0]).unwrap();
-        socket.write_frame(test_frame).await?;
+        socket.write_frame(&test_frame).await?;
+        Ok(())
+    }
+
+    /// Write a test CAN frame to the CanSocket
+    async fn write_frame_fd_can(socket: &CanFdSocket) -> Result<()> {
+        let test_frame = CanFrame::new(StandardId::new(0x1).unwrap(), &[0]).unwrap();
+        socket.write_frame(&test_frame).await?;
         Ok(())
     }
 
@@ -442,11 +452,14 @@ mod tests {
 
     #[serial]
     #[tokio::test]
-    async fn test_receive_can_fd() -> Result<()> {
+    async fn test_receive_can_fd_canfd() -> Result<()> {
         let socket1 = CanFdSocket::open("vcan0").unwrap();
         let socket2 = CanFdSocket::open("vcan0").unwrap();
 
-        let send_frames = future::try_join(write_frame_fd(&socket1), write_frame_fd(&socket1));
+        let send_frames = future::try_join(
+            write_frame_fd_canfd(&socket1),
+            write_frame_fd_canfd(&socket1),
+        );
 
         let recv_frames = async {
             let socket2 = recv_frame_fd(socket2).await?;
@@ -461,11 +474,54 @@ mod tests {
 
     #[serial]
     #[tokio::test]
-    async fn test_receive_can_fd_with_stream() -> Result<()> {
+    async fn test_receive_can_fd_can() -> Result<()> {
         let socket1 = CanFdSocket::open("vcan0").unwrap();
         let socket2 = CanFdSocket::open("vcan0").unwrap();
 
-        let send_frames = future::try_join(write_frame_fd(&socket1), write_frame_fd(&socket1));
+        let send_frames =
+            future::try_join(write_frame_fd_can(&socket1), write_frame_fd_can(&socket1));
+
+        let recv_frames = async {
+            let socket2 = recv_frame_fd(socket2).await?;
+            let _socket2 = recv_frame_fd(socket2).await;
+            Ok(())
+        };
+
+        try_join!(recv_frames, send_frames)?;
+
+        Ok(())
+    }
+
+    #[serial]
+    #[tokio::test]
+    async fn test_receive_can_fd_canfd_with_stream() -> Result<()> {
+        let socket1 = CanFdSocket::open("vcan0").unwrap();
+        let socket2 = CanFdSocket::open("vcan0").unwrap();
+
+        let send_frames = future::try_join(
+            write_frame_fd_canfd(&socket1),
+            write_frame_fd_canfd(&socket1),
+        );
+
+        let recv_frames = async {
+            let socket2 = recv_frame_fd_with_stream(socket2).await?;
+            let _socket2 = recv_frame_fd_with_stream(socket2).await;
+            Ok(())
+        };
+
+        try_join!(recv_frames, send_frames)?;
+
+        Ok(())
+    }
+
+    #[serial]
+    #[tokio::test]
+    async fn test_receive_can_fd_can_with_stream() -> Result<()> {
+        let socket1 = CanFdSocket::open("vcan0").unwrap();
+        let socket2 = CanFdSocket::open("vcan0").unwrap();
+
+        let send_frames =
+            future::try_join(write_frame_fd_can(&socket1), write_frame_fd_can(&socket1));
 
         let recv_frames = async {
             let socket2 = recv_frame_fd_with_stream(socket2).await?;
@@ -532,7 +588,7 @@ mod tests {
 
     #[serial]
     #[tokio::test]
-    async fn test_sink_stream_fd() -> Result<()> {
+    async fn test_sink_stream_fd_canfd() -> Result<()> {
         let socket1 = CanFdSocket::open("vcan0").unwrap();
         let socket2 = CanFdSocket::open("vcan0").unwrap();
 
@@ -555,9 +611,49 @@ mod tests {
             .fold(0u8, |acc, _frame| async move { acc + 1 });
 
         let send_frames = async {
-            let _frame_1 = sink.send(frame_id_1).await?;
-            let _frame_2 = sink.send(frame_id_2).await?;
-            let _frame_3 = sink.send(frame_id_3).await?;
+            let _frame_1 = sink.send(frame_id_1.into()).await?;
+            let _frame_2 = sink.send(frame_id_2.into()).await?;
+            let _frame_3 = sink.send(frame_id_3.into()).await?;
+            println!("Sent 3 frames");
+            Ok::<(), Error>(())
+        };
+
+        let (x, frame_send_r) = future::join(count_ids_less_than_3, send_frames).await;
+        frame_send_r?;
+
+        assert_eq!(x, 2);
+
+        Ok(())
+    }
+
+    #[serial]
+    #[tokio::test]
+    async fn test_sink_stream_fd_can() -> Result<()> {
+        let socket1 = CanFdSocket::open("vcan0").unwrap();
+        let socket2 = CanFdSocket::open("vcan0").unwrap();
+
+        let frame_id_1 = CanFrame::from_raw_id(0x01, &[0u8]).unwrap();
+        let frame_id_2 = CanFrame::from_raw_id(0x02, &[0u8]).unwrap();
+        let frame_id_3 = CanFrame::from_raw_id(0x03, &[0u8]).unwrap();
+
+        let (mut sink, _stream) = socket1.split();
+        let (_sink, stream) = socket2.split();
+
+        let count_ids_less_than_3 = stream
+            .map(|x| x.unwrap())
+            .take_while(|frame| {
+                if let CanAnyFrame::Normal(frame) = frame {
+                    future::ready(frame.raw_id() < 3)
+                } else {
+                    future::ready(false)
+                }
+            })
+            .fold(0u8, |acc, _frame| async move { acc + 1 });
+
+        let send_frames = async {
+            let _frame_1 = sink.send(frame_id_1.into()).await?;
+            let _frame_2 = sink.send(frame_id_2.into()).await?;
+            let _frame_3 = sink.send(frame_id_3.into()).await?;
             println!("Sent 3 frames");
             Ok::<(), Error>(())
         };
