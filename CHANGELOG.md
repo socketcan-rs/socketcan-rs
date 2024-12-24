@@ -17,6 +17,7 @@ The change log for the Rust [socketcan](https://crates.io/crates/socketcan) libr
 - [#68](https://github.com/socketcan-rs/socketcan-rs/pull/68) remove unnecessary qualifications
 - [#73](https://github.com/socketcan-rs/socketcan-rs/pull/73) Update some dependencies
     - `itertools` to v0.13, `nix` to v0.29, `bitflags` to v2.6, `mio` to v1
+- [#74](https://github.com/socketcan-rs/socketcan-rs/pull/74) CanFDFrames with ExtendedID are not correctly parsed by socketcan::dump::Reader
 - [#75](https://github.com/socketcan-rs/socketcan-rs/pull/75) Fix DLC and add padding for CANFD frames
 - [#76](https://github.com/socketcan-rs/socketcan-rs/pull/76) Add CanCtrlModes::has_mode(mode: CanCtrlMode)
 - [#80](https://github.com/socketcan-rs/socketcan-rs/pull/80) Friendly non-Linux compilation error

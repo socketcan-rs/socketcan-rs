@@ -299,6 +299,50 @@ impl AsPtr for CanAnyFrame {
     }
 }
 
+impl TryFrom<CanAnyFrame> for CanDataFrame {
+    type Error = ConstructionError;
+
+    fn try_from(frame: CanAnyFrame) -> Result<Self, Self::Error> {
+        match frame {
+            CanAnyFrame::Normal(f) => Ok(f),
+            _ => Err(ConstructionError::WrongFrameType),
+        }
+    }
+}
+
+impl TryFrom<CanAnyFrame> for CanRemoteFrame {
+    type Error = ConstructionError;
+
+    fn try_from(frame: CanAnyFrame) -> Result<Self, Self::Error> {
+        match frame {
+            CanAnyFrame::Remote(f) => Ok(f),
+            _ => Err(ConstructionError::WrongFrameType),
+        }
+    }
+}
+
+impl TryFrom<CanAnyFrame> for CanErrorFrame {
+    type Error = ConstructionError;
+
+    fn try_from(frame: CanAnyFrame) -> Result<Self, Self::Error> {
+        match frame {
+            CanAnyFrame::Error(f) => Ok(f),
+            _ => Err(ConstructionError::WrongFrameType),
+        }
+    }
+}
+
+impl TryFrom<CanAnyFrame> for CanFdFrame {
+    type Error = ConstructionError;
+
+    fn try_from(frame: CanAnyFrame) -> Result<Self, Self::Error> {
+        match frame {
+            CanAnyFrame::Fd(f) => Ok(f),
+            _ => Err(ConstructionError::WrongFrameType),
+        }
+    }
+}
+
 // ===== CanFrame =====
 
 /// The classic CAN 2.0 frame with up to 8-bytes of data.
@@ -487,6 +531,39 @@ impl AsRef<can_frame> for CanFrame {
             Data(frame) => frame.as_ref(),
             Remote(frame) => frame.as_ref(),
             Error(frame) => frame.as_ref(),
+        }
+    }
+}
+
+impl TryFrom<CanFrame> for CanDataFrame {
+    type Error = ConstructionError;
+
+    fn try_from(frame: CanFrame) -> Result<Self, Self::Error> {
+        match frame {
+            CanFrame::Data(f) => Ok(f),
+            _ => Err(ConstructionError::WrongFrameType),
+        }
+    }
+}
+
+impl TryFrom<CanFrame> for CanRemoteFrame {
+    type Error = ConstructionError;
+
+    fn try_from(frame: CanFrame) -> Result<Self, Self::Error> {
+        match frame {
+            CanFrame::Remote(f) => Ok(f),
+            _ => Err(ConstructionError::WrongFrameType),
+        }
+    }
+}
+
+impl TryFrom<CanFrame> for CanErrorFrame {
+    type Error = ConstructionError;
+
+    fn try_from(frame: CanFrame) -> Result<Self, Self::Error> {
+        match frame {
+            CanFrame::Error(f) => Ok(f),
+            _ => Err(ConstructionError::WrongFrameType),
         }
     }
 }
