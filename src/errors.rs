@@ -81,8 +81,29 @@ impl From<io::ErrorKind> for Error {
     }
 }
 
+#[cfg(feature = "enumerate")]
+impl From<libudev::Error> for Error {
+    /// Creates an Io error straight from a libudev::Error
+    fn from(e: libudev::Error) -> Error {
+        match e.kind() {
+            libudev::ErrorKind::NoMem => Self::from(io::ErrorKind::OutOfMemory),
+            libudev::ErrorKind::InvalidInput => Self::from(io::ErrorKind::InvalidInput),
+            libudev::ErrorKind::Io(ek) => Self::from(ek),
+        }
+    }
+}
+
 /// A result that can derive from any of the CAN errors.
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// An I/O specific error
+pub type IoError = io::Error;
+
+/// A kind of I/O error
+pub type IoErrorKind = io::ErrorKind;
+
+/// An I/O specific result
+pub type IoResult<T> = io::Result<T>;
 
 // ===== CanError ====
 

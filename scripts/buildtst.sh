@@ -4,6 +4,9 @@
 # CAN interface, vcan0. It should be installed in the kernel before
 # running this script. See 'vcan.sh' (run it with root permissions)
 #
+# Run this from the top-level crate irectory (i.e. the one with the 
+# Cargo.toml file).
+#
 
 printf "Updating the crate...\n"
 cargo clean && cargo update
@@ -13,37 +16,47 @@ printf "Format check...\n"
 cargo fmt --all --check
 [ "$?" -ne 0 ] && exit 1
 
-printf "\n\nBuilding with default features...\n"
-cargo clean && cargo build && cargo doc && cargo test && cargo clippy
-[ "$?" -ne 0 ] && exit 1
+# Get the MSRV from Cargo.toml
+MSRV=$(awk '/rust-version/ { print substr($3, 2, length($3)-2) }' Cargo.toml)
+N_DOT=$(echo "${MSRV}" | grep -o "\." | wc -l | xargs)
+[[ ${N_DOT} == 1 ]] && MSRV="${MSRV}".0
 
-printf "\n\nBuilding with no features...\n"
-cargo clean && \
-    cargo build --no-default-features && \
-    cargo doc --no-default-features && \
-    cargo test --no-default-features && \
-    cargo clippy --no-default-features
-[ "$?" -ne 0 ] && exit 1
+for VER in stable ${MSRV} ; do
+    printf "\n\nBuilding with default features for %s...\n" "${VER}"
 
-FEATURES="vcan_tests"
-printf "\n\nBuilding with features [${FEATURES}]...\n"
-cargo clean && \
-    cargo build --features="$FEATURES" && \
-    cargo doc --features="$FEATURES" && \
-    cargo test --features="$FEATURES" && \
-    cargo clippy --features="$FEATURES"
-[ "$?" -ne 0 ] && exit 1
-
-for FEATURE in "tokio" "async-std" "smol"; do
-    printf "\n\nBuilding with feature [${FEATURE}]...\n"
-	FEATURES="${FEATURE} vcan_tests"
     cargo clean && \
-	cargo build --no-default-features --features="${FEATURES}" && \
-	cargo doc --no-default-features --features="${FEATURES}" && \
-	cargo test --no-default-features --features="${FEATURES}" && \
-	cargo clippy --no-default-features --features="${FEATURES}"
+        cargo +"${VER}" check && \
+        cargo +"${VER}" doc --all-features && \
+        cargo +"${VER}" test && \
+        cargo +"${VER}" clippy
     [ "$?" -ne 0 ] && exit 1
+
+    printf "\n\nBuilding with no features for %s...\n" "${VER}"
+    cargo clean && \
+        cargo +"${VER}" check --no-default-features && \
+        cargo +"${VER}" test --no-default-features && \
+        cargo +"${VER}" clippy --no-default-features
+    [ "$?" -ne 0 ] && exit 1
+
+    FEATURES="vcan_tests"
+    printf "\n\nBuilding with features [%s] for %s...\n" "${FEATURES}" "${VER}"
+    cargo clean && \
+        cargo +"${VER}" check --features="$FEATURES" && \
+        cargo +"${VER}" test --features="$FEATURES" && \
+        cargo +"${VER}" clippy --features="$FEATURES"
+    [ "$?" -ne 0 ] && exit 1
+
+    for FEATURE in "tokio" "async-std" "smol" "utils" "enumerate" "utils"; do
+        printf "\n\nBuilding with feature [%s]...\n" "${FEATURE}" "${VER}"
+        FEATURES="${FEATURE} vcan_tests"
+        cargo clean && \
+        cargo +"${VER}" check --no-default-features --features="${FEATURES}" && \
+        cargo +"${VER}" test --no-default-features --features="${FEATURES}" && \
+        cargo +"${VER}" clippy --no-default-features --features="${FEATURES}"
+        [ "$?" -ne 0 ] && exit 1
+    done
 done
 
 cargo clean
 printf "\n\n*** All builds succeeded ***\n"
+

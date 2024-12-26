@@ -120,6 +120,12 @@ fn main() {
         .subcommand(
             Command::new("iface")
                 .about("Get/set parameters on the CAN interface")
+                .arg(
+                    arg!(--help "Print help information")
+                        .short('?')
+                        .action(ArgAction::Help)
+                        .global(true),
+                )
                 .subcommand(Command::new("up").about("Bring the interface up"))
                 .subcommand(Command::new("down").about("Bring the interface down"))
                 .subcommand(

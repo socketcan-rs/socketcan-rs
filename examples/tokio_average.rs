@@ -69,7 +69,7 @@ async fn main() -> Result<()> {
             frame.set_id(StandardId::new(0x101).unwrap());
             frame.set_data(&avg.to_le_bytes()).unwrap();
 
-            sock_tx.write_frame(frame)?.await?;
+            sock_tx.write_frame(frame).await?;
         }
 
         Ok::<(), Error>(())

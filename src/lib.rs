@@ -30,9 +30,14 @@
 //! a single device with a high priority (== low ID) can block communication
 //! on that bus by sending messages too fast.
 //!
+//! The CAN Flexible Data-Rate (CAN FD) standard extended the data payload up to
+//! 64 bytes and added the ability to increase the the bitrate for the data bit
+//! in the frame.
+//!
 //! The Linux socketcan subsystem makes the CAN bus available as a regular
-//! networking device. Opening an network interface allows receiving all CAN
-//! messages received on it. A device CAN be opened multiple times, every
+//! networking device. Opening a network interface allows an application to
+//! receive all CAN messages from the bus and/or to filter for specific messages
+//! based on the CAN ID field. A device can be opened multiple times, every
 //! client will receive all CAN frames simultaneously.
 //!
 //! Similarly, CAN frames can be sent to the bus by multiple client
@@ -40,17 +45,18 @@
 //!
 //! # Hardware and more information
 //!
-//! More information on CAN [can be found on Wikipedia](). When not running on
-//! an embedded platform with already integrated CAN components,
+//! More information on CAN can be found on
+//! [Wikipedia](https://en.wikipedia.org/wiki/CAN_bus).
+//! When not running on an embedded platform with already integrated CAN components,
 //! [Thomas Fischl's USBtin](http://www.fischl.de/usbtin/) (see
 //! [section 2.4](http://www.fischl.de/usbtin/#socketcan)) is one of many ways
 //! to get started.
 //!
-//! # RawFd
+//! # RawFd and OwnedFd
 //!
-//! Raw access to the underlying file descriptor and construction through
-//! is available through the `AsRawFd`, `IntoRawFd` and `FromRawFd`
-//! implementations.
+//! Raw access to the underlying file descriptor and construction through one
+//! is available through the `AsRawFd`, `IntoRawFd` and `FromRawFd`, and
+//! similar implementations.
 //!
 //! # Crate Features
 //!
@@ -65,6 +71,11 @@
 //!   Whether to include candump parsing capabilities.
 //!
 //! ### Non-default
+//!
+//! * **enumerate** -
+//!   Include the `enumerate` module which can be used to get a list of the CANbus
+//!   network interfaces attached to the host. This brings in the dependency for
+//!   [libudev](https://crates.io/crates/libudev)
 //!
 //! * **utils** -
 //!   Whether to build command-line utilities. This brings in additional
@@ -103,7 +114,7 @@
     unsafe_op_in_unsafe_fn
 )]
 
-use std::io::ErrorKind;
+use std::{io::ErrorKind, mem::size_of};
 
 // Re-export the embedded_can crate so that applications can rely on
 // finding the same version we use.
@@ -113,24 +124,34 @@ pub use embedded_can::{
 };
 
 pub mod errors;
-pub use errors::{CanError, CanErrorDecodingFailure, ConstructionError, Error, Result};
+pub use errors::{
+    CanError, CanErrorDecodingFailure, ConstructionError, Error, IoError, IoErrorKind, IoResult,
+    Result,
+};
+
+pub mod addr;
+pub use addr::CanAddr;
+
+pub mod id;
+pub use id::CanId;
 
 pub mod frame;
 pub use frame::{
-    CanAnyFrame, CanDataFrame, CanErrorFrame, CanFdFrame, CanFrame, CanRemoteFrame, Frame,
+    CanAnyFrame, CanDataFrame, CanErrorFrame, CanFdFrame, CanFrame, CanRawFrame, CanRemoteFrame,
+    Frame,
 };
 
 #[cfg(feature = "dump")]
 pub mod dump;
 
 pub mod socket;
-pub use socket::{CanAddr, CanFdSocket, CanFilter, CanSocket, ShouldRetry, Socket, SocketOptions};
+pub use socket::{CanFdSocket, CanFilter, CanSocket, ShouldRetry, Socket, SocketOptions};
 
 #[cfg(feature = "netlink")]
 pub mod nl;
 
 #[cfg(feature = "netlink")]
-pub use nl::{CanCtrlMode, CanInterface};
+pub use nl::{CanCtrlMode, CanInterface, InterfaceCanParams};
 
 /// Optional tokio support
 #[cfg(feature = "tokio")]
@@ -150,6 +171,28 @@ pub mod smol {
 #[cfg(feature = "async-std")]
 pub mod async_std {
     pub use crate::async_io::*;
+}
+
+#[cfg(feature = "enumerate")]
+pub mod enumerate;
+#[cfg(feature = "enumerate")]
+pub use enumerate::available_interfaces;
+
+// ===== helper functions =====
+
+/// Gets a byte slice for any sized variable.
+///
+/// Note that this should normally be unsafe, but since we're only
+/// using it internally for types sent to the kernel, it's OK.
+pub(crate) fn as_bytes<T: Sized>(val: &T) -> &[u8] {
+    let sz = size_of::<T>();
+    unsafe { std::slice::from_raw_parts::<'_, u8>(val as *const _ as *const u8, sz) }
+}
+
+/// Gets a mutable byte slice for any sized variable.
+pub(crate) fn as_bytes_mut<T: Sized>(val: &mut T) -> &mut [u8] {
+    let sz = size_of::<T>();
+    unsafe { std::slice::from_raw_parts_mut(val as *mut _ as *mut u8, sz) }
 }
 
 // ===== embedded_can I/O traits =====
@@ -209,7 +252,7 @@ impl embedded_can::nb::Can for CanSocket {
                     ErrorKind::WouldBlock => Err(nb::Error::WouldBlock),
                     // TODO: How to indicate buffer is full?
                     // ErrorKind::StorageFull => Ok(frame),
-                    _ => Err(crate::Error::from(err).into()),
+                    _ => Err(Error::from(err).into()),
                 }
             }
         }

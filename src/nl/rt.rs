@@ -18,6 +18,7 @@
 
 #![allow(non_camel_case_types, unused)]
 
+use crate::{as_bytes, as_bytes_mut};
 use libc::{c_char, c_uint};
 use neli::{
     consts::rtnl::{RtaType, RtaTypeWrapper},
@@ -27,22 +28,8 @@ use neli::{
 use std::{
     io::{self, Cursor, Read, Write},
     mem,
+    mem::size_of,
 };
-
-/// Gets a byte slice for any sized variable.
-///
-/// Note that this should normally be unsafe, but since we're only
-/// using it internally for types sent to the kernel, it's OK.
-fn as_bytes<T: Sized>(val: &T) -> &[u8] {
-    let sz = std::mem::size_of::<T>();
-    unsafe { std::slice::from_raw_parts::<'_, u8>(val as *const _ as *const u8, sz) }
-}
-
-/// Gets a mutable byte slice for any sized variable.
-fn as_bytes_mut<T: Sized>(val: &mut T) -> &mut [u8] {
-    let sz = std::mem::size_of::<T>();
-    unsafe { std::slice::from_raw_parts_mut(val as *mut _ as *mut u8, sz) }
-}
 
 pub const EXT_FILTER_VF: c_uint = 1 << 0;
 pub const EXT_FILTER_BRVLAN: c_uint = 1 << 1;
@@ -108,7 +95,7 @@ impl<'a> FromBytes<'a> for can_bittiming_const {
 
 impl Size for can_bittiming_const {
     fn unpadded_size(&self) -> usize {
-        std::mem::size_of::<can_bittiming_const>()
+        size_of::<can_bittiming_const>()
     }
 }
 
@@ -125,12 +112,18 @@ pub struct can_clock {
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CanState {
-    ErrorActive,  // RX/TX error count < 96
-    ErrorWarning, // RX/TX error count < 128
-    ErrorPassive, // RX/TX error count < 256
-    BusOff,       // RX/TX error count >= 256
-    Stopped,      // Device is stopped
-    Sleeping,     // Device is sleeping
+    /// RX/TX error count < 96
+    ErrorActive,
+    /// RX/TX error count < 128
+    ErrorWarning,
+    /// RX/TX error count < 256
+    ErrorPassive,
+    /// RX/TX error count >= 256
+    BusOff,
+    /// Device is stopped
+    Stopped,
+    /// Device is sleeping
+    Sleeping,
 }
 
 impl TryFrom<u32> for CanState {
@@ -273,7 +266,7 @@ pub mod tests {
             unsafe {
                 std::slice::from_raw_parts::<'_, u8>(
                     &timing as *const _ as *const u8,
-                    std::mem::size_of::<can_bittiming>(),
+                    size_of::<can_bittiming>(),
                 )
             },
             as_bytes(&timing)

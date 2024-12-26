@@ -78,7 +78,8 @@ use std::{
 /// Low-level Netlink CAN struct bindings.
 mod rt;
 
-use rt::{can_ctrlmode, CanState};
+use rt::can_ctrlmode;
+pub use rt::CanState;
 
 /// A result for Netlink errors.
 type NlResult<T> = Result<T, NlError>;
@@ -153,23 +154,23 @@ pub struct InterfaceCanParams {
     pub bit_timing: Option<CanBitTiming>,
     /// The bit timing const parameters
     pub bit_timing_const: Option<CanBitTimingConst>,
-    /// The CAN clock parameters
+    /// The CAN clock parameters (read only)
     pub clock: Option<CanClock>,
-    /// The CAN bus state
+    /// The CAN bus state (read-only)
     pub state: Option<CanState>,
     /// The automatic restart time (in millisec)
     /// Zero means auto-restart is disabled.
-    pub restart_ms: u32,
-    /// The bit error counter
+    pub restart_ms: Option<u32>,
+    /// The bit error counter (read-only)
     pub berr_counter: Option<CanBerrCounter>,
     /// The control mode bits
-    pub ctrl_mode: CanCtrlModes,
+    pub ctrl_mode: Option<CanCtrlModes>,
     /// The FD data bit timing
     pub data_bit_timing: Option<CanBitTiming>,
     /// The FD data bit timing const parameters
     pub data_bit_timing_const: Option<CanBitTimingConst>,
     /// The CANbus termination resistance
-    pub termination: u16,
+    pub termination: Option<u16>,
 }
 
 impl TryFrom<&Rtattr<Ifla, Buffer>> for InterfaceCanParams {
@@ -198,10 +199,10 @@ impl TryFrom<&Rtattr<Ifla, Buffer>> for InterfaceCanParams {
                         }
                         IflaCan::CtrlMode => {
                             let ctrl_mode = attr.get_payload_as::<can_ctrlmode>()?;
-                            params.ctrl_mode = CanCtrlModes(ctrl_mode);
+                            params.ctrl_mode = Some(CanCtrlModes(ctrl_mode));
                         }
                         IflaCan::RestartMs => {
-                            params.restart_ms = attr.get_payload_as::<u32>()?;
+                            params.restart_ms = Some(attr.get_payload_as::<u32>()?);
                         }
                         IflaCan::BerrCounter => {
                             params.berr_counter = Some(attr.get_payload_as::<CanBerrCounter>()?);
@@ -214,7 +215,7 @@ impl TryFrom<&Rtattr<Ifla, Buffer>> for InterfaceCanParams {
                                 Some(attr.get_payload_as::<CanBitTimingConst>()?);
                         }
                         IflaCan::Termination => {
-                            params.termination = attr.get_payload_as::<u16>()?;
+                            params.termination = Some(attr.get_payload_as::<u16>()?);
                         }
                         _ => (),
                     }
@@ -222,6 +223,48 @@ impl TryFrom<&Rtattr<Ifla, Buffer>> for InterfaceCanParams {
             }
         }
         Ok(params)
+    }
+}
+
+impl TryFrom<&InterfaceCanParams> for RtBuffer<Ifla, Buffer> {
+    type Error = NlError;
+
+    /// Try to parse the CAN parameters into a NetLink buffer
+    fn try_from(params: &InterfaceCanParams) -> Result<Self, Self::Error> {
+        let mut rtattrs: RtBuffer<Ifla, Buffer> = RtBuffer::new();
+        let mut data = Rtattr::new(None, IflaInfo::Data, Buffer::new())?;
+
+        // TODO: Set the rest of the writable params
+        if let Some(bt) = params.bit_timing {
+            data.add_nested_attribute(&Rtattr::new(None, IflaCan::BitTiming, bt)?)?;
+        }
+        if let Some(r) = params.restart_ms {
+            data.add_nested_attribute(&Rtattr::new(
+                None,
+                IflaCan::RestartMs,
+                &r.to_ne_bytes()[..],
+            )?)?;
+        }
+        if let Some(cm) = params.ctrl_mode {
+            data.add_nested_attribute(&Rtattr::new::<can_ctrlmode>(
+                None,
+                IflaCan::CtrlMode,
+                cm.into(),
+            )?)?;
+        }
+        if let Some(dbt) = params.data_bit_timing {
+            data.add_nested_attribute(&Rtattr::new(None, IflaCan::DataBitTiming, dbt)?)?;
+        }
+        if let Some(t) = params.termination {
+            data.add_nested_attribute(&Rtattr::new(None, IflaCan::Termination, t)?)?;
+        }
+
+        let mut link_info = Rtattr::new(None, Ifla::Linkinfo, Buffer::new())?;
+        link_info.add_nested_attribute(&Rtattr::new(None, IflaInfo::Kind, "can")?)?;
+        link_info.add_nested_attribute(&data)?;
+
+        rtattrs.push(link_info);
+        Ok(rtattrs)
     }
 }
 
@@ -288,8 +331,29 @@ impl CanCtrlModes {
     }
 
     /// Clears all of the mode flags in the collection
+    #[inline]
     pub fn clear(&mut self) {
         self.0 = can_ctrlmode::default();
+    }
+
+    /// Test if this CanCtrlModes has a specific `mode` turned on
+    ///
+    /// This can be useful for inspecting an [InterfaceCanParams] obtained from
+    /// [CanInterface::details].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use socketcan::nl::CanCtrlModes;
+    /// use socketcan::CanCtrlMode;
+    ///
+    /// let modes = CanCtrlModes::new(0x20, 0x20); // This is bit 5 (CanCtrlMode::Fd)
+    /// assert_eq!(modes.has_mode(CanCtrlMode::Fd), true);
+    /// assert_eq!(modes.has_mode(CanCtrlMode::ListenOnly), false);
+    /// ```
+    #[inline]
+    pub fn has_mode(&self, mode: CanCtrlMode) -> bool {
+        (mode.mask() & self.0.flags) != 0
     }
 }
 
@@ -410,7 +474,7 @@ impl CanInterface {
     /// has specific, non-default, generic parameters.
     fn open_route_socket<T, P>() -> Result<NlSocketHandle, NlError<T, P>> {
         // retrieve PID
-        let pid = unistd::getpid().as_raw() as u32;
+        let pid = unistd::Pid::this().as_raw() as u32;
 
         // open and bind socket
         // groups is set to None(0), because we want no notifications
@@ -616,6 +680,62 @@ impl CanInterface {
             rtattrs.push(link_info);
             rtattrs
         });
+        Self::send_info_msg(Rtm::Newlink, info, &[])
+    }
+
+    /// Set a CAN-specific set of parameters.
+    ///
+    /// This sends a netlink message down to the kernel to set multiple
+    /// attributes in the link info, such as bitrate, control modes, etc.
+    ///
+    /// If you have many attributes to set this is preferred to calling
+    /// [set_can_params][CanInterface::set_can_param] multiple times, since this only sends a
+    /// single netlink message. Also some CAN drivers might only accept
+    /// a set of attributes, not over multiple messages.
+    ///
+    /// PRIVILEGED: This requires root privilege.
+    ///
+    pub fn set_can_params(&self, params: &InterfaceCanParams) -> NlResult<()> {
+        let info = self.info_msg(
+            //RtBuffer<Ifla, Buffer>::try_from(params)?);
+            RtBuffer::try_from(params)?,
+        );
+        /*
+            let mut rtattrs: RtBuffer<Ifla, Buffer> = RtBuffer::new();
+            let mut data = Rtattr::new(None, IflaInfo::Data, Buffer::new())?;
+
+            if let Some(bt) = params.bit_timing {
+                data.add_nested_attribute(&Rtattr::new(None, IflaCan::BitTiming, bt)?)?;
+            }
+            if let Some(r) = params.restart_ms {
+                data.add_nested_attribute(&Rtattr::new(
+                    None,
+                    IflaCan::RestartMs,
+                    &r.to_ne_bytes()[..],
+                )?)?;
+            }
+            if let Some(cm) = params.ctrl_mode {
+                data.add_nested_attribute(&Rtattr::new::<can_ctrlmode>(
+                    None,
+                    IflaCan::CtrlMode,
+                    cm.into(),
+                )?)?;
+            }
+            if let Some(dbt) = params.data_bit_timing {
+                data.add_nested_attribute(&Rtattr::new(None, IflaCan::DataBitTiming, dbt)?)?;
+            }
+            if let Some(t) = params.termination {
+                data.add_nested_attribute(&Rtattr::new(None, IflaCan::Termination, t)?)?;
+            }
+
+            let mut link_info = Rtattr::new(None, Ifla::Linkinfo, Buffer::new())?;
+            link_info.add_nested_attribute(&Rtattr::new(None, IflaInfo::Kind, "can")?)?;
+            link_info.add_nested_attribute(&data)?;
+
+            rtattrs.push(link_info);
+            rtattrs
+        });
+        */
         Self::send_info_msg(Rtm::Newlink, info, &[])
     }
 
@@ -826,9 +946,21 @@ impl CanInterface {
         self.can_param::<CanBitTimingConst>(IflaCan::DataBitTimingConst)
     }
 
+    /// Sets the CANbus termination for the interface
+    ///
+    /// Not all interfaces support setting a termination.
+    /// Termination is in ohms. Your interface most likely only supports
+    /// certain values. Common values are 0 and 120.
+    ///
+    /// PRIVILEGED: This requires root privilege.
+    ///
+    pub fn set_termination(&self, termination: u16) -> NlResult<()> {
+        self.set_can_param(IflaCan::Termination, termination)
+    }
+
     /// Gets the CANbus termination for the interface
-    pub fn termination(&self) -> Result<Option<u32>, NlInfoError> {
-        self.can_param::<u32>(IflaCan::Termination)
+    pub fn termination(&self) -> Result<Option<u16>, NlInfoError> {
+        self.can_param::<u16>(IflaCan::Termination)
     }
 }
 

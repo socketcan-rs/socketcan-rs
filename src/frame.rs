@@ -10,75 +10,42 @@
 // to those terms.
 
 //! CAN bus frames.
+//!
+//! At the lowest level, [libc](https://crates.io/crates/libc) defines the
+//! CAN frames as low-level structs that are binary compatible with the C
+//! data types sent to and from the kernel:
+//! - [can_frame](https://docs.rs/libc/latest/libc/struct.can_frame.html)
+//!   The Classic CAN 2.0 frame with up to 8 bytes of data.
+//! - [canfd_frame](https://docs.rs/libc/latest/libc/struct.canfd_frame.html)
+//!   The CAN Flexible Data Rate frame with up to 64 bytes of data.
+//!
+//! The classic frame represents three possibilities:
+//! - `CanDataFrame` - A standard CAN frame that can contain up to 8 bytes
+//!   of data.
+//! - `CanRemoteFrame` - A CAN Remote frame which is meant to request a
+//!   transmission by another node on the bus. It contain no data.
+//! - `CanErrorFrame` - This is an incoming (only) frame that contains
+//!   information about a problem on the bus or in the driver. Error frames
+//!   can not be sent to the bus, but can be converted to standard Rust
+//!   [Error](https://doc.rust-lang.org/std/error/trait.Error.html) types.
+//!
 
-use crate::{CanError, ConstructionError};
-use bitflags::bitflags;
+use crate::{id::CanId, CanError, ConstructionError};
 use embedded_can::{ExtendedId, Frame as EmbeddedFrame, Id, StandardId};
 use itertools::Itertools;
 use libc::{can_frame, canfd_frame, canid_t};
 use std::{
     ffi::c_void,
+    mem::size_of,
     {convert::TryFrom, fmt, matches, mem},
 };
 
-pub use libc::{
-    CANFD_BRS, CANFD_ESI, CANFD_MAX_DLEN, CAN_EFF_FLAG, CAN_EFF_MASK, CAN_ERR_FLAG, CAN_ERR_MASK,
-    CAN_MAX_DLEN, CAN_RTR_FLAG, CAN_SFF_MASK,
+// TODO: Remove these on the next major ver update.
+pub use crate::id::{
+    id_from_raw, id_is_extended, id_to_canid_t, FdFlags, IdFlags, CANFD_BRS, CANFD_ESI,
+    CANFD_MAX_DLEN, CAN_EFF_FLAG, CAN_EFF_MASK, CAN_ERR_FLAG, CAN_ERR_MASK, CAN_MAX_DLEN,
+    CAN_RTR_FLAG, CAN_SFF_MASK, ERR_MASK_ALL, ERR_MASK_NONE,
 };
-
-/// An error mask that will cause SocketCAN to report all errors
-pub const ERR_MASK_ALL: u32 = CAN_ERR_MASK;
-
-/// An error mask that will cause SocketCAN to silently drop all errors
-pub const ERR_MASK_NONE: u32 = 0;
-
-bitflags! {
-    /// Bit flags in the composite SocketCAN ID word.
-    pub struct IdFlags: canid_t {
-        /// Indicates frame uses a 29-bit extended ID
-        const EFF = CAN_EFF_FLAG;
-        /// Indicates a remote request frame.
-        const RTR = CAN_RTR_FLAG;
-        /// Indicates an error frame.
-        const ERR = CAN_ERR_FLAG;
-    }
-
-    /// Bit flags for the Flexible Data (FD) frames.
-    pub struct FdFlags: u8 {
-        /// Bit rate switch (second bit rate for payload data)
-        const BRS = CANFD_BRS as u8;
-        /// Error state indicator of the transmitting node
-        const ESI = CANFD_ESI as u8;
-    }
-}
-
-/// Gets the canid_t value from an Id
-/// If it's an extended ID, the CAN_EFF_FLAG bit is also set.
-pub fn id_to_canid_t(id: impl Into<Id>) -> canid_t {
-    let id = id.into();
-    match id {
-        Id::Standard(id) => id.as_raw() as canid_t,
-        Id::Extended(id) => id.as_raw() | CAN_EFF_FLAG,
-    }
-}
-
-/// Determines if the ID is a 29-bit extended ID.
-pub fn id_is_extended(id: &Id) -> bool {
-    matches!(id, Id::Extended(_))
-}
-
-/// Creates a CAN ID from a raw integer value.
-///
-/// If the `id` is <= 0x7FF, it's assumed to be a standard ID, otherwise
-/// it is created as an Extened ID. If you require an Extended ID <= 0x7FF,
-/// create it explicitly.
-pub fn id_from_raw(id: u32) -> Option<Id> {
-    let id = match id {
-        n if n <= CAN_SFF_MASK => StandardId::new(n as u16)?.into(),
-        n => ExtendedId::new(n)?.into(),
-    };
-    Some(id)
-}
 
 // ===== can_frame =====
 
@@ -111,7 +78,27 @@ pub trait AsPtr {
 
     /// The size of the inner type
     fn size(&self) -> usize {
-        std::mem::size_of::<Self::Inner>()
+        size_of::<Self::Inner>()
+    }
+
+    /// Gets a byte slice to the inner type
+    fn as_bytes(&self) -> &[u8] {
+        unsafe {
+            std::slice::from_raw_parts::<'_, u8>(
+                self.as_ptr() as *const _ as *const u8,
+                self.size(),
+            )
+        }
+    }
+
+    /// Gets a mutable byte slice to the inner type
+    fn as_bytes_mut(&mut self) -> &[u8] {
+        unsafe {
+            std::slice::from_raw_parts::<'_, u8>(
+                self.as_mut_ptr() as *mut _ as *mut u8,
+                self.size(),
+            )
+        }
     }
 }
 
@@ -156,8 +143,8 @@ pub trait Frame: EmbeddedFrame {
         IdFlags::from_bits_truncate(self.id_word())
     }
 
-    /// Return the CAN ID as the embedded HAL Id type.
-    fn hal_id(&self) -> Id {
+    /// Return the CAN ID.
+    fn can_id(&self) -> CanId {
         if self.is_extended() {
             ExtendedId::new(self.id_word() & CAN_EFF_MASK)
                 .unwrap()
@@ -169,8 +156,14 @@ pub trait Frame: EmbeddedFrame {
         }
     }
 
+    /// Return the CAN ID as the embedded HAL Id type.
+    fn hal_id(&self) -> Id {
+        self.can_id().as_id()
+    }
+
     /// Get the data length
     fn len(&self) -> usize {
+        // For standard frames, dlc == len
         self.dlc()
     }
 
@@ -187,6 +180,28 @@ pub trait Frame: EmbeddedFrame {
 }
 
 // ===== CanAnyFrame =====
+
+/// An FD socket can read a raw classic 2.0 or FD frame.
+#[allow(missing_debug_implementations)]
+#[derive(Clone, Copy)]
+pub enum CanRawFrame {
+    /// A classic CAN 2.0 frame, with up to 8-bytes of data
+    Classic(can_frame),
+    /// A flexible data rate frame, with up to 64-bytes of data
+    Fd(canfd_frame),
+}
+
+impl From<can_frame> for CanRawFrame {
+    fn from(frame: can_frame) -> Self {
+        Self::Classic(frame)
+    }
+}
+
+impl From<canfd_frame> for CanRawFrame {
+    fn from(frame: canfd_frame) -> Self {
+        Self::Fd(frame)
+    }
+}
 
 /// Any frame type.
 #[derive(Clone, Copy, Debug)]
@@ -223,9 +238,33 @@ impl From<CanFrame> for CanAnyFrame {
     }
 }
 
+impl From<can_frame> for CanAnyFrame {
+    fn from(frame: can_frame) -> Self {
+        let frame = CanFrame::from(frame);
+        frame.into()
+    }
+}
+
 impl From<CanFdFrame> for CanAnyFrame {
     fn from(frame: CanFdFrame) -> Self {
         Self::Fd(frame)
+    }
+}
+
+impl From<canfd_frame> for CanAnyFrame {
+    fn from(frame: canfd_frame) -> Self {
+        let frame = CanFdFrame::from(frame);
+        frame.into()
+    }
+}
+
+impl From<CanRawFrame> for CanAnyFrame {
+    fn from(frame: CanRawFrame) -> Self {
+        use CanRawFrame::*;
+        match frame {
+            Classic(frame) => frame.into(),
+            Fd(frame) => frame.into(),
+        }
     }
 }
 
@@ -256,6 +295,50 @@ impl AsPtr for CanAnyFrame {
             CanAnyFrame::Remote(frame) => frame.size(),
             CanAnyFrame::Error(frame) => frame.size(),
             CanAnyFrame::Fd(frame) => frame.size(),
+        }
+    }
+}
+
+impl TryFrom<CanAnyFrame> for CanDataFrame {
+    type Error = ConstructionError;
+
+    fn try_from(frame: CanAnyFrame) -> Result<Self, Self::Error> {
+        match frame {
+            CanAnyFrame::Normal(f) => Ok(f),
+            _ => Err(ConstructionError::WrongFrameType),
+        }
+    }
+}
+
+impl TryFrom<CanAnyFrame> for CanRemoteFrame {
+    type Error = ConstructionError;
+
+    fn try_from(frame: CanAnyFrame) -> Result<Self, Self::Error> {
+        match frame {
+            CanAnyFrame::Remote(f) => Ok(f),
+            _ => Err(ConstructionError::WrongFrameType),
+        }
+    }
+}
+
+impl TryFrom<CanAnyFrame> for CanErrorFrame {
+    type Error = ConstructionError;
+
+    fn try_from(frame: CanAnyFrame) -> Result<Self, Self::Error> {
+        match frame {
+            CanAnyFrame::Error(f) => Ok(f),
+            _ => Err(ConstructionError::WrongFrameType),
+        }
+    }
+}
+
+impl TryFrom<CanAnyFrame> for CanFdFrame {
+    type Error = ConstructionError;
+
+    fn try_from(frame: CanAnyFrame) -> Result<Self, Self::Error> {
+        match frame {
+            CanAnyFrame::Fd(f) => Ok(f),
+            _ => Err(ConstructionError::WrongFrameType),
         }
     }
 }
@@ -452,6 +535,39 @@ impl AsRef<can_frame> for CanFrame {
     }
 }
 
+impl TryFrom<CanFrame> for CanDataFrame {
+    type Error = ConstructionError;
+
+    fn try_from(frame: CanFrame) -> Result<Self, Self::Error> {
+        match frame {
+            CanFrame::Data(f) => Ok(f),
+            _ => Err(ConstructionError::WrongFrameType),
+        }
+    }
+}
+
+impl TryFrom<CanFrame> for CanRemoteFrame {
+    type Error = ConstructionError;
+
+    fn try_from(frame: CanFrame) -> Result<Self, Self::Error> {
+        match frame {
+            CanFrame::Remote(f) => Ok(f),
+            _ => Err(ConstructionError::WrongFrameType),
+        }
+    }
+}
+
+impl TryFrom<CanFrame> for CanErrorFrame {
+    type Error = ConstructionError;
+
+    fn try_from(frame: CanFrame) -> Result<Self, Self::Error> {
+        match frame {
+            CanFrame::Error(f) => Ok(f),
+            _ => Err(ConstructionError::WrongFrameType),
+        }
+    }
+}
+
 impl TryFrom<CanFdFrame> for CanFrame {
     type Error = ConstructionError;
 
@@ -625,7 +741,10 @@ impl AsRef<can_frame> for CanDataFrame {
 
 // ===== CanRemoteFrame =====
 
-/// The classic CAN 2.0 frame with up to 8-bytes of data.
+/// The classic CAN 2.0 remote request frame.
+///
+/// This is is meant to request a transmission by another node on the bus.
+/// It contain no data.
 ///
 /// This is highly compatible with the `can_frame` from libc.
 /// ([ref](https://docs.rs/libc/latest/libc/struct.can_frame.html))
@@ -802,7 +921,7 @@ impl CanErrorFrame {
     /// - The error flag is forced on
     /// - The other, non-error, flags are forced off
     /// - The frame data is always padded with zero's to 8 bytes,
-    /// regardless of the length of the `data` parameter provided.
+    ///   regardless of the length of the `data` parameter provided.
     pub fn new_error(can_id: canid_t, data: &[u8]) -> Result<Self, ConstructionError> {
         match data.len() {
             n if n <= CAN_MAX_DLEN => {
@@ -982,10 +1101,17 @@ impl AsRef<can_frame> for CanErrorFrame {
 
 // ===== CanFdFrame =====
 
+// Valid extended data lengths
+const VALID_EXT_DLENGTHS: [usize; 7] = [12, 16, 20, 24, 32, 48, 64];
+
 /// The CAN flexible data rate frame with up to 64-bytes of data.
 ///
 /// This is highly compatible with the `canfd_frame` from libc.
 /// ([ref](https://docs.rs/libc/latest/libc/struct.canfd_frame.html))
+///
+/// Payload data that is greater than 8 bytes and whose data length does
+/// not match a valid CANFD data length is padded with 0 bytes to the
+/// next higher valid CANFD data length.
 #[derive(Clone, Copy)]
 pub struct CanFdFrame(canfd_frame);
 
@@ -996,7 +1122,7 @@ impl CanFdFrame {
         Self::init(can_id, data, flags).ok()
     }
 
-    /// Initialize a FD frame from the raw components.
+    /// Initialize an FD frame from the raw components.
     pub(crate) fn init(
         can_id: u32,
         data: &[u8],
@@ -1006,9 +1132,9 @@ impl CanFdFrame {
             n if n <= CANFD_MAX_DLEN => {
                 let mut frame = canfd_frame_default();
                 frame.can_id = can_id;
-                frame.len = n as u8;
                 frame.flags = fd_flags.bits();
                 frame.data[..n].copy_from_slice(data);
+                frame.len = Self::next_valid_ext_dlen(n) as u8;
                 Ok(Self(frame))
             }
             _ => Err(ConstructionError::TooMuchData),
@@ -1050,6 +1176,28 @@ impl CanFdFrame {
         } else {
             self.0.flags &= !CANFD_ESI as u8;
         }
+    }
+
+    /// Checks whether a given length is a valid CANFD data length.
+    ///
+    /// Valid values are `0` - `8`, `12`, `16`, `20`, `24`, `32`, `48` or `64`.
+    pub fn is_valid_data_len(len: usize) -> bool {
+        len <= CAN_MAX_DLEN || VALID_EXT_DLENGTHS.contains(&len)
+    }
+
+    /// Returns the next larger valid CANFD extended data length into which
+    /// the given length fits, up to a maximum of CANFD_MAX_DLEN.
+    pub fn next_valid_ext_dlen(len: usize) -> usize {
+        if len <= CAN_MAX_DLEN {
+            return len;
+        }
+        for valid_ext_len in VALID_EXT_DLENGTHS {
+            if valid_ext_len >= len {
+                return valid_ext_len;
+            }
+        }
+        // return CANFD_MAX_DLEN if len > CANFD_MAX_DLEN
+        CANFD_MAX_DLEN
     }
 }
 
@@ -1098,7 +1246,19 @@ impl EmbeddedFrame for CanFdFrame {
 
     /// Data length code
     fn dlc(&self) -> usize {
-        self.0.len as usize
+        match self.0.len {
+            0..=8 => self.0.len as usize,
+            12 => 0x09,
+            16 => 0x0A,
+            20 => 0x0B,
+            24 => 0x0C,
+            32 => 0x0D,
+            48 => 0x0E,
+            64 => 0x0F,
+            // invalid data length, should never occur as the data is
+            // padded to a valid CANFD data length on frame creation
+            _ => 0x00,
+        }
     }
 
     /// A slice into the actual data.
@@ -1115,6 +1275,12 @@ impl Frame for CanFdFrame {
         self.0.can_id
     }
 
+    /// Get the data length
+    fn len(&self) -> usize {
+        // For FD frames, len not always equal to dlc
+        self.0.len as usize
+    }
+
     /// Sets the CAN ID for the frame
     fn set_id(&mut self, id: impl Into<Id>) {
         self.0.can_id = id_to_canid_t(id);
@@ -1124,8 +1290,9 @@ impl Frame for CanFdFrame {
     fn set_data(&mut self, data: &[u8]) -> Result<(), ConstructionError> {
         match data.len() {
             n if n <= CANFD_MAX_DLEN => {
-                self.0.len = n as u8;
                 self.0.data[..n].copy_from_slice(data);
+                self.0.data[n..].fill(0);
+                self.0.len = Self::next_valid_ext_dlen(n) as u8;
                 Ok(())
             }
             _ => Err(ConstructionError::TooMuchData),
@@ -1159,7 +1326,7 @@ impl fmt::UpperHex for CanFdFrame {
 
 impl From<CanDataFrame> for CanFdFrame {
     fn from(frame: CanDataFrame) -> Self {
-        let n = frame.dlc();
+        let n = frame.len();
 
         let mut fdframe = canfd_frame_default();
         fdframe.can_id = frame.id_word();
@@ -1195,6 +1362,16 @@ mod tests {
 
     const DATA: &[u8] = &[0, 1, 2, 3];
     const DATA_LEN: usize = DATA.len();
+
+    const EXT_DATA: &[u8] = &[0xAB; 32];
+    const EXT_DATA_DLC: usize = 0x0D;
+
+    const EXT_DATA_INVALID_DLEN: &[u8] =
+        &[0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA];
+    const EXT_DATA_PADDED: &[u8] = &[
+        0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0x00, 0x00,
+    ];
+    const EXT_DATA_PADDED_DLC: usize = 0x09;
 
     const EMPTY_DATA: &[u8] = &[];
     const ZERO_DATA: &[u8] = &[0u8; DATA_LEN];
@@ -1243,7 +1420,10 @@ mod tests {
         assert!(frame.is_data_frame());
         assert!(!frame.is_remote_frame());
         assert!(!frame.is_error_frame());
-        assert_eq!(DATA, frame.data());
+        assert_eq!(frame.data(), DATA);
+        assert_eq!(frame.len(), DATA.len());
+        assert_eq!(frame.data().len(), DATA.len());
+        assert_eq!(frame.dlc(), DATA.len());
 
         let frame = CanFrame::from(frame);
         assert_eq!(STD_ID, frame.id());
@@ -1253,7 +1433,10 @@ mod tests {
         assert!(frame.is_data_frame());
         assert!(!frame.is_remote_frame());
         assert!(!frame.is_error_frame());
-        assert_eq!(DATA, frame.data());
+        assert_eq!(frame.data(), DATA);
+        assert_eq!(frame.len(), DATA.len());
+        assert_eq!(frame.data().len(), DATA.len());
+        assert_eq!(frame.dlc(), DATA.len());
 
         let frame = CanDataFrame::from_raw_id(StandardId::MAX.as_raw() as u32, DATA).unwrap();
         assert_eq!(STD_ID, frame.id());
@@ -1263,7 +1446,10 @@ mod tests {
         assert!(frame.is_data_frame());
         assert!(!frame.is_remote_frame());
         assert!(!frame.is_error_frame());
-        assert_eq!(DATA, frame.data());
+        assert_eq!(frame.data(), DATA);
+        assert_eq!(frame.len(), DATA.len());
+        assert_eq!(frame.data().len(), DATA.len());
+        assert_eq!(frame.dlc(), DATA.len());
 
         let frame = CanFrame::new(EXT_ID, DATA).unwrap();
         assert_eq!(EXT_ID, frame.id());
@@ -1273,7 +1459,10 @@ mod tests {
         assert!(frame.is_data_frame());
         assert!(!frame.is_remote_frame());
         assert!(!frame.is_error_frame());
-        assert_eq!(DATA, frame.data());
+        assert_eq!(frame.data(), DATA);
+        assert_eq!(frame.len(), DATA.len());
+        assert_eq!(frame.data().len(), DATA.len());
+        assert_eq!(frame.dlc(), DATA.len());
 
         let frame = CanFrame::from_raw_id(ExtendedId::MAX.as_raw(), DATA).unwrap();
         assert_eq!(EXT_ID, frame.id());
@@ -1283,7 +1472,10 @@ mod tests {
         assert!(frame.is_data_frame());
         assert!(!frame.is_remote_frame());
         assert!(!frame.is_error_frame());
-        assert_eq!(DATA, frame.data());
+        assert_eq!(frame.data(), DATA);
+        assert_eq!(frame.len(), DATA.len());
+        assert_eq!(frame.data().len(), DATA.len());
+        assert_eq!(frame.dlc(), DATA.len());
 
         // Should keep Extended flag even if ID <= 0x7FF (standard range)
         let frame = CanFrame::new(EXT_LOW_ID, DATA).unwrap();
@@ -1398,15 +1590,12 @@ mod tests {
         assert!(!frame.is_remote_frame());
         assert!(frame.is_error_frame());
 
-        let err = frame.into_error();
-        match err {
+        match frame.into_error() {
             CanError::ProtocolViolation { vtype, location } => {
                 assert_eq!(vtype, errors::ViolationType::BitStuffingError);
                 assert_eq!(location, errors::Location::Id0400);
             }
-            _ => {
-                assert!(false);
-            }
+            _ => assert!(false),
         }
     }
 
@@ -1437,6 +1626,55 @@ mod tests {
         assert_eq!(EXT_LOW_ID, frame.id());
         assert!(!frame.is_standard());
         assert!(frame.is_extended());
+    }
+
+    #[test]
+    fn test_fd_ext_data_len() {
+        assert!(CanFdFrame::is_valid_data_len(8));
+        assert!(CanFdFrame::is_valid_data_len(12));
+        assert!(CanFdFrame::is_valid_data_len(24));
+        assert!(CanFdFrame::is_valid_data_len(64));
+
+        assert!(!CanFdFrame::is_valid_data_len(28));
+        assert!(!CanFdFrame::is_valid_data_len(42));
+        assert!(!CanFdFrame::is_valid_data_len(65));
+
+        assert_eq!(CanFdFrame::next_valid_ext_dlen(9), 12);
+        assert_eq!(CanFdFrame::next_valid_ext_dlen(13), 16);
+        assert_eq!(CanFdFrame::next_valid_ext_dlen(17), 20);
+        assert_eq!(CanFdFrame::next_valid_ext_dlen(21), 24);
+        assert_eq!(CanFdFrame::next_valid_ext_dlen(25), 32);
+        assert_eq!(CanFdFrame::next_valid_ext_dlen(33), 48);
+        assert_eq!(CanFdFrame::next_valid_ext_dlen(49), 64);
+
+        assert_eq!(CanFdFrame::next_valid_ext_dlen(99), 64);
+    }
+
+    #[test]
+    fn test_fd_frame_padding() {
+        // Creating a frame w/ invalid length should "pad up"
+        let mut frame = CanFdFrame::new(STD_ID, EXT_DATA_INVALID_DLEN).unwrap();
+
+        assert_eq!(frame.data(), EXT_DATA_PADDED);
+        assert_eq!(frame.len(), EXT_DATA_PADDED.len());
+        assert_eq!(frame.data().len(), frame.len());
+        assert_eq!(frame.dlc(), EXT_DATA_PADDED_DLC);
+
+        // Creating a frame w/ valid length
+        frame = CanFdFrame::new(STD_ID, EXT_DATA).unwrap();
+
+        assert_eq!(frame.data(), EXT_DATA);
+        assert_eq!(frame.len(), EXT_DATA.len());
+        assert_eq!(frame.data().len(), frame.len());
+        assert_eq!(frame.dlc(), EXT_DATA_DLC);
+
+        // Setting frame data to smaller length should pad w/ zeros
+        frame.set_data(EXT_DATA_INVALID_DLEN).unwrap();
+
+        assert_eq!(frame.data(), EXT_DATA_PADDED);
+        assert_eq!(frame.len(), EXT_DATA_PADDED.len());
+        assert_eq!(frame.data().len(), frame.len());
+        assert_eq!(frame.dlc(), EXT_DATA_PADDED_DLC);
     }
 
     #[test]

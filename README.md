@@ -1,5 +1,4 @@
-Rust SocketCAN
-==============
+# Rust SocketCAN
 
 This library implements Controller Area Network (CAN) communications on Linux using the SocketCAN subsystem. This provides a network socket interface to the CAN bus.
 
@@ -22,34 +21,29 @@ Additional implementation of the netlink control of the CAN interface was added 
 
 v3.2 increased the interface configuration coverage with Netlink, allowing an application to set most interface CAN parameters and query them all back.
 
-### What's New in Version 3.3
+### What's New in Version 3.4
 
-- [#53](https://github.com/socketcan-rs/socketcan-rs/pull/53) Added CanFD support for tokio
-- Serialized tokio unit tests and put them behind the "vcan_tests" feature
+Version 3.4.0 was primarily a service release to publish a number of new feature and bug fixes that had accumulated in the repository over the previous months. Those included:
 
-### What's New in Version 3.2
+- A new build feature, `enumerate` to provide code for enumerating CAN interfaces on the host.
+- Added a `CanId` type with better usability than `embedded_can::Id`
+- Fixes to the Flexible Data (CAN FD) implementation, including proper frame padding and DLC/length queries.
+- Made `CanState` public.
+- Improved and modernized the _tokio_ implementation.
 
-- [#32](https://github.com/socketcan-rs/socketcan-rs/issues/32) Further expanded netlink functionality:
-    - Added setters for most additional interface CAN parameters
-    - Ability to query back interface CAN parameters
-    - Expanded `InterfaceDetails` to include CAN-specific parameters
-    - Better integration of low-level types with `neli`
-    - Significant cleanup of the `nl` module
-    - Split the `nl` module into separate sources for higher and lower-level code
+For a full list of updates, see the [v3.4.0 CHANGELOG](https://github.com/socketcan-rs/socketcan-rs/blob/v3.4.0/CHANGELOG.md)
 
 ## Next Steps
 
 A number of items still did not make it into a release. These will be added in v3.x, coming soon.
 
 - Issue [#22](https://github.com/socketcan-rs/socketcan-rs/issues/22) Timestamps, including optional hardware timestamps
-- Better documentation. This README will be expanded with basic usage information, along with better doc comments, and perhaps creation of the wiki
-
 
 ## Minimum Supported Rust Version (MSRV)
 
-The current version of the crate targets Rust Edition 2021 with an MSRV of Rust v1.65.0.
+The current version of the crate targets Rust Edition 2021 with an MSRV of Rust v1.70.
 
-Note that, at this time, the MSRV is mostly diven by use of the `clap v4.0` crate for managing command-line parameters in the utilities and example applications. The core library could likely be built with an earlier version of the compiler if required.
+Note that, the core library can likely compile with an earlier version if dependencies are carefully selected, but tests are being done with the latest stable compiler and the stated MSRV.
 
 ## Async Support
 
