@@ -30,9 +30,14 @@
 //! a single device with a high priority (== low ID) can block communication
 //! on that bus by sending messages too fast.
 //!
+//! The CAN Flexible Data-Rate (CAN FD) standard extended the data payload up to
+//! 64 bytes and added the ability to increase the the bitrate for the data bit
+//! in the frame.
+//!
 //! The Linux socketcan subsystem makes the CAN bus available as a regular
-//! networking device. Opening an network interface allows receiving all CAN
-//! messages received on it. A device can be opened multiple times, every
+//! networking device. Opening a network interface allows an application to
+//! receive all CAN messages from the bus and/or to filter for specific messages
+//! based on the CAN ID field. A device can be opened multiple times, every
 //! client will receive all CAN frames simultaneously.
 //!
 //! Similarly, CAN frames can be sent to the bus by multiple client
@@ -40,17 +45,18 @@
 //!
 //! # Hardware and more information
 //!
-//! More information on CAN [can be found on Wikipedia](). When not running on
-//! an embedded platform with already integrated CAN components,
+//! More information on CAN can be found on
+//! [Wikipedia](https://en.wikipedia.org/wiki/CAN_bus).
+//! When not running on an embedded platform with already integrated CAN components,
 //! [Thomas Fischl's USBtin](http://www.fischl.de/usbtin/) (see
 //! [section 2.4](http://www.fischl.de/usbtin/#socketcan)) is one of many ways
 //! to get started.
 //!
-//! # RawFd
+//! # RawFd and OwnedFd
 //!
-//! Raw access to the underlying file descriptor and construction through
-//! is available through the `AsRawFd`, `IntoRawFd` and `FromRawFd`
-//! implementations.
+//! Raw access to the underlying file descriptor and construction through one
+//! is available through the `AsRawFd`, `IntoRawFd` and `FromRawFd`, and
+//! similar implementations.
 //!
 //! # Crate Features
 //!
@@ -65,6 +71,11 @@
 //!   Whether to include candump parsing capabilities.
 //!
 //! ### Non-default
+//!
+//! * **enumerate** -
+//!   Include the `enumerate` module which can be used to get a list of the CANbus
+//!   network interfaces attached to the host. This brings in the dependency for
+//!   [libudev](https://crates.io/crates/libudev)
 //!
 //! * **utils** -
 //!   Whether to build command-line utilities. This brings in additional

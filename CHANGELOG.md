@@ -2,10 +2,17 @@
 
 The change log for the Rust [socketcan](https://crates.io/crates/socketcan) library.
 
-## Unreleased in this branch
 
+## [Version 3.4.0](https://github.com/socketcan-rs/socketcan-rs/compare/v3.3.1..v3.4.0)  (2024-12-26)
+
+- Re-implemented CAN raw sockets using [socket2](https://crates.io/crates/socket2)
 - Added a 'CanId' type with more flexibility than embedded_can::Id
 - Moved from UD utility functions and types from frame module to id
+- Added a CAN FD example, [echo_fd](https://github.com/socketcan-rs/socketcan-rs/blob/master/examples/echo_fd.rs)
+- Split out `CanAddr` and related code into a new `addr` module.
+- New `CanRawFrame` encapsulatea either type of libc, raw, CAN frame (Classic or FD)
+- Raw frame reads for CanSocket and CanFdSocket.
+- Implemented `Read` and `Write` traits for `CanSocket`
 - InterfaceCanParams now has all items as Option<>. Can be used to get or set multiple options.
 - [#58](https://github.com/socketcan-rs/socketcan-rs/pull/58) Add new API to enumerate available SocketCAN interfaces
 - [#60](https://github.com/socketcan-rs/socketcan-rs/pull/60) Make `CanState` public
@@ -17,7 +24,7 @@ The change log for the Rust [socketcan](https://crates.io/crates/socketcan) libr
 - [#68](https://github.com/socketcan-rs/socketcan-rs/pull/68) remove unnecessary qualifications
 - [#73](https://github.com/socketcan-rs/socketcan-rs/pull/73) Update some dependencies
     - `itertools` to v0.13, `nix` to v0.29, `bitflags` to v2.6, `mio` to v1
-- [#74](https://github.com/socketcan-rs/socketcan-rs/pull/74) CanFDFrames with ExtendedID are not correctly parsed by socketcan::dump::Reader
+- [#74](https://github.com/socketcan-rs/socketcan-rs/issues/74) CanFDFrames with ExtendedID are not correctly parsed by socketcan::dump::Reader
 - [#75](https://github.com/socketcan-rs/socketcan-rs/pull/75) Fix DLC and add padding for CANFD frames
 - [#76](https://github.com/socketcan-rs/socketcan-rs/pull/76) Add CanCtrlModes::has_mode(mode: CanCtrlMode)
 - [#80](https://github.com/socketcan-rs/socketcan-rs/pull/80) Friendly non-Linux compilation error
