@@ -49,6 +49,9 @@ bitflags! {
         const BRS = CANFD_BRS as u8;
         /// Error state indicator of the transmitting node
         const ESI = CANFD_ESI as u8;
+        /// Mark CAN FD for dual use of struct canfd_frame
+        /// Added in Linux kernel v5.14
+        const FDF = 0x04u8;     // TODO: Sent upstream to libc 2024-12-27
     }
 }
 

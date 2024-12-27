@@ -752,6 +752,19 @@ impl AsRef<can_frame> for CanDataFrame {
 pub struct CanRemoteFrame(can_frame);
 
 impl CanRemoteFrame {
+    /// Initializes a CAN data frame from raw parts.
+    pub(crate) fn init(can_id: canid_t, len: usize) -> Result<Self, ConstructionError> {
+        match len {
+            n if n <= CAN_MAX_DLEN => {
+                let mut frame = can_frame_default();
+                frame.can_id = can_id | CAN_RTR_FLAG;
+                frame.can_dlc = n as u8;
+                Ok(Self(frame))
+            }
+            _ => Err(ConstructionError::TooMuchData),
+        }
+    }
+
     /// Sets the data length code for the frame
     pub fn set_dlc(&mut self, dlc: usize) -> Result<(), ConstructionError> {
         if dlc <= CAN_MAX_DLEN {
@@ -789,14 +802,8 @@ impl EmbeddedFrame for CanRemoteFrame {
     ///
     /// This will set the RTR flag in the CAN ID word.
     fn new_remote(id: impl Into<Id>, dlc: usize) -> Option<Self> {
-        if dlc <= CAN_MAX_DLEN {
-            let mut frame = can_frame_default();
-            frame.can_id = id_to_canid_t(id) | CAN_RTR_FLAG;
-            frame.can_dlc = dlc as u8;
-            Some(Self(frame))
-        } else {
-            None
-        }
+        let can_id = id_to_canid_t(id);
+        Self::init(can_id, dlc).ok()
     }
 
     /// Check if frame uses 29-bit extended ID format.

@@ -11,58 +11,61 @@
 
 //! candump format parsing
 //!
-//! Parses the text format emitted by the `candump` utility, which is part of
-//! [can-utils](https://github.com/linux-can/can-utils).
+//! Parses the text log format emitted by the `candump` utility, which is
+//! part of [can-utils](https://github.com/linux-can/can-utils).
 //!
 //! Example:
 //!
 //! ```text
-//! (1469439874.299654) can1 701#7F
+//! (1735270496.916858) can0 110#00112233
+//! (1735270509.245511) can0 110#44556677
+//! (1735270588.936508) can0 120##500112233445566778899AABB
+//! (1735270606.171980) can0 122##500112233445566778899AABBCC000000
+//! (1735279041.257318) can1 104#R
+//! (1735279048.349278) can1 110#R4
+//! (1469439874.299654) can1 104#
 //! ```
 //!
 //! Can be parsed by a `Reader` object. The API is inspired by the
 //! [csv](https://crates.io/crates/csv) crate.
 
 use crate::{
-    id::{FdFlags, IdFlags},
-    CanAnyFrame, CanDataFrame, CanFdFrame, CanFrame, ConstructionError,
+    id::{id_from_raw, FdFlags},
+    CanAnyFrame, CanDataFrame, CanFdFrame, CanFrame, CanRemoteFrame, ConstructionError,
 };
-use embedded_can::StandardId;
+use embedded_can::Frame;
 use hex::FromHex;
 use libc::canid_t;
-use std::{fs, io, path, str};
-
-// cannot be generic, because from_str_radix is not part of any Trait
-fn parse_raw(bytes: &[u8], radix: u32) -> Option<u64> {
-    str::from_utf8(bytes)
-        .ok()
-        .and_then(|s| u64::from_str_radix(s, radix).ok())
-}
+use std::{
+    fs::File,
+    io::{self, BufRead, BufReader},
+    path::Path,
+    str,
+};
 
 #[derive(Debug)]
 /// A CAN log reader.
 pub struct Reader<R> {
+    // The underlying reader
     rdr: R,
-    line_buf: Vec<u8>,
+    // The line buffer
+    buf: String,
 }
 
 impl<R: io::Read> Reader<R> {
     /// Creates an I/O buffered reader from a CAN log reader.
-    pub fn from_reader(rdr: R) -> Reader<io::BufReader<R>> {
+    pub fn from_reader(rdr: R) -> Reader<BufReader<R>> {
         Reader {
-            rdr: io::BufReader::new(rdr),
-            line_buf: Vec::new(),
+            rdr: BufReader::new(rdr),
+            buf: String::with_capacity(256),
         }
     }
 }
 
-impl Reader<fs::File> {
+impl Reader<File> {
     /// Creates an I/O buffered reader from a file.
-    pub fn from_file<P>(path: P) -> io::Result<Reader<io::BufReader<fs::File>>>
-    where
-        P: AsRef<path::Path>,
-    {
-        Ok(Reader::from_reader(fs::File::open(path)?))
+    pub fn from_file<P: AsRef<Path>>(path: P) -> io::Result<Reader<BufReader<File>>> {
+        Ok(Reader::from_reader(File::open(path)?))
     }
 }
 
@@ -112,7 +115,7 @@ impl From<ConstructionError> for ParseError {
     }
 }
 
-impl<R: io::BufRead> Reader<R> {
+impl<R: BufRead> Reader<R> {
     /// Returns an iterator over all records
     pub fn records(&mut self) -> CanDumpRecords<R> {
         CanDumpRecords { src: self }
@@ -120,92 +123,87 @@ impl<R: io::BufRead> Reader<R> {
 
     /// Advance state, returning next record.
     pub fn next_record(&mut self) -> Result<Option<CanDumpRecord>, ParseError> {
-        self.line_buf.clear();
-        let bytes_read = self.rdr.read_until(b'\n', &mut self.line_buf)?;
+        self.buf.clear();
+        let nread = self.rdr.read_line(&mut self.buf)?;
 
         // reached EOF
-        if bytes_read == 0 {
+        if nread == 0 {
             return Ok(None);
         }
 
-        let mut field_iter = self.line_buf.split(|&c| c == b' ');
+        let line = self.buf[..nread].trim();
+        let mut field_iter = line.split(' ');
 
-        // parse time field
-        let f = field_iter.next().ok_or(ParseError::UnexpectedEndOfLine)?;
+        // parse timestamp field
+        let ts = field_iter.next().ok_or(ParseError::UnexpectedEndOfLine)?;
 
-        if f.len() < 3 || f[0] != b'(' || f[f.len() - 1] != b')' {
+        if ts.len() < 3 || !ts.starts_with('(') || !ts.ends_with(')') {
             return Err(ParseError::InvalidTimestamp);
         }
 
-        let inner = &f[1..f.len() - 1];
+        let ts = &ts[1..ts.len() - 1];
 
-        // split at dot, read both parts
-        let dot = inner
-            .iter()
-            .position(|&c| c == b'.')
-            .ok_or(ParseError::InvalidTimestamp)?;
-
-        let (num, mant) = inner.split_at(dot);
-
-        // parse number and multiply
-        let n_num: u64 = parse_raw(num, 10).ok_or(ParseError::InvalidTimestamp)?;
-        let n_mant: u64 = parse_raw(&mant[1..], 10).ok_or(ParseError::InvalidTimestamp)?;
-        let t_us = n_num.saturating_mul(1_000_000).saturating_add(n_mant);
-
-        let f = field_iter.next().ok_or(ParseError::UnexpectedEndOfLine)?;
+        let t_us = match ts.split_once('.') {
+            Some((num, mant)) => {
+                // parse number and multiply
+                let num = num
+                    .parse::<u64>()
+                    .map_err(|_| ParseError::InvalidTimestamp)?;
+                let mant = mant
+                    .parse::<u64>()
+                    .map_err(|_| ParseError::InvalidTimestamp)?;
+                num.saturating_mul(1_000_000).saturating_add(mant)
+            }
+            _ => return Err(ParseError::InvalidTimestamp),
+        };
 
         // device name
-        let device = str::from_utf8(f).map_err(|_| ParseError::InvalidDeviceName)?;
+        let device = field_iter.next().ok_or(ParseError::UnexpectedEndOfLine)?;
 
         // parse packet
         let can_raw = field_iter.next().ok_or(ParseError::UnexpectedEndOfLine)?;
 
-        let sep_idx = can_raw
-            .iter()
-            .position(|&c| c == b'#')
+        let (can_id_str, mut can_data) = match can_raw.split_once('#') {
+            Some((id, data)) => (id, data),
+            _ => return Err(ParseError::InvalidCanFrame),
+        };
+
+        // Parse the CAN ID
+        let can_id = canid_t::from_str_radix(can_id_str, 16)
+            .ok()
+            .and_then(id_from_raw)
             .ok_or(ParseError::InvalidCanFrame)?;
-        let (can_id_str, mut can_data) = can_raw.split_at(sep_idx);
 
-        // determine frame type (FD or classical) and skip separator(s)
-        let mut fd_flags = FdFlags::empty();
-        let is_fd_frame = if let Some(&b'#') = can_data.get(1) {
-            fd_flags = FdFlags::from_bits_truncate(can_data[2]);
-            can_data = &can_data[3..];
-            true
-        } else {
+        // Determine frame type (FD or classical) and skip separator(s)
+        // Remember...
+        //   CAN FD: "<canid>##<flags>[data]"
+        //   Remote: "<canid>#R[len]"
+        //   Data;   "<canid>#[data]"
+
+        let frame: CanAnyFrame = if can_data.starts_with('#') {
+            let fd_flags = can_data
+                .get(1..2)
+                .and_then(|s| u8::from_str_radix(s, 16).ok())
+                .map(FdFlags::from_bits_truncate)
+                .ok_or(ParseError::InvalidCanFrame)?;
+            Vec::from_hex(&can_data[2..])
+                .ok()
+                .and_then(|data| CanFdFrame::with_flags(can_id, &data, fd_flags))
+                .map(CanAnyFrame::Fd)
+        } else if can_data.starts_with('R') {
             can_data = &can_data[1..];
-            false
-        };
-
-        // cut of linefeed
-        if let Some(&b'\n') = can_data.last() {
-            can_data = &can_data[..can_data.len() - 1];
-        };
-        // cut off \r
-        if let Some(&b'\r') = can_data.last() {
-            can_data = &can_data[..can_data.len() - 1];
-        };
-
-        let mut can_id = (parse_raw(can_id_str, 16).ok_or(ParseError::InvalidCanFrame)?) as canid_t;
-        let mut id_flags = IdFlags::empty();
-        id_flags.set(IdFlags::RTR, b"R" == can_data);
-        id_flags.set(IdFlags::EFF, can_id >= StandardId::MAX.as_raw() as canid_t);
-        // TODO: How are error frames saved?
-        can_id |= id_flags.bits();
-
-        let data = if id_flags.contains(IdFlags::RTR) {
-            vec![]
+            let rlen = can_data.parse::<usize>().unwrap_or(0);
+            CanRemoteFrame::new_remote(can_id, rlen)
+                .map(CanFrame::Remote)
+                .map(CanAnyFrame::from)
         } else {
-            Vec::from_hex(can_data).map_err(|_| ParseError::InvalidCanFrame)?
-        };
-
-        let frame: CanAnyFrame = if is_fd_frame {
-            CanFdFrame::init(can_id, &data, fd_flags).map(CanAnyFrame::Fd)
-        } else {
-            CanDataFrame::init(can_id, &data)
+            Vec::from_hex(can_data)
+                .ok()
+                .and_then(|data| CanDataFrame::new(can_id, &data))
                 .map(CanFrame::Data)
                 .map(CanAnyFrame::from)
-        }?;
+        }
+        .ok_or(ParseError::InvalidCanFrame)?;
 
         Ok(Some(CanDumpRecord {
             t_us,
@@ -215,7 +213,7 @@ impl<R: io::BufRead> Reader<R> {
     }
 }
 
-impl<R: io::Read> Iterator for CanDumpRecords<'_, io::BufReader<R>> {
+impl<R: io::Read> Iterator for CanDumpRecords<'_, BufReader<R>> {
     type Item = Result<(u64, CanAnyFrame), ParseError>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -314,10 +312,52 @@ mod test {
         assert!(reader.next_record().unwrap().is_none());
     }
 
+    #[test]
+    fn test_remote() {
+        let input: &[u8] = b"(1469439874.299591) can0 080080#R\n\
+                             (1469439874.299654) can0 053701#R4";
+
+        let mut reader = Reader::from_reader(input);
+
+        let rec1 = reader.next_record().unwrap().unwrap();
+
+        assert_eq!(rec1.t_us, 1469439874299591);
+        assert_eq!(rec1.device, "can0");
+
+        if let CanAnyFrame::Remote(frame) = rec1.frame {
+            assert_eq!(frame.raw_id(), 0x080080);
+            assert!(!frame.is_data_frame());
+            assert!(frame.is_remote_frame());
+            assert!(!frame.is_error_frame());
+            assert!(frame.is_extended());
+            assert_eq!(frame.len(), 0);
+            assert_eq!(frame.data(), &[]);
+        } else {
+            panic!("Expected Remote frame");
+        }
+
+        let rec2 = reader.next_record().unwrap().unwrap();
+        assert_eq!(rec2.t_us, 1469439874299654);
+        assert_eq!(rec2.device, "can0");
+
+        if let CanAnyFrame::Remote(frame) = rec2.frame {
+            assert_eq!(frame.raw_id(), 0x053701);
+            assert!(!frame.is_data_frame());
+            assert!(frame.is_remote_frame());
+            assert!(!frame.is_error_frame());
+            assert!(frame.is_extended());
+            assert_eq!(frame.len(), 4);
+        } else {
+            panic!("Expected Remote frame");
+        }
+
+        assert!(reader.next_record().unwrap().is_none());
+    }
+
     // Issue #74
     #[test]
     fn test_extended_id_fd() {
-        let input: &[u8] = b"(1234.567890) can0 12345678##500112233445566778899AABBCCDDEEFF";
+        let input: &[u8] = b"(1234.567890) can0 12345678##500112233445566778899AABB";
 
         let mut reader = Reader::from_reader(input);
         let rec = reader.next_record().unwrap().unwrap();
@@ -325,6 +365,14 @@ mod test {
 
         assert!(frame.is_extended());
         assert_eq!(0x12345678, frame.raw_id());
+        assert_eq!(5, frame.flags().bits());
+        assert_eq!(frame.dlc(), 0x09);
+        assert_eq!(frame.len(), 12);
+        assert_eq!(frame.data().len(), 12);
+        assert_eq!(
+            frame.data(),
+            &[0x0, 0x011, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB]
+        );
     }
 
     #[test]
@@ -345,6 +393,10 @@ mod test {
             assert!(!frame.is_extended());
             assert!(!frame.is_brs());
             assert!(!frame.is_esi());
+            assert_eq!(0, frame.flags().bits());
+            assert_eq!(frame.dlc(), 0);
+            assert_eq!(frame.len(), 0);
+            assert_eq!(frame.data().len(), 0);
             assert_eq!(frame.data(), &[]);
         } else {
             panic!("Expected FD frame, got Normal");
@@ -360,6 +412,10 @@ mod test {
             assert!(!frame.is_extended());
             assert!(frame.is_brs());
             assert!(!frame.is_esi());
+            assert_eq!(1, frame.flags().bits());
+            assert_eq!(frame.dlc(), 1);
+            assert_eq!(frame.len(), 1);
+            assert_eq!(frame.data().len(), 1);
             assert_eq!(frame.data(), &[0x7F]);
         } else {
             panic!("Expected FD frame, got Normal");

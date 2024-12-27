@@ -3,6 +3,18 @@
 The change log for the Rust [socketcan](https://crates.io/crates/socketcan) library.
 
 
+## Unreleased features
+
+- Added FdFlags::FDF bit mask for CANFD_FDF
+- Updates to dump module: 
+    - Re-implemented with text parsing
+    - Parses FdFlags field properly 
+    - CANFD_FDF bit flag recognized on input
+    - Fixed reading remote frames
+    - Now reads remote length
+    - New unit tests
+
+
 ## [Version 3.4.0](https://github.com/socketcan-rs/socketcan-rs/compare/v3.3.1..v3.4.0)  (2024-12-26)
 
 - Re-implemented CAN raw sockets using [socket2](https://crates.io/crates/socket2)
