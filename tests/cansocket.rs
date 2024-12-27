@@ -24,7 +24,7 @@ const VCAN: &str = "vcan0";
 
 #[cfg(feature = "vcan_tests")]
 #[test]
-fn test_nonexistant_device() {
+fn test_nonexistent_device() {
     assert!(CanSocket::open("invalid").is_err());
 }
 

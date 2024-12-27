@@ -84,7 +84,7 @@ pub fn id_is_extended(id: &Id) -> bool {
 /// Creates a CAN ID from a raw integer value.
 ///
 /// If the `id` is <= 0x7FF, it's assumed to be a standard ID, otherwise
-/// it is created as an Extened ID. If you require an Extended ID <= 0x7FF,
+/// it is created as an Extended ID. If you require an Extended ID <= 0x7FF,
 /// create it explicitly.
 pub fn id_from_raw(id: u32) -> Option<Id> {
     let id = match id {
@@ -201,7 +201,7 @@ impl From<CanId> for Id {
 /// Creates a CAN ID from a raw integer value.
 ///
 /// If the `id` is <= 0x7FF, it's assumed to be a standard ID, otherwise
-/// it is created as an Extened ID. If you require an Extended ID <= 0x7FF,
+/// it is created as an Extended ID. If you require an Extended ID <= 0x7FF,
 /// create it explicitly.
 impl TryFrom<u32> for CanId {
     type Error = Error;

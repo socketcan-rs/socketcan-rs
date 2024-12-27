@@ -15,7 +15,7 @@
 //! the socketcan crate.
 //!
 //! For SocketCAN, netlink is the primary way for a user-space application to
-//! query or set the paramaters of a CAN interface, such as the bitrate, the
+//! query or set the parameters of a CAN interface, such as the bitrate, the
 //! control mode bits, and so forth. It also allows the application to get
 //! statistics from the interface and send commands to it, including
 //! performing a bus restart.
@@ -30,7 +30,7 @@
 //!
 //! The CAN netlink header file for the Linux kernel has the definition of
 //! the constants and data structures that are sent back and forth to the
-//! kernel over nelink. It can be found in the Linux sources here:
+//! kernel over netlink. It can be found in the Linux sources here:
 //!
 //! <https://github.com/torvalds/linux/blob/master/include/uapi/linux/can/netlink.h?ts=4>
 //!
@@ -966,6 +966,7 @@ impl CanInterface {
 
 /////////////////////////////////////////////////////////////////////////////
 
+/// Netlink tests for SocketCAN control
 #[cfg(feature = "netlink_tests")]
 #[cfg(test)]
 pub mod tests {
@@ -994,6 +995,7 @@ pub mod tests {
     }
 
     impl TemporaryInterface {
+        /// Creates a temporaty interface
         #[allow(unused)]
         pub fn new(name: &str) -> NlResult<Self> {
             Ok(Self {

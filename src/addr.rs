@@ -22,7 +22,7 @@ pub use libc::{AF_CAN, CAN_RAW, PF_CAN};
 
 /// CAN socket address.
 ///
-/// This is the address for use with CAN sockets. It is simply an addres to
+/// This is the address for use with CAN sockets. It is simply an address to
 /// the SocketCAN host interface. It can be created by looking up the name
 /// of the interface, like "can0", "vcan0", etc, or an interface index can
 /// be specified directly, if known. An index of zero can be used to read

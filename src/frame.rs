@@ -110,7 +110,7 @@ pub trait Frame: EmbeddedFrame {
     /// Creates a frame using a raw, integer CAN ID.
     ///
     /// If the `id` is <= 0x7FF, it's assumed to be a standard ID, otherwise
-    /// it is created as an Extened ID. If you require an Etended ID <= 0x7FF,
+    /// it is created as an Extended ID. If you require an Extended ID <= 0x7FF,
     /// use `new()`.
     fn from_raw_id(id: u32, data: &[u8]) -> Option<Self> {
         Self::new(id_from_raw(id)?, data)
@@ -119,7 +119,7 @@ pub trait Frame: EmbeddedFrame {
     /// Creates a remote frame using a raw, integer CAN ID.
     ///
     /// If the `id` is <= 0x7FF, it's assumed to be a standard ID, otherwise
-    /// it is created as an Extened ID. If you require an Etended ID <= 0x7FF,
+    /// it is created as an Extended ID. If you require an Extended ID <= 0x7FF,
     /// use `new_remote()`.
     fn remote_from_raw_id(id: u32, dlc: usize) -> Option<Self> {
         Self::new_remote(id_from_raw(id)?, dlc)
@@ -1559,7 +1559,7 @@ mod tests {
 
     #[test]
     fn test_error_frame() {
-        // Create an error frame indicating transciever error
+        // Create an error frame indicating transceiver error
         // from a C frame.
         let mut frame = can_frame_default();
         frame.can_id = CAN_ERR_FLAG | 0x0010;

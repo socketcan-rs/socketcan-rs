@@ -13,11 +13,11 @@ Please see the [documentation](https://docs.rs/socketcan) for details about the 
 
 Version 3.0 adds integrated support for async/await, with the most popular runtimes, _tokio, async-std_, and _smol_.  We have merged the [tokio-socketcan](https://github.com/oefd/tokio-socketcan) crate into this one and implemented `async-io`.
 
-Unfortunaly this required a minor breaking change to the existing API, so we bumped the version to 3.0.
+Unfortunately this required a minor breaking change to the existing API, so we bumped the version to 3.0.
 
 The async support is optional, and can be enabled with a feature for the target runtime: `tokio`, `async-std`, or `smol`.
 
-Additional implementation of the netlink control of the CAN interface was added in v3.1 allowing an application to do things like set the bitrate on the interface, set control modes, restart the inteface, etc.
+Additional implementation of the netlink control of the CAN interface was added in v3.1 allowing an application to do things like set the bitrate on the interface, set control modes, restart the interface, etc.
 
 v3.2 increased the interface configuration coverage with Netlink, allowing an application to set most interface CAN parameters and query them all back.
 

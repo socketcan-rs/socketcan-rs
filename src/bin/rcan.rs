@@ -94,7 +94,7 @@ fn iface_cmd(iface_name: &str, opts: &ArgMatches) -> Result<()> {
 #[cfg(not(feature = "netlink"))]
 fn iface_cmd(_iface_name: &str, _opts: &ArgMatches) -> Result<()> {
     Err(anyhow!(
-        "The 'netlink' feature is required to configure an inteface."
+        "The 'netlink' feature is required to configure an interface."
     ))
 }
 

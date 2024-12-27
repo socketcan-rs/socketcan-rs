@@ -100,6 +100,17 @@
 //!   with a submodule aliased for [smol](https://crates.io/crates/smol) and examples
 //!   for that runtime.
 //!
+//! ### Test Features
+//!
+//! Additional test can be built and run, but have requirements:
+//!
+//! * **vcan_tests** -
+//!   Requires a virtual CAN interface to be installed on the host. This can be done
+//!   by running the `vcan.sh` script included with the crate.
+//!
+//! * **netlink_tests** -
+//!   Requires superuser privileges to run/pass.
+//!
 
 // clippy: do not warn about things like "SocketCAN" inside the docs
 #![allow(clippy::doc_markdown)]

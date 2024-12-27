@@ -68,7 +68,7 @@ fn main() -> anyhow::Result<()> {
 
             if let Some(echo_frame) = CanFdFrame::new(new_id, frame.data()) {
                 sock.write_frame(&echo_frame)
-                    .expect("Failed to echo recieved frame");
+                    .expect("Failed to echo received frame");
             }
         }
     }

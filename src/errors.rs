@@ -227,7 +227,7 @@ impl From<CanErrorFrame> for CanError {
 
 // ===== ControllerProblem =====
 
-/// Error status of the CAN conroller.
+/// Error status of the CAN controller.
 ///
 /// This is derived from `data[1]` of an error frame
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
@@ -360,7 +360,7 @@ impl TryFrom<u8> for ViolationType {
 /// The location of a CANbus protocol violation.
 ///
 /// This describes the position inside a received frame (as in the field
-/// or bit) at which an error occured.
+/// or bit) at which an error occurred.
 ///
 /// This is derived from `data[3]` of an error frame.
 #[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
@@ -557,7 +557,7 @@ pub enum CanErrorDecodingFailure {
     /// A location was specified for a ProtocolViolation, but the location
     /// was not valid.
     InvalidLocation,
-    /// The supplied transciever error was invalid.
+    /// The supplied transceiver error was invalid.
     InvalidTransceiverError,
 }
 

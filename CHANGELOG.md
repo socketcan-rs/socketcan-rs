@@ -87,7 +87,7 @@ The change log for the Rust [socketcan](https://crates.io/crates/socketcan) libr
 
 ## [Version 2.1.0](https://github.com/socketcan-rs/socketcan-rs/compare/v2.0.0..v2.1.0)  (2023-09-19)
 
-- Made `CanAddr` pulic and added functions to help interact with low-level sockaddr types. Sockets can now be opened with an address.
+- Made `CanAddr` public and added functions to help interact with low-level sockaddr types. Sockets can now be opened with an address.
 - Can create an `Error` directly from a `CanErrorFrame` or `std::io::ErrorKind`.
 - [#46](https://github.com/socketcan-rs/socketcan-rs/issues/46)  Applications can create error frames:
     - `CanErrorFrame::new()` now works.
@@ -102,8 +102,8 @@ The change log for the Rust [socketcan](https://crates.io/crates/socketcan) libr
 Extensive rework of the crate to cleanup, refactor, and modernize the library and add some new features like CAN FD support.
 
 - Moved to Rust Edition 2021 w/ MSRV 1.64
-- Refactored frames into differnt types: Data, Remote, Error (and now FD), that can be managed through enumeraed wraper types `CanFrame` and/or `CanFdFrame`
-- Pushed some implementation upsream to the _libc_ and _nix_ crates, and/or adapted upstream types.
+- Refactored frames into different types: Data, Remote, Error (and now FD), that can be managed through enumeraed wrapper types `CanFrame` and/or `CanFdFrame`
+- Pushed some implementation upstream to the _libc_ and _nix_ crates, and/or adapted upstream types.
      - CAN 2.0 frames based on `libc::can_frame`
      - CAN FD frames based on `libc::canfd_frame`
 - [#33](https://github.com/socketcan-rs/socketcan-rs/pull/33) Netlink extensions

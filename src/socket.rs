@@ -212,7 +212,7 @@ pub trait Socket: AsRawFd {
     /// with the primary difference between a `CanFrame` and a `CanFdFrame`.
     type FrameType;
 
-    /// Gets the read timout on the socket, if any.
+    /// Gets the read timeout on the socket, if any.
     fn read_timeout(&self) -> IoResult<Option<Duration>> {
         self.as_raw_socket().read_timeout()
     }
