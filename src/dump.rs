@@ -29,15 +29,15 @@ use crate::{
 };
 use embedded_can::StandardId;
 use hex::FromHex;
+use lazy_static::lazy_static;
 use libc::canid_t;
-use std::{fs, io, path, str};
-
-// cannot be generic, because from_str_radix is not part of any Trait
-fn parse_raw(bytes: &[u8], radix: u32) -> Option<u64> {
-    str::from_utf8(bytes)
-        .ok()
-        .and_then(|s| u64::from_str_radix(s, radix).ok())
-}
+use regex::Regex;
+use std::{
+    fs::File,
+    io::{self, BufRead, BufReader},
+    path::Path,
+    str,
+};
 
 #[derive(Debug)]
 /// A CAN log reader.
@@ -48,21 +48,18 @@ pub struct Reader<R> {
 
 impl<R: io::Read> Reader<R> {
     /// Creates an I/O buffered reader from a CAN log reader.
-    pub fn from_reader(rdr: R) -> Reader<io::BufReader<R>> {
+    pub fn from_reader(rdr: R) -> Reader<BufReader<R>> {
         Reader {
-            rdr: io::BufReader::new(rdr),
+            rdr: BufReader::new(rdr),
             line_buf: Vec::new(),
         }
     }
 }
 
-impl Reader<fs::File> {
+impl Reader<File> {
     /// Creates an I/O buffered reader from a file.
-    pub fn from_file<P>(path: P) -> io::Result<Reader<io::BufReader<fs::File>>>
-    where
-        P: AsRef<path::Path>,
-    {
-        Ok(Reader::from_reader(fs::File::open(path)?))
+    pub fn from_file<P: AsRef<Path>>(path: P) -> io::Result<Reader<BufReader<File>>> {
+        Ok(Reader::from_reader(File::open(path)?))
     }
 }
 
@@ -112,7 +109,14 @@ impl From<ConstructionError> for ParseError {
     }
 }
 
-impl<R: io::BufRead> Reader<R> {
+lazy_static! {
+    // Matches a candump line
+    static ref RE_DUMP: Regex = Regex::new(
+        r"\s*\((?P<t_num>[0-9]+)\.(?P<t_mant>[0-9]*)\)\s+(?P<iface>\w+)\s+(?P<can_id>[0-9A-Fa-f]+)(((?P<fd_sep>\#\#)(?P<fd_flags>[0-9A-Fa-f]))|(?P<sep>\#))(?P<data>[0-9A-Fa-f\s]*)"
+    ).unwrap();
+}
+
+impl<R: BufRead> Reader<R> {
     /// Returns an iterator over all records
     pub fn records(&mut self) -> CanDumpRecords<R> {
         CanDumpRecords { src: self }
@@ -123,83 +127,65 @@ impl<R: io::BufRead> Reader<R> {
         self.line_buf.clear();
         let bytes_read = self.rdr.read_until(b'\n', &mut self.line_buf)?;
 
-        // reached EOF
         if bytes_read == 0 {
             return Ok(None);
         }
 
-        let mut field_iter = self.line_buf.split(|&c| c == b' ');
+        let line = str::from_utf8(&self.line_buf[..bytes_read])
+            .map_err(|_| ParseError::InvalidCanFrame)?;
 
-        // parse time field
-        let f = field_iter.next().ok_or(ParseError::UnexpectedEndOfLine)?;
+        let caps = RE_DUMP
+            .captures(line)
+            .ok_or(ParseError::UnexpectedEndOfLine)?;
 
-        if f.len() < 3 || f[0] != b'(' || f[f.len() - 1] != b')' {
-            return Err(ParseError::InvalidTimestamp);
-        }
-
-        let inner = &f[1..f.len() - 1];
-
-        // split at dot, read both parts
-        let dot = inner
-            .iter()
-            .position(|&c| c == b'.')
+        let t_num: u64 = caps
+            .name("t_num")
+            .and_then(|m| m.as_str().parse::<u64>().ok())
             .ok_or(ParseError::InvalidTimestamp)?;
 
-        let (num, mant) = inner.split_at(dot);
+        let t_mant: u64 = caps
+            .name("t_mant")
+            .and_then(|m| m.as_str().parse::<u64>().ok())
+            .ok_or(ParseError::InvalidTimestamp)?;
 
-        // parse number and multiply
-        let n_num: u64 = parse_raw(num, 10).ok_or(ParseError::InvalidTimestamp)?;
-        let n_mant: u64 = parse_raw(&mant[1..], 10).ok_or(ParseError::InvalidTimestamp)?;
-        let t_us = n_num.saturating_mul(1_000_000).saturating_add(n_mant);
+        let t_us = t_num.saturating_mul(1_000_000).saturating_add(t_mant);
 
-        let f = field_iter.next().ok_or(ParseError::UnexpectedEndOfLine)?;
+        let device = caps
+            .name("iface")
+            .map(|m| m.as_str())
+            //.map(String::from)
+            .ok_or(ParseError::InvalidDeviceName)?;
 
-        // device name
-        let device = str::from_utf8(f).map_err(|_| ParseError::InvalidDeviceName)?;
+        let is_fd_frame = caps.name("fd_sep").is_some();
 
-        // parse packet
-        let can_raw = field_iter.next().ok_or(ParseError::UnexpectedEndOfLine)?;
-
-        let sep_idx = can_raw
-            .iter()
-            .position(|&c| c == b'#')
+        let mut can_id: canid_t = caps
+            .name("can_id")
+            .and_then(|m| canid_t::from_str_radix(m.as_str(), 16).ok())
             .ok_or(ParseError::InvalidCanFrame)?;
-        let (can_id_str, mut can_data) = can_raw.split_at(sep_idx);
 
-        // determine frame type (FD or classical) and skip separator(s)
-        let mut fd_flags = FdFlags::empty();
-        let is_fd_frame = if let Some(&b'#') = can_data.get(1) {
-            fd_flags = FdFlags::from_bits_truncate(can_data[2]);
-            can_data = &can_data[3..];
-            true
-        } else {
-            can_data = &can_data[1..];
-            false
-        };
+        let can_data = caps
+            .name("data")
+            .map(|m| m.as_str().trim())
+            .ok_or(ParseError::InvalidCanFrame)?;
 
-        // cut of linefeed
-        if let Some(&b'\n') = can_data.last() {
-            can_data = &can_data[..can_data.len() - 1];
-        };
-        // cut off \r
-        if let Some(&b'\r') = can_data.last() {
-            can_data = &can_data[..can_data.len() - 1];
-        };
-
-        let mut can_id = (parse_raw(can_id_str, 16).ok_or(ParseError::InvalidCanFrame)?) as canid_t;
         let mut id_flags = IdFlags::empty();
-        id_flags.set(IdFlags::RTR, b"R" == can_data);
+        id_flags.set(IdFlags::RTR, "R" == can_data);
         id_flags.set(IdFlags::EFF, can_id >= StandardId::MAX.as_raw() as canid_t);
         // TODO: How are error frames saved?
         can_id |= id_flags.bits();
 
-        let data = if id_flags.contains(IdFlags::RTR) {
-            vec![]
-        } else {
-            Vec::from_hex(can_data).map_err(|_| ParseError::InvalidCanFrame)?
+        let data = match id_flags.contains(IdFlags::RTR) {
+            true => vec![],
+            false => Vec::from_hex(can_data).map_err(|_| ParseError::InvalidCanFrame)?,
         };
 
         let frame: CanAnyFrame = if is_fd_frame {
+            let fd_flags: FdFlags = caps
+                .name("fd_flags")
+                .and_then(|m| u8::from_str_radix(m.as_str(), 16).ok())
+                .map(FdFlags::from_bits_truncate)
+                .ok_or(ParseError::InvalidCanFrame)?;
+
             CanFdFrame::init(can_id, &data, fd_flags).map(CanAnyFrame::Fd)
         } else {
             CanDataFrame::init(can_id, &data)
@@ -215,7 +201,7 @@ impl<R: io::BufRead> Reader<R> {
     }
 }
 
-impl<R: io::Read> Iterator for CanDumpRecords<'_, io::BufReader<R>> {
+impl<R: io::Read> Iterator for CanDumpRecords<'_, BufReader<R>> {
     type Item = Result<(u64, CanAnyFrame), ParseError>;
 
     fn next(&mut self) -> Option<Self::Item> {
