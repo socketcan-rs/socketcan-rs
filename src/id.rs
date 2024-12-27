@@ -22,6 +22,10 @@ pub use libc::{
     CAN_MAX_DLEN, CAN_RTR_FLAG, CAN_SFF_MASK,
 };
 
+// TODO: This was sent upstream to libc 2024-12-27
+/// Mark CAN FD for dual use of struct canfd_frame
+pub const CANFD_FDF: libc::c_int = 0x04;
+
 /// An error mask that will cause SocketCAN to report all errors
 pub const ERR_MASK_ALL: u32 = CAN_ERR_MASK;
 
@@ -51,7 +55,7 @@ bitflags! {
         const ESI = CANFD_ESI as u8;
         /// Mark CAN FD for dual use of struct canfd_frame
         /// Added in Linux kernel v5.14
-        const FDF = 0x04u8;     // TODO: Sent upstream to libc 2024-12-27
+        const FDF = CANFD_FDF as u8;
     }
 }
 

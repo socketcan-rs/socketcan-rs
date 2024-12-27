@@ -42,7 +42,7 @@ use std::{
 
 // TODO: Remove these on the next major ver update.
 pub use crate::id::{
-    id_from_raw, id_is_extended, id_to_canid_t, FdFlags, IdFlags, CANFD_BRS, CANFD_ESI,
+    id_from_raw, id_is_extended, id_to_canid_t, FdFlags, IdFlags, CANFD_BRS, CANFD_ESI, CANFD_FDF,
     CANFD_MAX_DLEN, CAN_EFF_FLAG, CAN_EFF_MASK, CAN_ERR_FLAG, CAN_ERR_MASK, CAN_MAX_DLEN,
     CAN_RTR_FLAG, CAN_SFF_MASK, ERR_MASK_ALL, ERR_MASK_NONE,
 };
@@ -1014,7 +1014,7 @@ impl EmbeddedFrame for CanErrorFrame {
     }
 
     /// A slice into the actual data.
-    /// An error frame can always acess the full 8-byte data payload.
+    /// An error frame can always access the full 8-byte data payload.
     fn data(&self) -> &[u8] {
         &self.0.data[..]
     }
@@ -1119,6 +1119,9 @@ const VALID_EXT_DLENGTHS: [usize; 7] = [12, 16, 20, 24, 32, 48, 64];
 /// Payload data that is greater than 8 bytes and whose data length does
 /// not match a valid CANFD data length is padded with 0 bytes to the
 /// next higher valid CANFD data length.
+///
+/// Note:
+///   - The FDF flag is forced on when created.
 #[derive(Clone, Copy)]
 pub struct CanFdFrame(canfd_frame);
 
@@ -1139,7 +1142,7 @@ impl CanFdFrame {
             n if n <= CANFD_MAX_DLEN => {
                 let mut frame = canfd_frame_default();
                 frame.can_id = can_id;
-                frame.flags = fd_flags.bits();
+                frame.flags = (fd_flags | FdFlags::FDF).bits();
                 frame.data[..n].copy_from_slice(data);
                 frame.len = Self::next_valid_ext_dlen(n) as u8;
                 Ok(Self(frame))
@@ -1270,7 +1273,7 @@ impl EmbeddedFrame for CanFdFrame {
 
     /// A slice into the actual data.
     ///
-    /// For normal CAN frames the slice will always be <= 8 bytes in length.
+    /// This should only be one of the valid CAN FD data lengths.
     fn data(&self) -> &[u8] {
         &self.0.data[..(self.0.len as usize)]
     }
@@ -1310,7 +1313,9 @@ impl Frame for CanFdFrame {
 impl Default for CanFdFrame {
     /// The default FD frame has all fields and data set to zero, and all flags off.
     fn default() -> Self {
-        Self(canfd_frame_default())
+        let mut frame = canfd_frame_default();
+        frame.flags |= CANFD_FDF as u8;
+        Self(frame)
     }
 }
 
@@ -1337,6 +1342,7 @@ impl From<CanDataFrame> for CanFdFrame {
 
         let mut fdframe = canfd_frame_default();
         fdframe.can_id = frame.id_word();
+        fdframe.flags = CANFD_FDF as u8;
         fdframe.len = n as u8;
         fdframe.data[..n].copy_from_slice(&frame.data()[..n]);
         Self(fdframe)
@@ -1344,7 +1350,8 @@ impl From<CanDataFrame> for CanFdFrame {
 }
 
 impl From<canfd_frame> for CanFdFrame {
-    fn from(frame: canfd_frame) -> Self {
+    fn from(mut frame: canfd_frame) -> Self {
+        frame.flags |= CANFD_FDF as u8;
         Self(frame)
     }
 }
@@ -1685,15 +1692,42 @@ mod tests {
     }
 
     #[test]
-    fn test_frame_to_fd() {
-        let frame = CanDataFrame::new(STD_ID, DATA).unwrap();
+    fn test_to_fd_frame() {
+        let data_frame = CanDataFrame::new(STD_ID, DATA).unwrap();
 
-        let frame = CanFdFrame::from(frame);
+        let frame = CanFdFrame::from(data_frame);
+
         assert_eq!(STD_ID, frame.id());
         assert!(frame.is_standard());
         assert!(frame.is_data_frame());
         assert!(!frame.is_remote_frame());
         assert!(!frame.is_error_frame());
-        assert_eq!(DATA, frame.data());
+        assert!(frame.flags().contains(FdFlags::FDF));
+        assert_eq!(frame.len(), DATA_LEN);
+        assert_eq!(frame.data().len(), DATA_LEN);
+        assert_eq!(frame.data(), DATA);
+
+        let fdframe = canfd_frame_default();
+        let frame = CanFdFrame::from(fdframe);
+        assert!(frame.flags().contains(FdFlags::FDF));
+    }
+
+    #[test]
+    fn test_fd_to_data_frame() {
+        let fdframe = CanFdFrame::new(STD_ID, DATA).unwrap();
+        assert!(fdframe.flags().contains(FdFlags::FDF));
+
+        let frame = CanDataFrame::try_from(fdframe).unwrap();
+
+        assert_eq!(STD_ID, frame.id());
+        assert_eq!(frame.len(), DATA_LEN);
+        assert_eq!(frame.data().len(), DATA_LEN);
+        assert_eq!(frame.data(), DATA);
+
+        // Make sure FD flags turned off
+        let mut fdframe = canfd_frame_default();
+        crate::as_bytes_mut(&mut fdframe)[..size_of::<can_frame>()]
+            .clone_from_slice(crate::as_bytes(&frame.0));
+        assert_eq!(fdframe.flags, 0);
     }
 }

@@ -393,7 +393,7 @@ mod test {
             assert!(!frame.is_extended());
             assert!(!frame.is_brs());
             assert!(!frame.is_esi());
-            assert_eq!(0, frame.flags().bits());
+            assert_eq!(0x04, frame.flags().bits());
             assert_eq!(frame.dlc(), 0);
             assert_eq!(frame.len(), 0);
             assert_eq!(frame.data().len(), 0);
@@ -412,7 +412,7 @@ mod test {
             assert!(!frame.is_extended());
             assert!(frame.is_brs());
             assert!(!frame.is_esi());
-            assert_eq!(1, frame.flags().bits());
+            assert_eq!(0x05, frame.flags().bits());
             assert_eq!(frame.dlc(), 1);
             assert_eq!(frame.len(), 1);
             assert_eq!(frame.data().len(), 1);

@@ -6,6 +6,7 @@ The change log for the Rust [socketcan](https://crates.io/crates/socketcan) libr
 ## Unreleased features
 
 - Added FdFlags::FDF bit mask for CANFD_FDF
+- The FDF flag is forced on when creating a CanFdFrame.
 - Updates to dump module: 
     - Re-implemented with text parsing
     - Parses FdFlags field properly 
