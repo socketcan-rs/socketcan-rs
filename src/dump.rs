@@ -25,7 +25,7 @@
 
 use crate::{
     id::{FdFlags, IdFlags},
-    CanAnyFrame, CanDataFrame, CanFdFrame, CanFrame, ConstructionError,
+    CanAnyFrame, CanDataFrame, CanFdFrame, CanFrame, CanRemoteFrame, ConstructionError,
 };
 use embedded_can::StandardId;
 use hex::FromHex;
@@ -43,7 +43,7 @@ use std::{
 /// A CAN log reader.
 pub struct Reader<R> {
     rdr: R,
-    line_buf: Vec<u8>,
+    line_buf: String,
 }
 
 impl<R: io::Read> Reader<R> {
@@ -51,7 +51,7 @@ impl<R: io::Read> Reader<R> {
     pub fn from_reader(rdr: R) -> Reader<BufReader<R>> {
         Reader {
             rdr: BufReader::new(rdr),
-            line_buf: Vec::new(),
+            line_buf: String::new(),
         }
     }
 }
@@ -112,7 +112,9 @@ impl From<ConstructionError> for ParseError {
 lazy_static! {
     // Matches a candump line
     static ref RE_DUMP: Regex = Regex::new(
-        r"\s*\((?P<t_num>[0-9]+)\.(?P<t_mant>[0-9]*)\)\s+(?P<iface>\w+)\s+(?P<can_id>[0-9A-Fa-f]+)(((?P<fd_sep>\#\#)(?P<fd_flags>[0-9A-Fa-f]))|(?P<sep>\#))(?P<data>[0-9A-Fa-f\s]*)"
+//        r"\s*\((?P<t_num>[0-9]+)\.(?P<t_mant>[0-9]*)\)\s+(?P<iface>\w+)\s+(?P<can_id>[0-9A-Fa-f]+)(((?P<fd_sep>\#\#)(?P<fd_flags>[0-9A-Fa-f]))|(?P<sep>\#))(?P<data>[0-9A-Fa-f\s]*)"
+//        r"\s*\((?P<t_num>[0-9]+)\.(?P<t_mant>[0-9]*)\)\s+(?P<iface>\w+)\s+(?P<can_id>[0-9A-Fa-f]+)(((?P<fd_sep>\#\#)(?P<fd_flags>[0-9A-Fa-f]))|(\#(?P<data>[0-9A-Fa-f]*))|(\#R(?P<rlen>[0-9]*)))"
+        r"\s*\((?P<t_num>[0-9]+)\.(?P<t_mant>[0-9]*)\)\s+(?P<iface>\w+)\s+(?P<can_id>[0-9A-Fa-f]+)\#(((?<remote>R)(?<rlen>[0-9]*))|(((?<fd_sep>\#)(?<fd_flags>[0-9A-Fa-f]))?(?<data>[0-9A-Fa-f]*)))"
     ).unwrap();
 }
 
@@ -125,17 +127,14 @@ impl<R: BufRead> Reader<R> {
     /// Advance state, returning next record.
     pub fn next_record(&mut self) -> Result<Option<CanDumpRecord>, ParseError> {
         self.line_buf.clear();
-        let bytes_read = self.rdr.read_until(b'\n', &mut self.line_buf)?;
+        let nbytes = self.rdr.read_line(&mut self.line_buf)?;
 
-        if bytes_read == 0 {
+        if nbytes == 0 {
             return Ok(None);
         }
 
-        let line = str::from_utf8(&self.line_buf[..bytes_read])
-            .map_err(|_| ParseError::InvalidCanFrame)?;
-
         let caps = RE_DUMP
-            .captures(line)
+            .captures(&self.line_buf)
             .ok_or(ParseError::UnexpectedEndOfLine)?;
 
         let t_num: u64 = caps
@@ -156,8 +155,6 @@ impl<R: BufRead> Reader<R> {
             //.map(String::from)
             .ok_or(ParseError::InvalidDeviceName)?;
 
-        let is_fd_frame = caps.name("fd_sep").is_some();
-
         let mut can_id: canid_t = caps
             .name("can_id")
             .and_then(|m| canid_t::from_str_radix(m.as_str(), 16).ok())
@@ -166,15 +163,18 @@ impl<R: BufRead> Reader<R> {
         let can_data = caps
             .name("data")
             .map(|m| m.as_str().trim())
-            .ok_or(ParseError::InvalidCanFrame)?;
+            //.ok_or(ParseError::InvalidCanFrame)?;
+            .unwrap_or_default();
+
+        let is_remote_frame = caps.name("remote").is_some();
+        let is_fd_frame = caps.name("fd_sep").is_some();
 
         let mut id_flags = IdFlags::empty();
-        id_flags.set(IdFlags::RTR, "R" == can_data);
+        id_flags.set(IdFlags::RTR, is_remote_frame);
         id_flags.set(IdFlags::EFF, can_id >= StandardId::MAX.as_raw() as canid_t);
-        // TODO: How are error frames saved?
         can_id |= id_flags.bits();
 
-        let data = match id_flags.contains(IdFlags::RTR) {
+        let data = match is_remote_frame {
             true => vec![],
             false => Vec::from_hex(can_data).map_err(|_| ParseError::InvalidCanFrame)?,
         };
@@ -185,8 +185,15 @@ impl<R: BufRead> Reader<R> {
                 .and_then(|m| u8::from_str_radix(m.as_str(), 16).ok())
                 .map(FdFlags::from_bits_truncate)
                 .ok_or(ParseError::InvalidCanFrame)?;
-
             CanFdFrame::init(can_id, &data, fd_flags).map(CanAnyFrame::Fd)
+        } else if is_remote_frame {
+            let rlen = caps
+                .name("rlen")
+                .and_then(|m| m.as_str().parse::<usize>().ok())
+                .unwrap_or_default();
+            CanRemoteFrame::init(can_id, rlen)
+                .map(CanFrame::Remote)
+                .map(CanAnyFrame::from)
         } else {
             CanDataFrame::init(can_id, &data)
                 .map(CanFrame::Data)
@@ -264,7 +271,7 @@ mod test {
     #[test]
     fn test_extended_example() {
         let input: &[u8] = b"(1469439874.299591) can1 080080#\n\
-                             (1469439874.299654) can1 053701#7F";
+                             (1469439874.299654) can1 053701#00112233";
 
         let mut reader = Reader::from_reader(input);
 
@@ -278,6 +285,7 @@ mod test {
             assert_eq!(frame.is_remote_frame(), false);
             assert_eq!(frame.is_error_frame(), false);
             assert_eq!(frame.is_extended(), true);
+            assert_eq!(frame.data().len(), 0);
             assert_eq!(frame.data(), &[]);
         } else {
             panic!("Expected Normal frame, got FD");
@@ -292,9 +300,52 @@ mod test {
             assert_eq!(frame.is_remote_frame(), false);
             assert_eq!(frame.is_error_frame(), false);
             assert_eq!(frame.is_extended(), true);
-            assert_eq!(frame.data(), &[0x7F]);
+            assert_eq!(frame.data().len(), 4);
+            assert_eq!(frame.data(), &[0x00, 0x11, 0x22, 0x33]);
         } else {
             panic!("Expected Normal frame, got FD");
+        }
+
+        assert!(reader.next_record().unwrap().is_none());
+    }
+
+    #[test]
+    fn test_remote() {
+        let input: &[u8] = b"(1469439874.299591) can0 080080#R\n\
+                             (1469439874.299654) can0 053701#R4";
+
+        let mut reader = Reader::from_reader(input);
+
+        let rec1 = reader.next_record().unwrap().unwrap();
+
+        assert_eq!(rec1.t_us, 1469439874299591);
+        assert_eq!(rec1.device, "can0");
+
+        if let CanAnyFrame::Remote(frame) = rec1.frame {
+            assert_eq!(frame.raw_id(), 0x080080);
+            assert!(!frame.is_data_frame());
+            assert!(frame.is_remote_frame());
+            assert!(!frame.is_error_frame());
+            assert!(frame.is_extended());
+            assert_eq!(frame.len(), 0);
+            assert_eq!(frame.data(), &[]);
+        } else {
+            panic!("Expected Remote frame");
+        }
+
+        let rec2 = reader.next_record().unwrap().unwrap();
+        assert_eq!(rec2.t_us, 1469439874299654);
+        assert_eq!(rec2.device, "can0");
+
+        if let CanAnyFrame::Remote(frame) = rec2.frame {
+            assert_eq!(frame.raw_id(), 0x053701);
+            assert!(!frame.is_data_frame());
+            assert!(frame.is_remote_frame());
+            assert!(!frame.is_error_frame());
+            assert!(frame.is_extended());
+            assert_eq!(frame.len(), 4);
+        } else {
+            panic!("Expected Remote frame");
         }
 
         assert!(reader.next_record().unwrap().is_none());

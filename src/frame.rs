@@ -752,6 +752,20 @@ impl AsRef<can_frame> for CanDataFrame {
 pub struct CanRemoteFrame(can_frame);
 
 impl CanRemoteFrame {
+    /// Initializes a CAN data frame from raw parts.
+    #[allow(dead_code)]
+    pub(crate) fn init(can_id: canid_t, len: usize) -> Result<Self, ConstructionError> {
+        match len {
+            n if n <= CAN_MAX_DLEN => {
+                let mut frame = can_frame_default();
+                frame.can_id = can_id;
+                frame.can_dlc = n as u8;
+                Ok(Self(frame))
+            }
+            _ => Err(ConstructionError::TooMuchData),
+        }
+    }
+
     /// Sets the data length code for the frame
     pub fn set_dlc(&mut self, dlc: usize) -> Result<(), ConstructionError> {
         if dlc <= CAN_MAX_DLEN {
