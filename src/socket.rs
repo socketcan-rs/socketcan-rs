@@ -17,11 +17,15 @@ use crate::{
     id::CAN_ERR_MASK,
     CanAnyFrame, CanFdFrame, CanFrame, CanRawFrame, IoError, IoErrorKind, IoResult,
 };
+pub use embedded_can::{
+    self, blocking::Can as BlockingCan, nb::Can as NonBlockingCan, ExtendedId,
+    Frame as EmbeddedFrame, Id, StandardId,
+};
 use libc::{canid_t, socklen_t, AF_CAN, EINPROGRESS};
 use socket2::SockAddr;
 use std::{
     fmt,
-    io::{Read, Write},
+    io::{ErrorKind, Read, Write},
     mem::{size_of, size_of_val},
     os::{
         raw::{c_int, c_void},
@@ -538,6 +542,59 @@ impl Socket for CanSocket {
     }
 }
 
+// ===== embedded_can I/O traits =====
+
+impl embedded_can::blocking::Can for CanSocket {
+    type Frame = CanFrame;
+    type Error = crate::Error;
+
+    /// Blocking call to receive the next frame from the bus.
+    ///
+    /// This block and wait for the next frame to be received from the bus.
+    /// If an error frame is received, it will be converted to a `CanError`
+    /// and returned as an error.
+    fn receive(&mut self) -> crate::Result<Self::Frame> {
+        match self.read_frame() {
+            Ok(CanFrame::Error(frame)) => Err(frame.into_error().into()),
+            Ok(frame) => Ok(frame),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Blocking transmit of a frame to the bus.
+    fn transmit(&mut self, frame: &Self::Frame) -> crate::Result<()> {
+        self.write_frame_insist(frame).map_err(|err| err.into())
+    }
+}
+
+impl embedded_can::nb::Can for CanSocket {
+    type Frame = CanFrame;
+    type Error = crate::Error;
+
+    /// Non-blocking call to receive the next frame from the bus.
+    ///
+    /// If an error frame is received, it will be converted to a `CanError`
+    /// and returned as an error.
+    /// If no frame is available, it returns a `WouldBlck` error.
+    fn receive(&mut self) -> nb::Result<Self::Frame, Self::Error> {
+        match self.read_frame() {
+            Ok(CanFrame::Error(frame)) => Err(Self::Error::from(frame.into_error()).into()),
+            Ok(frame) => Ok(frame),
+            Err(err) if err.kind() == ErrorKind::WouldBlock => Err(nb::Error::WouldBlock),
+            Err(err) => Err(crate::Error::from(err).into()),
+        }
+    }
+
+    /// Non-blocking transmit of a frame to the bus.
+    fn transmit(&mut self, frame: &Self::Frame) -> nb::Result<Option<Self::Frame>, Self::Error> {
+        match self.write_frame(frame) {
+            Ok(_) => Ok(None),
+            Err(err) if err.kind() == ErrorKind::WouldBlock => Err(nb::Error::WouldBlock),
+            Err(err) => Err(Self::Error::from(err).into()),
+        }
+    }
+}
+
 impl SocketOptions for CanSocket {}
 
 // Has no effect: #[deprecated(since = "3.1", note = "Use AsFd::as_fd() instead.")]
@@ -683,6 +740,57 @@ impl Socket for CanFdSocket {
 }
 
 impl SocketOptions for CanFdSocket {}
+
+impl embedded_can::blocking::Can for CanFdSocket {
+    type Frame = CanAnyFrame;
+    type Error = crate::Error;
+
+    /// Blocking call to receive the next frame from the bus.
+    ///
+    /// This block and wait for the next frame to be received from the bus.
+    /// If an error frame is received, it will be converted to a `CanError`
+    /// and returned as an error.
+    fn receive(&mut self) -> crate::Result<Self::Frame> {
+        match self.read_frame() {
+            Ok(CanAnyFrame::Error(frame)) => Err(frame.into_error().into()),
+            Ok(frame) => Ok(frame),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Blocking transmit of a frame to the bus.
+    fn transmit(&mut self, frame: &Self::Frame) -> crate::Result<()> {
+        self.write_frame_insist(frame).map_err(|err| err.into())
+    }
+}
+
+impl embedded_can::nb::Can for CanFdSocket {
+    type Frame = CanAnyFrame;
+    type Error = crate::Error;
+
+    /// Non-blocking call to receive the next frame from the bus.
+    ///
+    /// If an error frame is received, it will be converted to a `CanError`
+    /// and returned as an error.
+    /// If no frame is available, it returns a `WouldBlck` error.
+    fn receive(&mut self) -> nb::Result<Self::Frame, Self::Error> {
+        match self.read_frame() {
+            Ok(CanAnyFrame::Error(frame)) => Err(Self::Error::from(frame.into_error()).into()),
+            Ok(frame) => Ok(frame),
+            Err(err) if err.kind() == ErrorKind::WouldBlock => Err(nb::Error::WouldBlock),
+            Err(err) => Err(crate::Error::from(err).into()),
+        }
+    }
+
+    /// Non-blocking transmit of a frame to the bus.
+    fn transmit(&mut self, frame: &Self::Frame) -> nb::Result<Option<Self::Frame>, Self::Error> {
+        match self.write_frame(frame) {
+            Ok(_) => Ok(None),
+            Err(err) if err.kind() == ErrorKind::WouldBlock => Err(nb::Error::WouldBlock),
+            Err(err) => Err(Self::Error::from(err).into()),
+        }
+    }
+}
 
 // Has no effect: #[deprecated(since = "3.1", note = "Use AsFd::as_fd() instead.")]
 impl AsRawFd for CanFdSocket {

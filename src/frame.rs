@@ -216,6 +216,71 @@ pub enum CanAnyFrame {
     Fd(CanFdFrame),
 }
 
+impl EmbeddedFrame for CanAnyFrame {
+    /// Create a new CAN 2.0 data frame
+    fn new(id: impl Into<Id>, data: &[u8]) -> Option<Self> {
+        if data.len() <= CAN_MAX_DLEN {
+            CanDataFrame::new(id, data).map(CanAnyFrame::Normal)
+        } else {
+            CanFdFrame::new(id, data).map(CanAnyFrame::Fd)
+        }
+    }
+
+    /// Create a new remote transmission request frame.
+    fn new_remote(id: impl Into<Id>, dlc: usize) -> Option<Self> {
+        CanRemoteFrame::new_remote(id, dlc).map(CanAnyFrame::Remote)
+    }
+
+    /// Check if frame uses 29-bit extended ID format.
+    fn is_extended(&self) -> bool {
+        use CanAnyFrame::*;
+        match self {
+            Normal(frame) => frame.is_extended(),
+            Remote(frame) => frame.is_extended(),
+            Error(frame) => frame.is_extended(),
+            Fd(frame) => frame.is_extended(),
+        }
+    }
+
+    /// Check if frame is a remote transmission request.
+    fn is_remote_frame(&self) -> bool {
+        matches!(self, CanAnyFrame::Remote(_))
+    }
+
+    /// Return the frame identifier.
+    fn id(&self) -> Id {
+        use CanAnyFrame::*;
+        match self {
+            Normal(frame) => frame.id(),
+            Remote(frame) => frame.id(),
+            Error(frame) => frame.id(),
+            Fd(frame) => frame.id(),
+        }
+    }
+
+    /// Data length
+    fn dlc(&self) -> usize {
+        use CanAnyFrame::*;
+        match self {
+            Normal(frame) => frame.dlc(),
+            Remote(frame) => frame.dlc(),
+            Error(frame) => frame.dlc(),
+            Fd(frame) => frame.dlc(),
+        }
+    }
+
+    /// A slice into the actual data. Slice will always be <= 8 bytes in length
+    fn data(&self) -> &[u8] {
+        use CanAnyFrame::*;
+        match self {
+            Normal(frame) => frame.data(),
+            Remote(frame) => frame.data(),
+            Error(frame) => frame.data(),
+            Fd(frame) => frame.data(),
+        }
+    }
+}
+
 impl fmt::UpperHex for CanAnyFrame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

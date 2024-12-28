@@ -14,7 +14,7 @@ The change log for the Rust [socketcan](https://crates.io/crates/socketcan) libr
     - Fixed reading remote frames
     - Now reads remote length
     - New unit tests
-
+- [#59](https://github.com/socketcan-rs/socketcan-rs/issues/59) Embedded Hal for CanFdSocket
 
 ## [Version 3.4.0](https://github.com/socketcan-rs/socketcan-rs/compare/v3.3.1..v3.4.0)  (2024-12-26)
 
