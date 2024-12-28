@@ -15,7 +15,7 @@ use crate::{
     as_bytes, as_bytes_mut,
     frame::{can_frame_default, canfd_frame_default, AsPtr},
     id::CAN_ERR_MASK,
-    CanAnyFrame, CanFdFrame, CanFrame, CanRawFrame, IoError, IoErrorKind, IoResult,
+    CanAnyFrame, CanFdFrame, CanFrame, CanRawFrame, Error, IoError, IoErrorKind, IoResult, Result,
 };
 pub use embedded_can::{
     self, blocking::Can as BlockingCan, nb::Can as NonBlockingCan, ExtendedId,
@@ -25,7 +25,7 @@ use libc::{canid_t, socklen_t, AF_CAN, EINPROGRESS};
 use socket2::SockAddr;
 use std::{
     fmt,
-    io::{ErrorKind, Read, Write},
+    io::{Read, Write},
     mem::{size_of, size_of_val},
     os::{
         raw::{c_int, c_void},
@@ -546,14 +546,14 @@ impl Socket for CanSocket {
 
 impl embedded_can::blocking::Can for CanSocket {
     type Frame = CanFrame;
-    type Error = crate::Error;
+    type Error = Error;
 
     /// Blocking call to receive the next frame from the bus.
     ///
     /// This block and wait for the next frame to be received from the bus.
     /// If an error frame is received, it will be converted to a `CanError`
     /// and returned as an error.
-    fn receive(&mut self) -> crate::Result<Self::Frame> {
+    fn receive(&mut self) -> Result<Self::Frame> {
         match self.read_frame() {
             Ok(CanFrame::Error(frame)) => Err(frame.into_error().into()),
             Ok(frame) => Ok(frame),
@@ -562,14 +562,17 @@ impl embedded_can::blocking::Can for CanSocket {
     }
 
     /// Blocking transmit of a frame to the bus.
-    fn transmit(&mut self, frame: &Self::Frame) -> crate::Result<()> {
-        self.write_frame_insist(frame).map_err(|err| err.into())
+    fn transmit(&mut self, frame: &Self::Frame) -> Result<()> {
+        self.write_frame_insist(frame)?;
+        Ok(())
     }
 }
 
+impl SocketOptions for CanSocket {}
+
 impl embedded_can::nb::Can for CanSocket {
     type Frame = CanFrame;
-    type Error = crate::Error;
+    type Error = Error;
 
     /// Non-blocking call to receive the next frame from the bus.
     ///
@@ -578,10 +581,10 @@ impl embedded_can::nb::Can for CanSocket {
     /// If no frame is available, it returns a `WouldBlck` error.
     fn receive(&mut self) -> nb::Result<Self::Frame, Self::Error> {
         match self.read_frame() {
-            Ok(CanFrame::Error(frame)) => Err(Self::Error::from(frame.into_error()).into()),
+            Ok(CanFrame::Error(frame)) => Err(Error::from(frame.into_error()).into()),
             Ok(frame) => Ok(frame),
-            Err(err) if err.kind() == ErrorKind::WouldBlock => Err(nb::Error::WouldBlock),
-            Err(err) => Err(crate::Error::from(err).into()),
+            Err(err) if err.should_retry() => Err(nb::Error::WouldBlock),
+            Err(err) => Err(Error::from(err).into()),
         }
     }
 
@@ -589,13 +592,11 @@ impl embedded_can::nb::Can for CanSocket {
     fn transmit(&mut self, frame: &Self::Frame) -> nb::Result<Option<Self::Frame>, Self::Error> {
         match self.write_frame(frame) {
             Ok(_) => Ok(None),
-            Err(err) if err.kind() == ErrorKind::WouldBlock => Err(nb::Error::WouldBlock),
-            Err(err) => Err(Self::Error::from(err).into()),
+            Err(err) if err.should_retry() => Err(nb::Error::WouldBlock),
+            Err(err) => Err(Error::from(err).into()),
         }
     }
 }
-
-impl SocketOptions for CanSocket {}
 
 // Has no effect: #[deprecated(since = "3.1", note = "Use AsFd::as_fd() instead.")]
 impl AsRawFd for CanSocket {
@@ -743,14 +744,14 @@ impl SocketOptions for CanFdSocket {}
 
 impl embedded_can::blocking::Can for CanFdSocket {
     type Frame = CanAnyFrame;
-    type Error = crate::Error;
+    type Error = Error;
 
     /// Blocking call to receive the next frame from the bus.
     ///
     /// This block and wait for the next frame to be received from the bus.
     /// If an error frame is received, it will be converted to a `CanError`
     /// and returned as an error.
-    fn receive(&mut self) -> crate::Result<Self::Frame> {
+    fn receive(&mut self) -> Result<Self::Frame> {
         match self.read_frame() {
             Ok(CanAnyFrame::Error(frame)) => Err(frame.into_error().into()),
             Ok(frame) => Ok(frame),
@@ -759,14 +760,15 @@ impl embedded_can::blocking::Can for CanFdSocket {
     }
 
     /// Blocking transmit of a frame to the bus.
-    fn transmit(&mut self, frame: &Self::Frame) -> crate::Result<()> {
-        self.write_frame_insist(frame).map_err(|err| err.into())
+    fn transmit(&mut self, frame: &Self::Frame) -> Result<()> {
+        self.write_frame_insist(frame)?;
+        Ok(())
     }
 }
 
 impl embedded_can::nb::Can for CanFdSocket {
     type Frame = CanAnyFrame;
-    type Error = crate::Error;
+    type Error = Error;
 
     /// Non-blocking call to receive the next frame from the bus.
     ///
@@ -775,10 +777,10 @@ impl embedded_can::nb::Can for CanFdSocket {
     /// If no frame is available, it returns a `WouldBlck` error.
     fn receive(&mut self) -> nb::Result<Self::Frame, Self::Error> {
         match self.read_frame() {
-            Ok(CanAnyFrame::Error(frame)) => Err(Self::Error::from(frame.into_error()).into()),
+            Ok(CanAnyFrame::Error(frame)) => Err(Error::from(frame.into_error()).into()),
             Ok(frame) => Ok(frame),
-            Err(err) if err.kind() == ErrorKind::WouldBlock => Err(nb::Error::WouldBlock),
-            Err(err) => Err(crate::Error::from(err).into()),
+            Err(err) if err.should_retry() => Err(nb::Error::WouldBlock),
+            Err(err) => Err(Error::from(err).into()),
         }
     }
 
@@ -786,8 +788,8 @@ impl embedded_can::nb::Can for CanFdSocket {
     fn transmit(&mut self, frame: &Self::Frame) -> nb::Result<Option<Self::Frame>, Self::Error> {
         match self.write_frame(frame) {
             Ok(_) => Ok(None),
-            Err(err) if err.kind() == ErrorKind::WouldBlock => Err(nb::Error::WouldBlock),
-            Err(err) => Err(Self::Error::from(err).into()),
+            Err(err) if err.should_retry() => Err(nb::Error::WouldBlock),
+            Err(err) => Err(Error::from(err).into()),
         }
     }
 }
