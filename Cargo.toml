@@ -64,6 +64,7 @@ neli = { version = "0.6", optional = true }
 
 [dev-dependencies]
 anyhow = "1.0"
+clap = "3.2"
 ctrlc = "3.2.2"
 nb = "1.0"
 # TODO: Is it possible to only include these for async builds?

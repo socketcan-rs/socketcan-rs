@@ -42,6 +42,45 @@ use std::{
     path::Path,
     str,
 };
+use thiserror::Error;
+
+/// candump line parse error
+#[derive(Error, Debug)]
+pub enum ParseError {
+    /// I/O Error
+    #[error(transparent)]
+    Io(#[from] io::Error),
+    /// Unexpected end of line
+    #[error("Unexpected end of line")]
+    UnexpectedEndOfLine,
+    /// Invalid time stamp
+    #[error("Invalid timestamp")]
+    InvalidTimestamp,
+    /// Invalid device name
+    #[error("Invalid device name")]
+    InvalidDeviceName,
+    /// Invalid CAN frame
+    #[error("Invalid CAN frame")]
+    InvalidCanFrame,
+    /// Error creating the frame
+    #[error(transparent)]
+    ConstructionError(#[from] ConstructionError),
+}
+
+/// Recorded CAN frame.
+/// This corresponds to the information in a line from the candump log.
+#[derive(Debug)]
+pub struct CanDumpRecord<'a> {
+    /// The timestamp
+    pub t_us: u64,
+    /// The name of the device
+    pub device: &'a str,
+    /// The parsed frame
+    pub frame: CanAnyFrame,
+}
+
+/////////////////////////////////////////////////////////////////////////////
+// Reader
 
 #[derive(Debug)]
 /// A CAN log reader.
@@ -69,56 +108,10 @@ impl Reader<File> {
     }
 }
 
-/// Record iterator
-#[derive(Debug)]
-pub struct CanDumpRecords<'a, R: 'a> {
-    src: &'a mut Reader<R>,
-}
-
-/// Recorded CAN frame.
-#[derive(Debug)]
-pub struct CanDumpRecord<'a> {
-    /// The timestamp
-    pub t_us: u64,
-    /// The name of the device
-    pub device: &'a str,
-    /// The parsed frame
-    pub frame: CanAnyFrame,
-}
-
-#[derive(Debug)]
-/// candump line parse error
-pub enum ParseError {
-    /// I/O Error
-    Io(io::Error),
-    /// Unexpected end of line
-    UnexpectedEndOfLine,
-    /// Invalid time stamp
-    InvalidTimestamp,
-    /// Invalid device name
-    InvalidDeviceName,
-    /// Invalid CAN frame
-    InvalidCanFrame,
-    /// Error creating the frame
-    ConstructionError(ConstructionError),
-}
-
-impl From<io::Error> for ParseError {
-    fn from(e: io::Error) -> ParseError {
-        ParseError::Io(e)
-    }
-}
-
-impl From<ConstructionError> for ParseError {
-    fn from(e: ConstructionError) -> ParseError {
-        ParseError::ConstructionError(e)
-    }
-}
-
 impl<R: BufRead> Reader<R> {
     /// Returns an iterator over all records
-    pub fn records(&mut self) -> CanDumpRecords<R> {
-        CanDumpRecords { src: self }
+    pub fn records(&mut self) -> CanDumpIter<R> {
+        CanDumpIter { src: self }
     }
 
     /// Advance state, returning next record.
@@ -213,7 +206,13 @@ impl<R: BufRead> Reader<R> {
     }
 }
 
-impl<R: io::Read> Iterator for CanDumpRecords<'_, BufReader<R>> {
+/// Record iterator
+#[derive(Debug)]
+pub struct CanDumpIter<'a, R: 'a> {
+    src: &'a mut Reader<R>,
+}
+
+impl<R: io::Read> Iterator for CanDumpIter<'_, BufReader<R>> {
     type Item = Result<(u64, CanAnyFrame), ParseError>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -225,6 +224,12 @@ impl<R: io::Read> Iterator for CanDumpRecords<'_, BufReader<R>> {
         }
     }
 }
+
+// TODO: Remove in the next major version update
+/// Obsolete iterator name, now called `CanDumpIter`
+#[allow(type_alias_bounds)]
+#[deprecated(since="3.5.0", note="Renamed to `CanDumpIter`")]
+pub type CanDumpRecords<'a, R: 'a> = CanDumpIter<'a, R>;
 
 /////////////////////////////////////////////////////////////////////////////
 
