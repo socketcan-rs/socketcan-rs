@@ -319,11 +319,12 @@ impl EmbeddedFrame for CanAnyFrame {
 
 impl fmt::UpperHex for CanAnyFrame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use CanAnyFrame::*;
         match self {
-            Self::Normal(frame) => frame.fmt(f),
-            Self::Remote(frame) => frame.fmt(f),
-            Self::Error(frame) => frame.fmt(f),
-            Self::Fd(frame) => frame.fmt(f),
+            Normal(frame) => frame.fmt(f),
+            Remote(frame) => frame.fmt(f),
+            Error(frame) => frame.fmt(f),
+            Fd(frame) => frame.fmt(f),
         }
     }
 }
@@ -339,16 +340,34 @@ impl From<CanFrame> for CanAnyFrame {
     }
 }
 
-impl From<can_frame> for CanAnyFrame {
-    fn from(frame: can_frame) -> Self {
-        let frame = CanFrame::from(frame);
-        frame.into()
+impl From<CanDataFrame> for CanAnyFrame {
+    fn from(frame: CanDataFrame) -> Self {
+        Self::Normal(frame)
+    }
+}
+
+impl From<CanRemoteFrame> for CanAnyFrame {
+    fn from(frame: CanRemoteFrame) -> Self {
+        Self::Remote(frame)
+    }
+}
+
+impl From<CanErrorFrame> for CanAnyFrame {
+    fn from(frame: CanErrorFrame) -> Self {
+        Self::Error(frame)
     }
 }
 
 impl From<CanFdFrame> for CanAnyFrame {
     fn from(frame: CanFdFrame) -> Self {
         Self::Fd(frame)
+    }
+}
+
+impl From<can_frame> for CanAnyFrame {
+    fn from(frame: can_frame) -> Self {
+        let frame = CanFrame::from(frame);
+        frame.into()
     }
 }
 
@@ -373,29 +392,32 @@ impl AsPtr for CanAnyFrame {
     type Inner = c_void;
 
     fn as_ptr(&self) -> *const Self::Inner {
+        use CanAnyFrame::*;
         match self {
-            CanAnyFrame::Normal(frame) => frame.as_ptr() as *const Self::Inner,
-            CanAnyFrame::Remote(frame) => frame.as_ptr() as *const Self::Inner,
-            CanAnyFrame::Error(frame) => frame.as_ptr() as *const Self::Inner,
-            CanAnyFrame::Fd(frame) => frame.as_ptr() as *const Self::Inner,
+            Normal(frame) => frame.as_ptr() as *const Self::Inner,
+            Remote(frame) => frame.as_ptr() as *const Self::Inner,
+            Error(frame) => frame.as_ptr() as *const Self::Inner,
+            Fd(frame) => frame.as_ptr() as *const Self::Inner,
         }
     }
 
     fn as_mut_ptr(&mut self) -> *mut Self::Inner {
+        use CanAnyFrame::*;
         match self {
-            CanAnyFrame::Normal(frame) => frame.as_mut_ptr() as *mut Self::Inner,
-            CanAnyFrame::Remote(frame) => frame.as_mut_ptr() as *mut Self::Inner,
-            CanAnyFrame::Error(frame) => frame.as_mut_ptr() as *mut Self::Inner,
-            CanAnyFrame::Fd(frame) => frame.as_mut_ptr() as *mut Self::Inner,
+            Normal(frame) => frame.as_mut_ptr() as *mut Self::Inner,
+            Remote(frame) => frame.as_mut_ptr() as *mut Self::Inner,
+            Error(frame) => frame.as_mut_ptr() as *mut Self::Inner,
+            Fd(frame) => frame.as_mut_ptr() as *mut Self::Inner,
         }
     }
 
     fn size(&self) -> usize {
+        use CanAnyFrame::*;
         match self {
-            CanAnyFrame::Normal(frame) => frame.size(),
-            CanAnyFrame::Remote(frame) => frame.size(),
-            CanAnyFrame::Error(frame) => frame.size(),
-            CanAnyFrame::Fd(frame) => frame.size(),
+            Normal(frame) => frame.size(),
+            Remote(frame) => frame.size(),
+            Error(frame) => frame.size(),
+            Fd(frame) => frame.size(),
         }
     }
 }
@@ -826,11 +848,10 @@ impl TryFrom<CanFdFrame> for CanDataFrame {
     type Error = ConstructionError;
 
     fn try_from(frame: CanFdFrame) -> Result<Self, Self::Error> {
-        if frame.len() > CAN_MAX_DLEN {
-            return Err(ConstructionError::TooMuchData);
+        match frame.len() {
+            n if n > CAN_MAX_DLEN => Err(ConstructionError::TooMuchData),
+            n => CanDataFrame::init(frame.id_word(), &frame.data()[..n]),
         }
-
-        CanDataFrame::init(frame.id_word(), &frame.data()[..(frame.0.len as usize)])
     }
 }
 

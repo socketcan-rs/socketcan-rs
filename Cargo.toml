@@ -81,6 +81,10 @@ name = "rcan"
 required-features = ["utils"]
 
 [[example]]
+name = "playlog"
+required-features = ["dump"]
+
+[[example]]
 name = "tokio_send"
 required-features = ["tokio"]
 

@@ -93,15 +93,13 @@ impl fmt::Display for CanDumpRecord {
 
         use CanAnyFrame::*;
         match self.frame {
+            Remote(frame) if frame.len() == 0 => f.write_str("#R"),
+            Remote(frame) => write!(f, "#R{}", frame.dlc()),
+            Error(_frame) => f.write_str(""),
             Normal(frame) => {
                 let mut parts = frame.data().iter().map(|v| format!("{:02X}", v));
                 write!(f, "#{}", parts.join(""))
             }
-            Remote(frame) if frame.len() == 0 => f.write_str("#R"),
-            Remote(frame) => {
-                write!(f, "#R{}", frame.dlc())
-            }
-            Error(_frame) => f.write_str(""),
             Fd(frame) => {
                 let mut parts = frame.data().iter().map(|v| format!("{:02X}", v));
                 write!(f, "##{}", parts.join(""))
@@ -146,11 +144,6 @@ impl<R: BufRead> Reader<R> {
         CanDumpRecords { src: self }
     }
 
-    /// Returns an iterator over all records
-    //    pub fn iter(&mut self) -> CanDumpIter<R> {
-    //        CanDumpIter { src: self }
-    //    }
-
     /// Advance state, returning next record.
     pub fn next_record(&mut self) -> Result<Option<CanDumpRecord>, ParseError> {
         self.buf.clear();
@@ -175,7 +168,6 @@ impl<R: BufRead> Reader<R> {
 
         let t_us = match ts.split_once('.') {
             Some((num, mant)) => {
-                // parse number and multiply
                 let num = num
                     .parse::<u64>()
                     .map_err(|_| ParseError::InvalidTimestamp)?;

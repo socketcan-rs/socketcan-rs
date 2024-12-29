@@ -5,6 +5,8 @@ The change log for the Rust [socketcan](https://crates.io/crates/socketcan) libr
 
 ## Unreleased features
 
+- `CanAnyFrame` implements `From` trait for `CanDataFrame`, `CanRemoteFrame`, and `CanErrorFrame`.
+- `CanFdSocket` implementa `TryFrom` trait for `CanSocket`
 - Added FdFlags::FDF bit mask for CANFD_FDF
     - The FDF flag is forced on when creating a CanFdFrame.
 - Updates to dump module:
@@ -14,11 +16,14 @@ The change log for the Rust [socketcan](https://crates.io/crates/socketcan) libr
     - CANFD_FDF bit flag recognized on input
     - Fixed reading remote frames
     - Now reads remote length
-    - `CanDumpRecord` removed lifetime, made `device` field an owned `String`, and is clonable.
+    - `CanDumpRecord` changes:
+        - Removed lifetime and made `device` field an owned `String`
+	- Implmentd `Clone` and `Display` traits.
     - `dump::Reader` is now an Iterator itself
-        - 
+        - Returns full `CanDumpRecord` items
     - New unit tests
 - [#59](https://github.com/socketcan-rs/socketcan-rs/issues/59) Embedded Hal for CanFdSocket
+
 
 ## [Version 3.4.0](https://github.com/socketcan-rs/socketcan-rs/compare/v3.3.1..v3.4.0)  (2024-12-26)
 

@@ -807,6 +807,16 @@ impl From<OwnedFd> for CanFdSocket {
     }
 }
 
+impl TryFrom<CanSocket> for CanFdSocket {
+    type Error = IoError;
+
+    fn try_from(sock: CanSocket) -> std::result::Result<Self, Self::Error> {
+        let CanSocket(sock2) = sock;
+        let sock = CanFdSocket::set_fd_mode(sock2, true)?;
+        Ok(CanFdSocket(sock))
+    }
+}
+
 impl IntoRawFd for CanFdSocket {
     fn into_raw_fd(self) -> RawFd {
         self.0.into_raw_fd()
