@@ -30,17 +30,19 @@
 //! [csv](https://crates.io/crates/csv) crate.
 
 use crate::{
+    frame::Frame,
     id::{id_from_raw, FdFlags},
     CanAnyFrame, CanDataFrame, CanFdFrame, CanFrame, CanRemoteFrame, ConstructionError,
 };
-use embedded_can::Frame;
+use embedded_can::Frame as EmbeddedFrame;
 use hex::FromHex;
+use itertools::Itertools;
 use libc::canid_t;
 use std::{
+    fmt,
     fs::File,
     io::{self, BufRead, BufReader},
     path::Path,
-    str,
 };
 use thiserror::Error;
 
@@ -69,14 +71,43 @@ pub enum ParseError {
 
 /// Recorded CAN frame.
 /// This corresponds to the information in a line from the candump log.
-#[derive(Debug)]
-pub struct CanDumpRecord<'a> {
+#[derive(Debug, Clone)]
+pub struct CanDumpRecord {
     /// The timestamp
     pub t_us: u64,
     /// The name of the device
-    pub device: &'a str,
+    pub device: String,
     /// The parsed frame
     pub frame: CanAnyFrame,
+}
+
+impl fmt::Display for CanDumpRecord {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "({:.6}) {} {:03X}",
+            1.0e-6 * self.t_us as f64,
+            self.device,
+            self.frame.raw_id()
+        )?;
+
+        use CanAnyFrame::*;
+        match self.frame {
+            Normal(frame) => {
+                let mut parts = frame.data().iter().map(|v| format!("{:02X}", v));
+                write!(f, "#{}", parts.join(""))
+            }
+            Remote(frame) if frame.len() == 0 => f.write_str("#R"),
+            Remote(frame) => {
+                write!(f, "#R{}", frame.dlc())
+            }
+            Error(_frame) => f.write_str(""),
+            Fd(frame) => {
+                let mut parts = frame.data().iter().map(|v| format!("{:02X}", v));
+                write!(f, "##{}", parts.join(""))
+            }
+        }
+    }
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -110,9 +141,15 @@ impl Reader<File> {
 
 impl<R: BufRead> Reader<R> {
     /// Returns an iterator over all records
-    pub fn records(&mut self) -> CanDumpIter<R> {
-        CanDumpIter { src: self }
+    #[deprecated(since = "3.5.0", note = "Use `iter()`")]
+    pub fn records(&mut self) -> CanDumpRecords<R> {
+        CanDumpRecords { src: self }
     }
+
+    /// Returns an iterator over all records
+    //    pub fn iter(&mut self) -> CanDumpIter<R> {
+    //        CanDumpIter { src: self }
+    //    }
 
     /// Advance state, returning next record.
     pub fn next_record(&mut self) -> Result<Option<CanDumpRecord>, ParseError> {
@@ -151,7 +188,10 @@ impl<R: BufRead> Reader<R> {
         };
 
         // device name
-        let device = field_iter.next().ok_or(ParseError::UnexpectedEndOfLine)?;
+        let device = field_iter
+            .next()
+            .ok_or(ParseError::UnexpectedEndOfLine)?
+            .to_string();
 
         // parse packet
         let can_raw = field_iter.next().ok_or(ParseError::UnexpectedEndOfLine)?;
@@ -206,13 +246,26 @@ impl<R: BufRead> Reader<R> {
     }
 }
 
-/// Record iterator
+impl<R: BufRead> Iterator for Reader<R> {
+    type Item = Result<CanDumpRecord, ParseError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // lift Option:
+        match self.next_record() {
+            Ok(Some(rec)) => Some(Ok(rec)),
+            Ok(None) => None,
+            Err(e) => Some(Err(e)),
+        }
+    }
+}
+
+/// Original Record iterator
 #[derive(Debug)]
-pub struct CanDumpIter<'a, R: 'a> {
+pub struct CanDumpRecords<'a, R: 'a> {
     src: &'a mut Reader<R>,
 }
 
-impl<R: io::Read> Iterator for CanDumpIter<'_, BufReader<R>> {
+impl<R: io::Read> Iterator for CanDumpRecords<'_, BufReader<R>> {
     type Item = Result<(u64, CanAnyFrame), ParseError>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -224,12 +277,6 @@ impl<R: io::Read> Iterator for CanDumpIter<'_, BufReader<R>> {
         }
     }
 }
-
-// TODO: Remove in the next major version update
-/// Obsolete iterator name, now called `CanDumpIter`
-#[allow(type_alias_bounds)]
-#[deprecated(since="3.5.0", note="Renamed to `CanDumpIter`")]
-pub type CanDumpRecords<'a, R: 'a> = CanDumpIter<'a, R>;
 
 /////////////////////////////////////////////////////////////////////////////
 

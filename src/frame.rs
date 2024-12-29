@@ -216,8 +216,44 @@ pub enum CanAnyFrame {
     Fd(CanFdFrame),
 }
 
+impl Frame for CanAnyFrame {
+    /// Get the composite SocketCAN ID word, with EFF/RTR/ERR flags
+    fn id_word(&self) -> canid_t {
+        use CanAnyFrame::*;
+        match self {
+            Normal(frame) => frame.id_word(),
+            Remote(frame) => frame.id_word(),
+            Error(frame) => frame.id_word(),
+            Fd(frame) => frame.id_word(),
+        }
+    }
+
+    /// Sets the CAN ID for the frame
+    fn set_id(&mut self, id: impl Into<Id>) {
+        use CanAnyFrame::*;
+        match self {
+            Normal(frame) => frame.set_id(id),
+            Remote(frame) => frame.set_id(id),
+            Error(frame) => frame.set_id(id),
+            Fd(frame) => frame.set_id(id),
+        }
+    }
+
+    /// Sets the data payload of the frame.
+    fn set_data(&mut self, data: &[u8]) -> Result<(), ConstructionError> {
+        use CanAnyFrame::*;
+        match self {
+            Normal(frame) => frame.set_data(data),
+            Remote(frame) => frame.set_data(data),
+            Error(frame) => frame.set_data(data),
+            Fd(frame) => frame.set_data(data),
+        }
+    }
+}
+
 impl EmbeddedFrame for CanAnyFrame {
-    /// Create a new CAN 2.0 data frame
+    /// Create a new CAN frame
+    /// If the data
     fn new(id: impl Into<Id>, data: &[u8]) -> Option<Self> {
         if data.len() <= CAN_MAX_DLEN {
             CanDataFrame::new(id, data).map(CanAnyFrame::Normal)
