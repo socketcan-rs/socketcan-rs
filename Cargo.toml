@@ -1,6 +1,6 @@
 [package]
 name = "socketcan"
-version = "3.5.0-pre.0"
+version = "3.5.0"
 edition = "2021"
 rust-version = "1.70"
 authors = [
@@ -18,9 +18,16 @@ Linux SocketCAN library. Send and receive CAN frames via CANbus on Linux.
 #
 # "netlink" (default) - Whether to include CAN interface configuration 
 #       capabilities based on netlink kernel communications
-# "dump" (default) - Whether to include 'candump' output parsing 
+# "dump" (default) - Whether to include 'candump' log file parsing 
 #	capabilities.
+# "enumerate" - Ability to enumerate the available CAN network interfaces
+#
 # "utils" - Build the command-line utilities
+#
+# "tokio" - Async/await support with tokio
+# "async-io" - Async/await support with async-io
+# "async-std" - Async/await support for async-std using async-io
+# "smol" - Async/await support for smol using async-io
 #
 
 [features]
@@ -85,6 +92,10 @@ name = "playlog"
 required-features = ["dump"]
 
 [[example]]
+name = "enumerate"
+required-features = ["enumerate"]
+
+[[example]]
 name = "tokio_send"
 required-features = ["tokio"]
 
@@ -124,6 +135,3 @@ required-features = ["async-std"]
 name = "async_std_print_frames"
 required-features = ["async-std"]
 
-[[example]]
-name = "enumerate"
-required-features = ["enumerate"]

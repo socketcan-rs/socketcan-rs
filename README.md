@@ -9,6 +9,8 @@ Please see the [documentation](https://docs.rs/socketcan) for details about the 
 
 ## Latest News
 
+Then end of 2024 saw two back-to-back release, v3.4 and v3.5. The first rolled up the PRs and bug fixes that had been sitting the the repository for the year. The second updated the `dump` module and improved the usability of several frame and socket types. See below for details.
+
 ### Version 3.x adds integrated async/await, improved Netlink coverage, and more!
 
 Version 3.0 adds integrated support for async/await, with the most popular runtimes, _tokio, async-std_, and _smol_.  We have merged the [tokio-socketcan](https://github.com/oefd/tokio-socketcan) crate into this one and implemented `async-io`.
@@ -20,6 +22,27 @@ The async support is optional, and can be enabled with a feature for the target 
 Additional implementation of the netlink control of the CAN interface was added in v3.1 allowing an application to do things like set the bitrate on the interface, set control modes, restart the interface, etc.
 
 v3.2 increased the interface configuration coverage with Netlink, allowing an application to set most interface CAN parameters and query them all back.
+
+### What's New in Version 3.5
+
+- `CanAnyFrame` implements `From` trait for `CanDataFrame`, `CanRemoteFrame`, and `CanErrorFrame`.
+- `CanFdSocket` implementa `TryFrom` trait for `CanSocket`
+- Added FdFlags::FDF bit mask for CANFD_FDF
+    - The FDF flag is forced on when creating a CanFdFrame.
+- Updates to `dump` module:
+    - Re-implemented with text parsing
+    - `ParseError` now implements std `Error` trait via `thiserror::Error` 
+    - Parses FdFlags field properly 
+    - CANFD_FDF bit flag recognized on input
+    - Fixed reading remote frames
+    - Now reads remote length
+    - `CanDumpRecord` changes:
+	- Removed lifetime and made `device` field an owned `String`
+	- Implemented `Clone` and `Display` traits.
+	- `Display` trait is compatible with the candump log record format
+    - `dump::Reader` is now an Iterator itself, returning full `CanDumpRecord` items
+    - New unit tests
+- [#59](https://github.com/socketcan-rs/socketcan-rs/issues/59) Embedded Hal for CanFdSocket
 
 ### What's New in Version 3.4
 
