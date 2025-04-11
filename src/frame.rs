@@ -1212,14 +1212,16 @@ impl From<CanError> for CanErrorFrame {
             can_id |= CanErrorFlags::LostArbitration as u32;
             data[0] = lost_arbitration.bit;
         }
-        if let Some(controller_problem) = err.controller_problem {
+        for controller_problem in err.controller_problems {
             can_id |= CanErrorFlags::ControllerProblems as u32;
-            data[1] = controller_problem as u8;
+            data[1] |= controller_problem as u8;
         }
-        if let Some(protocol_violation) = err.protocol_violation {
+        for protocol_violation in err.protocol_violations {
             can_id |= CanErrorFlags::ProtocolViolations as u32;
-            data[2] = protocol_violation.vtype as u8;
-            data[3] = protocol_violation.location as u8;
+            data[2] = protocol_violation as u8;
+        }
+        if let Some(location) = err.location {
+            data[3] = location as u8;
         }
         if let Some(transceiver_error) = err.transceiver_error {
             can_id |= CanErrorFlags::TransceiverStatus as u32;
@@ -1743,10 +1745,8 @@ mod tests {
         assert_eq!(err_in, err_out);
 
         let err_in = CanError {
-            protocol_violation: Some(errors::ProtocolViolation {
-                vtype: errors::ViolationType::BitStuffingError,
-                location: errors::Location::Id0400,
-            }),
+            protocol_violations: vec![errors::ViolationType::BitStuffingError],
+            location: Some(errors::Location::Id0400),
             ..Default::default()
         };
         let frame = CanErrorFrame::from(err_in.clone());

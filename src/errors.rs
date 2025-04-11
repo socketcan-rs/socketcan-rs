@@ -40,6 +40,8 @@
 
 use num_derive::FromPrimitive;    
 use num_traits::FromPrimitive;
+use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
 use crate::{CanErrorFrame, EmbeddedFrame, Frame};
 use std::{convert::TryFrom, error, fmt, io};
 use thiserror::Error;
@@ -134,7 +136,7 @@ pub enum CanErrorFlags {
     /// Controller restarted
     Restarted = 0x00000100,
     /// TX error counter / data[6] RX error counter / data[7]
-    TxErrorCounter = 0x00000200,
+    ErrorCounter = 0x00000200,
 }
 
 // ===== CanError ====
@@ -157,14 +159,16 @@ pub enum CanErrorFlags {
 pub struct CanError {
     /// TX timeout (by netdevice driver)
     pub transmit_timeout: bool,
-    /// Arbitration was lost.
+    /// Arbitration was lost. data[0]
     /// Contains the bit number after which arbitration was lost or 0 if unspecified.
     pub lost_arbitration: Option<LostArbitration>,
-    /// Controller problem
-    pub controller_problem: Option<ControllerProblem>,
-    /// Protocol violation at the specified [`Location`].
-    pub protocol_violation: Option<ProtocolViolation>,
-    /// Transceiver Error.
+    /// Controller problem(s) data[1]
+    pub controller_problems: Vec<ControllerProblem>,
+    /// Protocol violation(s) at the specified [`Location`] data[2]
+    pub protocol_violations: Vec<ViolationType>,
+    /// protocol violation location data[3]
+    pub location: Option<Location>,
+    /// Transceiver Error
     pub transceiver_error: Option<TransceiverError>,
     /// No ACK received for current CAN frame.
     pub no_ack: bool,
@@ -174,10 +178,10 @@ pub struct CanError {
     pub bus_error: bool,
     /// The bus has been restarted
     pub restarted: bool,
-    /// error counters. either the bit is set with any byte[6-7] contents, or the bytes 6-7 are nonzero
+    /// error counters, tx data[6] and rx data[7]. filled if either the CAN_ERR_CNT bit is set or bytes 6-7 are nonzero
     pub error_counts: Option<ErrorCounts>,    
     /// list of errors decoding the error frame
-    pub decoding_failure: Vec<CanErrorDecodingFailure>,
+    pub decoding_failures: Vec<CanErrorDecodingFailure>,
     /// Unknown, possibly invalid, error
     pub unknown: Option<u32>,
 }
@@ -194,14 +198,44 @@ impl fmt::Display for CanError {
         if let Some(ref lost_arbitration) = self.lost_arbitration {
             parts.push(format!("arbitration lost at bit {}", lost_arbitration.bit));
         }
-        if let Some(ref controller_problem) = self.controller_problem {
-            parts.push(format!("controller problem: {}", controller_problem));
-        }
-        if let Some(ref protocol_violation) = self.protocol_violation {
-            parts.push(format!(
-                "protocol violation: {} at {}",
-                protocol_violation.vtype, protocol_violation.location
+        if !self.controller_problems.is_empty() {
+            let mut controller_problems_line: String = String::new();
+            if self.controller_problems.len() > 1 {
+                controller_problems_line.push_str("multiple controller problems: ");
+            } else {
+                controller_problems_line.push_str("controller problem: ");
+            }
+            controller_problems_line.push_str(&format!(
+                "{}",
+                self.controller_problems
+                    .iter()
+                    .map(|err| format!("{}", err))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
+            parts.push(controller_problems_line);
+        }
+        if !self.protocol_violations.is_empty() {
+            let mut protocol_violations_line: String = String::new();
+            if self.protocol_violations.len() > 1 {
+                protocol_violations_line.push_str("multiple protocol violations: ");
+            } else {
+                protocol_violations_line.push_str("protocol violation: ");
+            }
+            protocol_violations_line.push_str(&format!(
+                "{}",
+                self.protocol_violations
+                    .iter()
+                    .map(|err| format!("{}", err))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+            if let Some(ref location) = self.location {
+                protocol_violations_line.push_str(&format!(" at {}", location));
+            } else {
+                protocol_violations_line.push_str(" (location decoding failed)");
+            }
+            parts.push(protocol_violations_line);
         }
         if let Some(ref transceiver_error) = self.transceiver_error {
             parts.push(format!("transceiver error: {}", transceiver_error));
@@ -221,7 +255,7 @@ impl fmt::Display for CanError {
         if let Some(ref error_counts) = self.error_counts {
             parts.push(format!("error counts: tx {}, rx {}", error_counts.tx, error_counts.rx));
         }
-        for err in &self.decoding_failure {
+        for err in &self.decoding_failures {
             parts.push(format!("decoding failure: {}", err));
         }
         if let Some(ref unknown) = self.unknown {
@@ -235,15 +269,17 @@ impl fmt::Display for CanError {
 impl embedded_can::Error for CanError {
     fn kind(&self) -> embedded_can::ErrorKind {
         // a single error frame could translate multiple ways. just match the first way found
-        if let Some(controller_problem) = self.controller_problem {
+        // there are problably a few more translations possible
+        if !self.controller_problems.is_empty() {
             use ControllerProblem::*;
-            match controller_problem {
-                ReceiveBufferOverflow | TransmitBufferOverflow => {
+            for controller_problem in &self.controller_problems {
+                if *controller_problem == ReceiveBufferOverflow || *controller_problem == TransmitBufferOverflow {
                     return embedded_can::ErrorKind::Overrun
                 }
-                _ => return embedded_can::ErrorKind::Other,
             }
+            return embedded_can::ErrorKind::Other;
         }
+
         if self.no_ack {
             return embedded_can::ErrorKind::Acknowledge;
         }
@@ -266,27 +302,38 @@ impl From<CanErrorFrame> for CanError {
             });
         }
         if (frame.error_bits() & (CanErrorFlags::ControllerProblems as u32)) != 0 {
-            match ControllerProblem::try_from(frame.data()[1]) {
-                Ok(err) => can_error.controller_problem = Some(err),
-                Err(err) => can_error.decoding_failure.push(err),
+            for problem in ControllerProblem::iter() {
+                if (frame.data()[1] & problem as u8) != 0 {
+                    can_error.controller_problems.push(problem);
+                }
+            }
+            // CAN_ERR_CRTL is set, but no controller problems were found
+            if can_error.controller_problems.is_empty() {
+                can_error.decoding_failures.push(CanErrorDecodingFailure::CtrlBitSetButNoneFound);
             }
         }
         if (frame.error_bits() & (CanErrorFlags::ProtocolViolations as u32)) != 0 {
-            match (
-                ViolationType::try_from(frame.data()[2]),
-                Location::try_from(frame.data()[3]),
-            ) {
-                (Ok(vtype), Ok(location)) => can_error.protocol_violation = Some(ProtocolViolation {
-                    vtype,
-                    location,
-                }),
-                (Err(err), _) | (_, Err(err)) => can_error.decoding_failure.push(err),
+            for vtype in ViolationType::iter() {
+                if (frame.data()[2] & vtype as u8) != 0 {
+                    can_error.protocol_violations.push(vtype);
+                }
+            }
+            // CAN_ERR_PROT is set, but no protocol violations were found
+            if can_error.protocol_violations.is_empty() {
+                can_error.decoding_failures.push(CanErrorDecodingFailure::ProtBitSetButNoneFound);
+            }
+            match Location::try_from(frame.data()[3]) {
+                Ok(location) => can_error.location = Some(location),
+                Err(err) => {
+                    can_error.decoding_failures.push(err);
+                    // leave location as None
+                }
             }
         }
         if (frame.error_bits() & (CanErrorFlags::TransceiverStatus as u32)) != 0 {
             match TransceiverError::try_from(frame.data()[4]) {
                 Ok(err) => can_error.transceiver_error = Some(err),
-                Err(err) => can_error.decoding_failure.push(err),
+                Err(err) => can_error.decoding_failures.push(err),
             }
         }
         if (frame.error_bits() & (CanErrorFlags::NoAck as u32)) != 0 {
@@ -301,7 +348,7 @@ impl From<CanErrorFrame> for CanError {
         if (frame.error_bits() & (CanErrorFlags::Restarted as u32)) != 0 {
             can_error.restarted = true;
         }
-        if (frame.error_bits() & (CanErrorFlags::TxErrorCounter as u32)) != 0 {
+        if (frame.error_bits() & (CanErrorFlags::ErrorCounter as u32)) != 0 {
             can_error.error_counts = Some(ErrorCounts {
                 tx: frame.data()[6],
                 rx: frame.data()[7],
@@ -325,15 +372,14 @@ pub struct LostArbitration {
     pub bit: u8,
 }
 
-// todo impls
-
 // ===== ControllerProblem =====
 
 /// Error status of the CAN controller.
 ///
 /// This is derived from `data[1]` of an error frame
+/// the flags don't conflict so there can be multiple problems
 /// see original in https://github.com/torvalds/linux/blob/master/include/uapi/linux/can/error.h
-#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, FromPrimitive)]
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, FromPrimitive, EnumIter)]
 #[repr(u8)]
 pub enum ControllerProblem {
     /// unspecified
@@ -372,34 +418,12 @@ impl fmt::Display for ControllerProblem {
     }
 }
 
-impl TryFrom<u8> for ControllerProblem {
-    type Error = CanErrorDecodingFailure;
-
-    fn try_from(val: u8) -> std::result::Result<Self, Self::Error> {
-        ControllerProblem::from_u8(val).ok_or(CanErrorDecodingFailure::InvalidControllerProblem)
-    }
-}
-
-// ===== ProtocolViolation =====
-
-/// populated if CAN_ERR_PROT is set
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ProtocolViolation {
-    /// The type of protocol violation
-    pub vtype: ViolationType,
-    /// The location (field or bit) of the violation
-    pub location: Location,
-}
-
-// todo impls
-
 // ===== ViolationType =====
 
-/// The type of protocol violation error.
-///
-/// This is derived from `data[2]` of an error frame.
+/// populated if CAN_ERR_PROT is set. This is derived from `data[2]` of an error frame.
+/// the flags don't conflict so there can be multiple types, but only one location (in data[3])
 /// see original in https://github.com/torvalds/linux/blob/master/include/uapi/linux/can/error.h
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, EnumIter)]
 #[repr(u8)]
 pub enum ViolationType {
     /// Unspecified Violation
@@ -439,13 +463,6 @@ impl fmt::Display for ViolationType {
             TransmissionError => "transmission error",
         };
         write!(f, "{}", msg)
-    }
-}
-impl TryFrom<u8> for ViolationType {
-    type Error = CanErrorDecodingFailure;
-
-    fn try_from(val: u8) -> std::result::Result<Self, Self::Error> {
-        ViolationType::from_u8(val).ok_or(CanErrorDecodingFailure::InvalidProtocolViolationType)
     }
 }
 
@@ -627,11 +644,10 @@ pub enum CanErrorDecodingFailure {
     /// The error type indicated a need for additional information as `data`,
     /// but the `data` field was not long enough.
     NotEnoughData(u8),
-    /// The error type `ControllerProblem` was indicated and additional
-    /// information found, but not recognized.
-    InvalidControllerProblem,
-    /// The type of the ProtocolViolation was not valid
-    InvalidProtocolViolationType,
+    /// The error type `ControllerProblem` was indicated but none of the data[1] bits decoded to any problem
+    CtrlBitSetButNoneFound,
+    /// the error type `ProtocolViolation` was indicated but none of the data[2] bits decoded to a valid type
+    ProtBitSetButNoneFound,
     /// A location was specified for a ProtocolViolation, but the location
     /// was not valid.
     InvalidProtocolViolationLocation,
@@ -648,8 +664,8 @@ impl fmt::Display for CanErrorDecodingFailure {
             NotAnError => "CAN frame is not an error",
             UnknownErrorType(_) => "unknown error type",
             NotEnoughData(_) => "not enough data",
-            InvalidControllerProblem => "not a valid controller problem",
-            InvalidProtocolViolationType => "not a valid protocol violation type",
+            CtrlBitSetButNoneFound => "controller problem bit set, but no problems found",
+            ProtBitSetButNoneFound => "protocol problem bit set, but no violations found",
             InvalidProtocolViolationLocation => "not a valid protocol violation location",
             InvalidTransceiverError => "not a valid transceiver error",
         };
@@ -665,8 +681,6 @@ pub struct ErrorCounts {
     /// RX error counter data[7]
     pub rx: u8,
 }
-
-// todo impls
 
 // ===== ConstructionError =====
 
@@ -790,13 +804,14 @@ error counts: tx 6, rx 7"#);
         let can_error: CanError = frame.into();
         assert_eq!(format!("{}", can_error), r#"transmission timeout
 arbitration lost at bit 254
+multiple controller problems: transmit buffer overflow, ERROR WARNING (receive), ERROR WARNING (transmit), ERROR PASSIVE (receive), ERROR PASSIVE (transmit), ERROR ACTIVE
+multiple protocol violations: frame format error, bit stuffing error, unable to send dominant bit, unable to send recessive bit, bus overload, active, transmission error (location decoding failed)
 no ack on tx
 bus off
 bus error
 restarted after bus off
 error counts: tx 254, rx 254
-decoding failure: not a valid controller problem
-decoding failure: not a valid protocol violation type
+decoding failure: not a valid protocol violation location
 decoding failure: not a valid transceiver error"#);
     }
 }
