@@ -559,7 +559,7 @@ impl TryFrom<u8> for Location {
 
 /// The error status of the CAN transceiver.
 ///
-/// This is derived from `data[4]` of an error frame.
+/// This is derived from `data[4]` of an error frame if CAN_ERR_TRX is set
 /// see original in https://github.com/torvalds/linux/blob/master/include/uapi/linux/can/error.h
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, FromPrimitive)]
 #[repr(u8)]
