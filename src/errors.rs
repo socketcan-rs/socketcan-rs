@@ -445,7 +445,7 @@ impl TryFrom<u8> for ViolationType {
     type Error = CanErrorDecodingFailure;
 
     fn try_from(val: u8) -> std::result::Result<Self, Self::Error> {
-        ViolationType::from_u8(val).ok_or(CanErrorDecodingFailure::InvalidViolationType)
+        ViolationType::from_u8(val).ok_or(CanErrorDecodingFailure::InvalidProtocolViolationType)
     }
 }
 
@@ -534,7 +534,7 @@ impl TryFrom<u8> for Location {
     type Error = CanErrorDecodingFailure;
 
     fn try_from(val: u8) -> std::result::Result<Self, Self::Error> {
-        Location::from_u8(val).ok_or(CanErrorDecodingFailure::InvalidLocation)
+        Location::from_u8(val).ok_or(CanErrorDecodingFailure::InvalidProtocolViolationLocation)
     }
 }
 
@@ -631,10 +631,10 @@ pub enum CanErrorDecodingFailure {
     /// information found, but not recognized.
     InvalidControllerProblem,
     /// The type of the ProtocolViolation was not valid
-    InvalidViolationType,
+    InvalidProtocolViolationType,
     /// A location was specified for a ProtocolViolation, but the location
     /// was not valid.
-    InvalidLocation,
+    InvalidProtocolViolationLocation,
     /// The supplied transceiver error was invalid.
     InvalidTransceiverError,
 }
@@ -649,8 +649,8 @@ impl fmt::Display for CanErrorDecodingFailure {
             UnknownErrorType(_) => "unknown error type",
             NotEnoughData(_) => "not enough data",
             InvalidControllerProblem => "not a valid controller problem",
-            InvalidViolationType => "not a valid violation type",
-            InvalidLocation => "not a valid location",
+            InvalidProtocolViolationType => "not a valid protocol violation type",
+            InvalidProtocolViolationLocation => "not a valid protocol violation location",
             InvalidTransceiverError => "not a valid transceiver error",
         };
         write!(f, "{}", msg)
@@ -741,24 +741,22 @@ mod tests {
         // cansend vcan0 200001FF#00.01.02.03.04.05.06.07 (would be "3FF" for all flags, but a bug in 2023 and earlier cansend versions prevents printing if CAN_ERR_CNT is set)
         // prints:
         // (0000000000.000000)  vcan0  TX - -  200001FF   [8]  00 01 02 03 04 05 06 07   ERRORFRAME
-        //     tx-timeout
-        //     lost-arbitration{at bit 0}
-        //     controller-problem{rx-overflow}
-        //     protocol-violation{{frame-format-error}{start-of-frame}}
-        //     transceiver-status
-        //     no-acknowledgement-on-tx
-        //     bus-off
-        //     bus-error
-        //     restarted-after-bus-off
-        //     error-counter-tx-rx{{6}{7}}
+        //    tx-timeout
+        //    lost-arbitration{at bit 0}
+        //    controller-problem{rx-overflow}
+        //    protocol-violation{{frame-format-error}{start-of-frame}}
+        //    transceiver-status
+        //    no-acknowledgement-on-tx
+        //    bus-off
+        //    bus-error
+        //    restarted-after-bus-off
+        //    error-counter-tx-rx{{6}{7}}
 
         // create a can frame with id 200001FF and data 00 01 02 03 04 05 06 07 to match the candump test value above
         let id = ExtendedId::new(0x1FF).unwrap(); // the leading 0x2 CAN_ERR_FLAG is built in
         let frame = CanErrorFrame::new(id, &[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07]).unwrap();
 
-        // get a canerror from it
         let can_error: CanError = frame.into();
-        // print it
         assert_eq!(format!("{}", can_error), r#"transmission timeout
 arbitration lost at bit 0
 controller problem: receive buffer overflow
@@ -769,5 +767,36 @@ bus off
 bus error
 restarted after bus off
 error counts: tx 6, rx 7"#);
+
+        // same, but error values where possible
+        // shows multiple controller problems and multiple protocol violations
+        // candump comparison:
+        // candump -c -ta -H -d -e -x vcan0,0:0,#FFFFFFFF &
+        // cansend vcan0 200001FF#FE.FE.FE.FE.FE.FE.FE.FE (would be "3FF" for all flags, but a bug in 2023 and earlier cansend versions prevents printing if CAN_ERR_CNT is set)
+        // prints:
+        // (0000000000.000000)  vcan0  TX - -  200001FF   [8]  FE FE FE FE FE FE FE FE   ERRORFRAME
+        //    tx-timeout
+        //    lost-arbitration{at bit 254}
+        //    controller-problem{tx-overflow,rx-error-warning,tx-error-warning,rx-error-passive,tx-error-passive,back-to-error-active}
+        //    protocol-violation{{frame-format-error,bit-stuffing-error,tx-dominant-bit-error,tx-recessive-bit-error,bus-overload,active-error,error-on-tx}{}}
+        //    transceiver-status
+        //    no-acknowledgement-on-tx
+        //    bus-off
+        //    bus-error
+        //    restarted-after-bus-off
+        //    error-counter-tx-rx{{254}{254}}
+
+        let frame = CanErrorFrame::new(id, &[0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE]).unwrap();
+        let can_error: CanError = frame.into();
+        assert_eq!(format!("{}", can_error), r#"transmission timeout
+arbitration lost at bit 254
+no ack on tx
+bus off
+bus error
+restarted after bus off
+error counts: tx 254, rx 254
+decoding failure: not a valid controller problem
+decoding failure: not a valid protocol violation type
+decoding failure: not a valid transceiver error"#);
     }
 }
