@@ -37,26 +37,6 @@
 //! from the Linux kernel header file:
 //! [linux/can/error.h](https://raw.githubusercontent.com/torvalds/linux/master/include/uapi/linux/can/error.h)
 //!
-//! see also snprintf_can_error_frame() in https://github.com/linux-can/can-utils/blob/master/lib.c
-//! for the types of errors that can coexist in a single error frame:
-//! 1. prints the error class
-//! 2. prints informtion for each of CAN_ERR_LOSTARB, CAN_ERR_CRTL, CAN_ERR_PROT, CAN_ERR_CNT, if flags are set
-//! 3. prints error counts if they're nonzero even if CAN_ERR_CNT wasn't set
-//! 
-//! for example:
-//! cansend vcan0 200001FF#0011223344556677 (would be "3FF" for all flags, but a bug in 2023 and earlier cansend versions prevents printing if CAN_ERR_CNT is set)
-//! prints: (with candump -c -ta -H -d -e -x vcan0,0:0,#FFFFFFFF)
-//!  (0000000000.000000)  vcan0  TX - -  200001FF   [8]  00 11 22 33 44 55 66 77   ERRORFRAME
-//!  	tx-timeout
-//!  	lost-arbitration{at bit 0}
-//!  	controller-problem{rx-overflow,rx-error-passive}
-//!  	protocol-violation{{frame-format-error,bus-overload}{}}
-//!  	transceiver-status
-//!  	no-acknowledgement-on-tx
-//!  	bus-off
-//!  	bus-error
-//!  	restarted-after-bus-off
-//!  	error-counter-tx-rx{{102}{119}}
 
 use num_derive::FromPrimitive;    
 use num_traits::FromPrimitive;
@@ -219,8 +199,8 @@ impl fmt::Display for CanError {
         }
         if let Some(ref protocol_violation) = self.protocol_violation {
             parts.push(format!(
-                "protocol violation at {}: {}",
-                protocol_violation.location, protocol_violation.vtype
+                "protocol violation: {} at {}",
+                protocol_violation.vtype, protocol_violation.location
             ));
         }
         if let Some(ref transceiver_error) = self.transceiver_error {
@@ -719,8 +699,12 @@ impl fmt::Display for ConstructionError {
 
 #[cfg(test)]
 mod tests {
-    use crate::Error;
+    use embedded_can::{ExtendedId, Frame};
+
+    use crate::{CanErrorFrame, Error};
     use std::io;
+
+    use super::CanError;
 
     #[test]
     fn test_errors() {
@@ -741,5 +725,49 @@ mod tests {
         } else {
             panic!("Wrong error conversion");
         }
+    }
+
+    #[test]
+    fn test_error_printing() {
+        // see snprintf_can_error_frame() in https://github.com/linux-can/can-utils/blob/master/lib.c
+        // for the types of errors that can coexist in a single error frame, snprintf_can_error_frame():
+        // 1. prints the error class
+        // 2. prints information for each of CAN_ERR_LOSTARB, CAN_ERR_CRTL, CAN_ERR_PROT, CAN_ERR_CNT, if flags are set
+        //  a. CAN_ERR_TRX details in data[4] aren't printed (I think this is an omission)
+        // 3. prints error counts if they're nonzero even if CAN_ERR_CNT wasn't set
+        // 
+        // for example:
+        // candump -c -ta -H -d -e -x vcan0,0:0,#FFFFFFFF &
+        // cansend vcan0 200001FF#00.01.02.03.04.05.06.07 (would be "3FF" for all flags, but a bug in 2023 and earlier cansend versions prevents printing if CAN_ERR_CNT is set)
+        // prints:
+        // (0000000000.000000)  vcan0  TX - -  200001FF   [8]  00 01 02 03 04 05 06 07   ERRORFRAME
+        //     tx-timeout
+        //     lost-arbitration{at bit 0}
+        //     controller-problem{rx-overflow}
+        //     protocol-violation{{frame-format-error}{start-of-frame}}
+        //     transceiver-status
+        //     no-acknowledgement-on-tx
+        //     bus-off
+        //     bus-error
+        //     restarted-after-bus-off
+        //     error-counter-tx-rx{{6}{7}}
+
+        // create a can frame with id 200001FF and data 00 01 02 03 04 05 06 07 to match the candump test value above
+        let id = ExtendedId::new(0x1FF).unwrap(); // the leading 0x2 CAN_ERR_FLAG is built in
+        let frame = CanErrorFrame::new(id, &[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07]).unwrap();
+
+        // get a canerror from it
+        let can_error: CanError = frame.into();
+        // print it
+        assert_eq!(format!("{}", can_error), r#"transmission timeout
+arbitration lost at bit 0
+controller problem: receive buffer overflow
+protocol violation: frame format error at start of frame
+transceiver error: CAN High, no wire
+no ack on tx
+bus off
+bus error
+restarted after bus off
+error counts: tx 6, rx 7"#);
     }
 }

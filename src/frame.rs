@@ -1740,7 +1740,7 @@ mod tests {
         assert!(frame.is_error_frame());
 
         let err_out = frame.into_error();
-        assert!(err_in == err_out);
+        assert_eq!(err_in, err_out);
 
         let err_in = CanError {
             protocol_violation: Some(errors::ProtocolViolation {
@@ -1755,7 +1755,7 @@ mod tests {
         assert!(frame.is_error_frame());
 
         let err_out = frame.into_error();
-        assert!(err_in == err_out);
+        assert_eq!(err_in, err_out);
     }
 
     #[test]
