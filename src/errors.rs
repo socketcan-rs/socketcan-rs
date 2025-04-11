@@ -397,7 +397,7 @@ pub enum ControllerProblem {
     /// reached error passive status TX
     TransmitErrorPassive = 0x20,
     /// recovered to error active state
-    Active = 0x40,
+    BackToErrorActive = 0x40,
 }
 
 impl error::Error for ControllerProblem {}
@@ -412,7 +412,7 @@ impl fmt::Display for ControllerProblem {
             TransmitErrorWarning => "ERROR WARNING (transmit)",
             ReceiveErrorPassive => "ERROR PASSIVE (receive)",
             TransmitErrorPassive => "ERROR PASSIVE (transmit)",
-            Active => "ERROR ACTIVE",
+            BackToErrorActive => "back to ERROR ACTIVE",
         };
         write!(f, "{}", msg)
     }
@@ -743,16 +743,18 @@ mod tests {
 
     #[test]
     fn test_error_printing() {
+        // compare our error printing to the printing in linux can-util's C implementation
         // see snprintf_can_error_frame() in https://github.com/linux-can/can-utils/blob/master/lib.c
-        // for the types of errors that can coexist in a single error frame, snprintf_can_error_frame():
+
+        // snprintf_can_error_frame():
         // 1. prints the error class
         // 2. prints information for each of CAN_ERR_LOSTARB, CAN_ERR_CRTL, CAN_ERR_PROT, CAN_ERR_CNT, if flags are set
         //  a. CAN_ERR_TRX details in data[4] aren't printed (I think this is an omission)
         // 3. prints error counts if they're nonzero even if CAN_ERR_CNT wasn't set
-        // 
+
         // for example:
         // candump -c -ta -H -d -e -x vcan0,0:0,#FFFFFFFF &
-        // cansend vcan0 200001FF#00.01.02.03.04.05.06.07 (would be "3FF" for all flags, but a bug in 2023 and earlier cansend versions prevents printing if CAN_ERR_CNT is set)
+        // cansend vcan0 200001FF#00.01.02.03.04.05.06.07 (would be "3FF" for all flags, but a bug in 2023 and earlier candump versions prevents printing if CAN_ERR_CNT is set)
         // prints:
         // (0000000000.000000)  vcan0  TX - -  200001FF   [8]  00 01 02 03 04 05 06 07   ERRORFRAME
         //    tx-timeout
@@ -784,9 +786,10 @@ error counts: tx 6, rx 7"#);
 
         // same, but error values where possible
         // shows multiple controller problems and multiple protocol violations
+
         // candump comparison:
         // candump -c -ta -H -d -e -x vcan0,0:0,#FFFFFFFF &
-        // cansend vcan0 200001FF#FE.FE.FE.FE.FE.FE.FE.FE (would be "3FF" for all flags, but a bug in 2023 and earlier cansend versions prevents printing if CAN_ERR_CNT is set)
+        // cansend vcan0 200001FF#FE.FE.FE.FE.FE.FE.FE.FE (would be "3FF" for all flags, but a bug in 2023 and earlier candump versions prevents printing if CAN_ERR_CNT is set)
         // prints:
         // (0000000000.000000)  vcan0  TX - -  200001FF   [8]  FE FE FE FE FE FE FE FE   ERRORFRAME
         //    tx-timeout
@@ -804,7 +807,7 @@ error counts: tx 6, rx 7"#);
         let can_error: CanError = frame.into();
         assert_eq!(format!("{}", can_error), r#"transmission timeout
 arbitration lost at bit 254
-multiple controller problems: transmit buffer overflow, ERROR WARNING (receive), ERROR WARNING (transmit), ERROR PASSIVE (receive), ERROR PASSIVE (transmit), ERROR ACTIVE
+multiple controller problems: transmit buffer overflow, ERROR WARNING (receive), ERROR WARNING (transmit), ERROR PASSIVE (receive), ERROR PASSIVE (transmit), back to ERROR ACTIVE
 multiple protocol violations: frame format error, bit stuffing error, unable to send dominant bit, unable to send recessive bit, bus overload, active, transmission error (location decoding failed)
 no ack on tx
 bus off
