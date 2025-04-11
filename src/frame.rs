@@ -1036,6 +1036,15 @@ impl AsRef<can_frame> for CanRemoteFrame {
 #[derive(Clone, Copy)]
 pub struct CanErrorFrame(can_frame);
 
+impl PartialEq for CanErrorFrame {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.can_id == other.0.can_id
+            && self.0.can_dlc == other.0.can_dlc
+            && self.0.len8_dlc == other.0.len8_dlc
+            && self.0.data[..] == other.0.data[..]
+    }
+}
+
 impl CanErrorFrame {
     /// Creates a CAN error frame from raw parts.
     ///
@@ -1196,36 +1205,36 @@ impl From<CanError> for CanErrorFrame {
         let mut data = [0u8; CAN_MAX_DLEN];
         let mut can_id: canid_t = CAN_ERR_FLAG;
 
-        if err.TransmitTimeout {
+        if err.transmit_timeout {
             can_id |= CanErrorFlags::TxTimeout as u32;
         }
-        if let Some(lost_arbitration) = err.LostArbitration {
+        if let Some(lost_arbitration) = err.lost_arbitration {
             can_id |= CanErrorFlags::LostArbitration as u32;
             data[0] = lost_arbitration.bit;
         }
-        if let Some(controller_problem) = err.ControllerProblem {
+        if let Some(controller_problem) = err.controller_problem {
             can_id |= CanErrorFlags::ControllerProblems as u32;
             data[1] = controller_problem as u8;
         }
-        if let Some(protocol_violation) = err.ProtocolViolation {
+        if let Some(protocol_violation) = err.protocol_violation {
             can_id |= CanErrorFlags::ProtocolViolations as u32;
             data[2] = protocol_violation.vtype as u8;
             data[3] = protocol_violation.location as u8;
         }
-        if let Some(transceiver_error) = err.TransceiverError {
+        if let Some(transceiver_error) = err.transceiver_error {
             can_id |= CanErrorFlags::TransceiverStatus as u32;
             data[4] = transceiver_error as u8;
         }
-        if err.NoAck {
+        if err.no_ack {
             can_id |= CanErrorFlags::NoAck as u32;
         }
-        if err.BusOff {
+        if err.bus_off {
             can_id |= CanErrorFlags::BusOff as u32;
         }
-        if err.BusError {
+        if err.bus_error {
             can_id |= CanErrorFlags::BusError as u32;
         }
-        if err.Restarted {
+        if err.restarted {
             can_id |= CanErrorFlags::Restarted as u32;
         }
         // ignore parsing errors for CanErrorFrame -> CanError
@@ -1699,7 +1708,7 @@ mod tests {
         frame.can_id = CAN_ERR_FLAG | 0x0010;
 
         let err = CanError::from(CanErrorFrame(frame));
-        assert!(matches!(err.TransceiverError, Some(TransceiverError::Unspecified)));
+        assert!(matches!(err.transceiver_error, Some(TransceiverError::Unspecified)));
 
         let id = StandardId::new(0x0010).unwrap();
         let frame = CanErrorFrame::new(id, &[]).unwrap();
@@ -1708,7 +1717,7 @@ mod tests {
         assert!(frame.is_error_frame());
 
         let err = CanError::from(frame);
-        assert!(matches!(err.TransceiverError, Some(TransceiverError::Unspecified)));
+        assert!(matches!(err.transceiver_error, Some(TransceiverError::Unspecified)));
 
         let id = ExtendedId::new(0x0020).unwrap();
         let frame = CanErrorFrame::new(id, &[]).unwrap();
@@ -1717,39 +1726,36 @@ mod tests {
         assert!(frame.is_error_frame());
 
         let err = CanError::from(frame);
-        assert!(err.NoAck);
+        assert!(err.no_ack);
 
         // From CanErrors
 
-        let err_in = CanErrorFrame::from(CanError {
-            TransmitTimeout: true,
+        let err_in = CanError {
+            transmit_timeout: true,
             ..Default::default()
-        });
-        let frame = CanErrorFrame::from(CanError {
-            TransmitTimeout: true,
-            ..Default::default()
-        });
+        };
+        let frame = CanErrorFrame::from(err_in.clone());
         assert!(!frame.is_data_frame());
         assert!(!frame.is_remote_frame());
         assert!(frame.is_error_frame());
 
         let err_out = frame.into_error();
-        assert!(matches!(err_in, err_out));
+        assert!(err_in == err_out);
 
-        let err_in = CanErrorFrame::from(CanError {
-            ProtocolViolation: Some(errors::ProtocolViolation {
+        let err_in = CanError {
+            protocol_violation: Some(errors::ProtocolViolation {
                 vtype: errors::ViolationType::BitStuffingError,
                 location: errors::Location::Id0400,
             }),
             ..Default::default()
-        });
-        let frame = CanErrorFrame::from(err);
+        };
+        let frame = CanErrorFrame::from(err_in.clone());
         assert!(!frame.is_data_frame());
         assert!(!frame.is_remote_frame());
         assert!(frame.is_error_frame());
 
         let err_out = frame.into_error();
-        assert!(matches!(err_in, err_out));
+        assert!(err_in == err_out);
     }
 
     #[test]
