@@ -52,6 +52,8 @@ libc = "0.2"
 nix = { version="0.29", features = ["poll", "process", "net"] }
 bitflags = "2.6"
 thiserror = "2"
+num-traits = "0.2.19"
+num-derive = "0.4.2"
 socket2 = { version = "0.5", features = ["all"] }
 clap = { version = "3.2", optional = true }
 anyhow = { version = "1", optional = true }
