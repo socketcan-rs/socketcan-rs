@@ -478,7 +478,7 @@ impl fmt::Display for ViolationType {
 pub enum Location {
     /// Unspecified
     Unspecified = 0x00,
-    /// Start of frame.
+    /// Start of frame
     StartOfFrame = 0x03,
     /// ID bits 28-21 (SFF: 10-3)
     Id2821 = 0x02,
@@ -505,7 +505,7 @@ pub enum Location {
     /// Data section
     DataSection = 0x0A,
     /// CRC sequence
-    CrcSequence = 0x008,
+    CrcSequence = 0x08,
     /// CRC delimiter
     CrcDelimiter = 0x18,
     /// ACK slot
@@ -516,6 +516,18 @@ pub enum Location {
     EndOfFrame = 0x1A,
     /// Intermission (between frames)
     Intermission = 0x12,
+
+    /// the following aren't in the current linux error.h but are valid
+    /// Active Error Flag
+    ActiveErrorFlag = 0x11,
+    /// Passive Error Flag
+    PassiveErrorFlag = 0x16,
+    /// Tolerate Dominant Bits
+    TolerateDominantBits = 0x13,
+    /// Error Delimiter
+    ErrorDelimiter = 0x17,
+    /// Overload Flag
+    OverloadFlag = 0x1C,
 }
 
 impl fmt::Display for Location {
@@ -542,6 +554,11 @@ impl fmt::Display for Location {
             AckDelimiter => "ACK delimiter",
             EndOfFrame => "end of frame",
             Intermission => "intermission",
+            ActiveErrorFlag => "active error flag",
+            PassiveErrorFlag => "passive error flag",
+            TolerateDominantBits => "tolerate dominant bits",
+            ErrorDelimiter => "error delimiter",
+            OverloadFlag => "overload flag",
         };
         write!(f, "{}", msg)
     }
