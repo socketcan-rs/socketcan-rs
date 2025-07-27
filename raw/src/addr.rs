@@ -16,7 +16,7 @@ use nix::net::if_::if_nametoindex;
 use socket2::SockAddr;
 use std::{fmt, io, mem, mem::size_of, os::raw::c_int};
 
-pub use libc::AF_CAN;
+use libc::AF_CAN;
 
 use crate::utils::{as_bytes, as_bytes_mut};
 

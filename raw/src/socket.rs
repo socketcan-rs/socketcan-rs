@@ -11,11 +11,10 @@
 
 //! Implementation of sockets for CANbus 2.0 and FD for SocketCAN on Linux.
 
-use crate::addr::CanAddr;
+use crate::{addr::CanAddr, AsPtr};
 use socket2::SockAddr;
 use std::{
-    fmt,
-    io,
+    fmt, io,
     mem::{size_of, size_of_val},
     os::{
         raw::{c_int, c_void},
@@ -24,21 +23,19 @@ use std::{
     ptr,
     time::Duration,
 };
-
-pub use libc::{
-    canid_t, socklen_t, AF_CAN, CAN_ERR_MASK, CAN_RAW, CAN_RAW_ERR_FILTER,
-    CAN_RAW_FILTER, CAN_RAW_JOIN_FILTERS, CAN_RAW_LOOPBACK,
-    CAN_RAW_RECV_OWN_MSGS, EINPROGRESS, SOL_CAN_RAW,
+use libc::{
+    canid_t, socklen_t, AF_CAN, CAN_ERR_MASK, CAN_RAW, CAN_RAW_ERR_FILTER, CAN_RAW_FILTER,
+    CAN_RAW_JOIN_FILTERS, CAN_RAW_LOOPBACK, CAN_RAW_RECV_OWN_MSGS, EINPROGRESS, SOL_CAN_RAW,
 };
 
 /// An I/O specific error
-pub type IoError = io::Error;
+type IoError = io::Error;
 
 /// A kind of I/O error
-pub type IoErrorKind = io::ErrorKind;
+type IoErrorKind = io::ErrorKind;
 
 /// An I/O specific result
-pub type IoResult<T> = io::Result<T>;
+type IoResult<T> = io::Result<T>;
 
 /// Check an error return value for timeouts.
 ///
@@ -279,13 +276,13 @@ pub trait Socket: AsRawFd {
     /// Writes a normal CAN 2.0 frame to the socket.
     fn write_frame<F>(&self, frame: &F) -> IoResult<()>
     where
-        F: Into<Self::FrameType>;
+        F: Into<Self::FrameType> + AsPtr;
 
     /// Blocking write a single can frame, retrying until it gets sent
     /// successfully.
     fn write_frame_insist<F>(&self, frame: &F) -> IoResult<()>
     where
-        F: Into<Self::FrameType>,
+        F: Into<Self::FrameType> + AsPtr,
     {
         loop {
             match self.write_frame(frame) {
