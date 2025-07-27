@@ -11,14 +11,14 @@
 
 //! SocketCAN address type.
 
-use crate::id::id_to_canid_t;
-use embedded_can::Id;
 use libc::{sa_family_t, sockaddr, sockaddr_can, sockaddr_storage, socklen_t};
 use nix::net::if_::if_nametoindex;
 use socket2::SockAddr;
 use std::{fmt, io, mem, mem::size_of, os::raw::c_int};
 
-pub use libc::{AF_CAN, CAN_RAW, PF_CAN};
+use libc::AF_CAN;
+
+use crate::utils::{as_bytes, as_bytes_mut};
 
 /// CAN socket address.
 ///
@@ -57,12 +57,12 @@ impl CanAddr {
     /// by index.
     pub fn new_isotp<R, T>(ifindex: u32, rx_id: R, tx_id: T) -> Self
     where
-        R: Into<Id>,
-        T: Into<Id>,
+        R: Into<u32>,
+        T: Into<u32>,
     {
         let mut addr = Self::new(ifindex);
-        addr.0.can_addr.tp.rx_id = id_to_canid_t(rx_id);
-        addr.0.can_addr.tp.tx_id = id_to_canid_t(tx_id);
+        addr.0.can_addr.tp.rx_id = rx_id.into();
+        addr.0.can_addr.tp.tx_id = tx_id.into();
         addr
     }
 
@@ -84,12 +84,12 @@ impl CanAddr {
     /// Try to create a ISO-TP address from an interface name.
     pub fn from_iface_isotp<R, T>(ifname: &str, rx_id: R, tx_id: T) -> io::Result<Self>
     where
-        R: Into<Id>,
-        T: Into<Id>,
+        R: Into<u32>,
+        T: Into<u32>,
     {
         let mut addr = Self::from_iface(ifname)?;
-        addr.0.can_addr.tp.rx_id = id_to_canid_t(rx_id);
-        addr.0.can_addr.tp.tx_id = id_to_canid_t(tx_id);
+        addr.0.can_addr.tp.rx_id = rx_id.into();
+        addr.0.can_addr.tp.tx_id = tx_id.into();
         Ok(addr)
     }
 
@@ -110,7 +110,7 @@ impl CanAddr {
 
     /// Gets the underlying address as a byte slice
     pub fn as_bytes(&self) -> &[u8] {
-        crate::as_bytes(&self.0)
+        as_bytes(&self.0)
     }
 
     /// Converts the address into a `sockaddr_storage` type.
@@ -121,7 +121,7 @@ impl CanAddr {
         let len = can_addr.len();
 
         let mut storage: sockaddr_storage = unsafe { mem::zeroed() };
-        let sock_addr = crate::as_bytes_mut(&mut storage);
+        let sock_addr = as_bytes_mut(&mut storage);
 
         sock_addr[..len].copy_from_slice(can_addr);
         (storage, len as socklen_t)
@@ -175,7 +175,6 @@ impl AsRef<sockaddr_can> for CanAddr {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::as_bytes;
 
     const IDX: u32 = 42;
 

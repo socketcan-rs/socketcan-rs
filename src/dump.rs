@@ -32,12 +32,13 @@
 use crate::{
     frame::Frame,
     id::{id_from_raw, FdFlags},
-    CanAnyFrame, CanDataFrame, CanFdFrame, CanFrame, CanRemoteFrame, ConstructionError,
+    CanAnyFrame, CanDataFrame, CanFdFrame, CanFrame, CanRemoteFrame,
 };
 use embedded_can::Frame as EmbeddedFrame;
 use hex::FromHex;
 use itertools::Itertools;
 use libc::canid_t;
+use socketcan_raw::ConstructionError;
 use std::{
     fmt,
     fs::File,

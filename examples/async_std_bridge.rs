@@ -14,7 +14,8 @@
 //! This sends CAN data frames received on one interface to another.
 //!
 
-use socketcan::{async_std::CanSocket, CanFrame, Result};
+use socketcan::{async_std::CanSocket, CanFrame};
+use socketcan_raw::Result;
 
 #[async_std::main]
 async fn main() -> Result<()> {

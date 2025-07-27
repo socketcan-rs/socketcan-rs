@@ -16,12 +16,13 @@
 //!
 
 use embedded_can::{Frame, StandardId};
-use socketcan::{CanFdSocket, CanFrame, Result, Socket};
+use socketcan::{CanFdSocket, CanFrame};
+use socketcan_raw::{Result, Socket};
 use std::env;
 
 fn main() -> Result<()> {
     let iface = env::args().nth(1).unwrap_or_else(|| "can0".into());
-    let socket_tx = CanFdSocket::open(&iface).unwrap();
+    let socket_tx = CanFdSocket::open(&iface)?;
 
     let id = StandardId::new(0x100).unwrap();
     let frame = CanFrame::new(id, &[0]).unwrap();

@@ -15,7 +15,7 @@
 //! interfaces.
 //!
 
-use crate::Result;
+use socketcan_raw::Result;
 
 use libc::ARPHRD_CAN;
 use libudev::{Context, Enumerator};

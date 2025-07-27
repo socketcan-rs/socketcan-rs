@@ -22,10 +22,8 @@
 //!
 
 use futures_util::StreamExt;
-use socketcan::{
-    tokio::CanSocket, CanFilter, CanFrame, EmbeddedFrame, Error, Frame, Result, SocketOptions,
-    StandardId,
-};
+use socketcan::{tokio::CanSocket, CanFrame, EmbeddedFrame, Frame, StandardId};
+use socketcan_raw::{CanFilter, Error, Result, SocketOptions};
 use std::collections::VecDeque;
 use tokio::sync::mpsc;
 

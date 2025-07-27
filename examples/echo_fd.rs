@@ -25,7 +25,8 @@
 
 use anyhow::Context;
 use embedded_can::Frame as EmbeddedFrame;
-use socketcan::{CanAnyFrame, CanFdFrame, CanFdSocket, Frame, Socket};
+use socketcan::{CanAnyFrame, CanFdFrame, CanFdSocket, Frame};
+use socketcan_raw::Socket;
 use std::{
     env,
     sync::atomic::{AtomicBool, Ordering},

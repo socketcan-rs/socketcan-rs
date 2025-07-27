@@ -1,0 +1,19 @@
+[package]
+name = "socketcan-raw"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+description.workspace = true
+
+[features]
+enumerate = ["dep:libudev"]
+
+[dependencies]
+embedded-can = { workspace = true, optional = true }
+libc = { workspace = true }
+libudev = { workspace = true, optional = true }
+nix = { workspace = true, features = ["net", "poll"] }
+socket2 = { workspace = true, features = ["all"] }
+thiserror = { workspace = true }
