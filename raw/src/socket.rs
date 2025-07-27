@@ -11,10 +11,14 @@
 
 //! Implementation of sockets for CANbus 2.0 and FD for SocketCAN on Linux.
 
-use crate::{addr::CanAddr, AsPtr};
+use crate::{addr::CanAddr, errors::{IoError, IoResult, IoErrorKind}, AsPtr};
+use libc::{
+    canid_t, socklen_t, AF_CAN, CAN_ERR_MASK, CAN_RAW, CAN_RAW_ERR_FILTER, CAN_RAW_FILTER,
+    CAN_RAW_JOIN_FILTERS, CAN_RAW_LOOPBACK, CAN_RAW_RECV_OWN_MSGS, EINPROGRESS, SOL_CAN_RAW,
+};
 use socket2::SockAddr;
 use std::{
-    fmt, io,
+    fmt,
     mem::{size_of, size_of_val},
     os::{
         raw::{c_int, c_void},
@@ -23,19 +27,6 @@ use std::{
     ptr,
     time::Duration,
 };
-use libc::{
-    canid_t, socklen_t, AF_CAN, CAN_ERR_MASK, CAN_RAW, CAN_RAW_ERR_FILTER, CAN_RAW_FILTER,
-    CAN_RAW_JOIN_FILTERS, CAN_RAW_LOOPBACK, CAN_RAW_RECV_OWN_MSGS, EINPROGRESS, SOL_CAN_RAW,
-};
-
-/// An I/O specific error
-type IoError = io::Error;
-
-/// A kind of I/O error
-type IoErrorKind = io::ErrorKind;
-
-/// An I/O specific result
-type IoResult<T> = io::Result<T>;
 
 /// Check an error return value for timeouts.
 ///

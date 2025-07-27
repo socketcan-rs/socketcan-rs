@@ -1,8 +1,9 @@
 pub(crate) mod addr;
+pub(crate) mod errors;
 pub(crate) mod socket;
 pub(crate) mod utils;
 
-pub use self::{addr::*, socket::*, utils::*};
+pub use self::{addr::*, errors::*, socket::*, utils::*};
 
 // ===== AsPtr trait =====
 

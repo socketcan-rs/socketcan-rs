@@ -11,3 +11,5 @@ description.workspace = true
 libc = { workspace = true }
 nix = { workspace = true, features = ["net", "poll"] }
 socket2 = { workspace = true, features = ["all"] }
+thiserror = { workspace = true }
+embedded-can = { workspace = true, optional = true }
