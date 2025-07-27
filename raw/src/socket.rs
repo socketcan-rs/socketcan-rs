@@ -11,7 +11,11 @@
 
 //! Implementation of sockets for CANbus 2.0 and FD for SocketCAN on Linux.
 
-use crate::{addr::CanAddr, errors::{IoError, IoResult, IoErrorKind}, AsPtr};
+use crate::{
+    addr::CanAddr,
+    errors::{IoError, IoErrorKind, IoResult},
+    AsPtr,
+};
 use libc::{
     canid_t, socklen_t, AF_CAN, CAN_ERR_MASK, CAN_RAW, CAN_RAW_ERR_FILTER, CAN_RAW_FILTER,
     CAN_RAW_JOIN_FILTERS, CAN_RAW_LOOPBACK, CAN_RAW_RECV_OWN_MSGS, EINPROGRESS, SOL_CAN_RAW,
