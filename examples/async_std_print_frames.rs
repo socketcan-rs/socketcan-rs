@@ -15,7 +15,8 @@
 //! This receives CAN frames and prints them to the console.
 //!
 
-use socketcan::{async_std::CanSocket, CanFrame, Result};
+use socketcan::{async_std::CanSocket, CanFrame};
+use socketcan_raw::Result;
 use std::env;
 
 #[async_std::main]

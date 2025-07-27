@@ -18,13 +18,13 @@
 
 #![allow(non_camel_case_types, unused)]
 
-use crate::{as_bytes, as_bytes_mut};
 use libc::{c_char, c_uint};
 use neli::{
     consts::rtnl::{RtaType, RtaTypeWrapper},
     err::{DeError, SerError},
     impl_trait, neli_enum, FromBytes, Size, ToBytes,
 };
+use socketcan_raw::{as_bytes, as_bytes_mut};
 use std::{
     io::{self, Cursor, Read, Write},
     mem,

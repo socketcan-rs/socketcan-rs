@@ -11,10 +11,10 @@
 
 //! Implementation of CANbus standard and extended identifiers.
 
-use crate::{Error, Result};
 use bitflags::bitflags;
 use embedded_can::{ExtendedId, Id, StandardId};
 use libc::canid_t;
+use socketcan_raw::{Error, Result};
 use std::{io, ops};
 
 pub use libc::{

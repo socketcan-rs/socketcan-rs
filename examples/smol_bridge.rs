@@ -14,7 +14,8 @@
 //! This sends CAN data frames received on one interface to another.
 //!
 
-use socketcan::{smol::CanSocket, CanFrame, Error, Result};
+use socketcan::{smol::CanSocket, CanFrame};
+use socketcan_raw::{Error, Result};
 
 fn main() -> Result<()> {
     smol::block_on(async {

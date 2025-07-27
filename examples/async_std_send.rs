@@ -17,7 +17,8 @@
 
 use embedded_can::{Frame, StandardId};
 use futures_timer::Delay;
-use socketcan::{async_std::CanSocket, CanFrame, Result};
+use socketcan::{async_std::CanSocket, CanFrame};
+use socketcan_raw::Result;
 use std::{env, time::Duration};
 
 #[async_std::main]

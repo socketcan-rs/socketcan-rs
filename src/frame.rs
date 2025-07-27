@@ -30,16 +30,15 @@
 //!   [Error](https://doc.rust-lang.org/std/error/trait.Error.html) types.
 //!
 
-use crate::{id::CanId, CanError, ConstructionError};
+use crate::id::CanId;
 use embedded_can::{ExtendedId, Frame as EmbeddedFrame, Id, StandardId};
 use itertools::Itertools;
 use libc::{can_frame, canfd_frame, canid_t};
+use socketcan_raw::{AsPtr, CanError, ConstructionError};
 use std::{
     ffi::c_void,
-    mem::size_of,
     {convert::TryFrom, fmt, matches, mem},
 };
-
 // TODO: Remove these on the next major ver update.
 pub use crate::id::{
     id_from_raw, id_is_extended, id_to_canid_t, FdFlags, IdFlags, CANFD_BRS, CANFD_ESI, CANFD_FDF,
@@ -61,45 +60,6 @@ pub fn can_frame_default() -> can_frame {
 #[inline(always)]
 pub fn canfd_frame_default() -> canfd_frame {
     unsafe { mem::zeroed() }
-}
-
-// ===== AsPtr trait =====
-
-/// Trait to get a pointer to an inner type
-pub trait AsPtr {
-    /// The inner type to which we resolve as a pointer
-    type Inner;
-
-    /// Gets a const pointer to the inner type
-    fn as_ptr(&self) -> *const Self::Inner;
-
-    /// Gets a mutable pointer to the inner type
-    fn as_mut_ptr(&mut self) -> *mut Self::Inner;
-
-    /// The size of the inner type
-    fn size(&self) -> usize {
-        size_of::<Self::Inner>()
-    }
-
-    /// Gets a byte slice to the inner type
-    fn as_bytes(&self) -> &[u8] {
-        unsafe {
-            std::slice::from_raw_parts::<'_, u8>(
-                self.as_ptr() as *const _ as *const u8,
-                self.size(),
-            )
-        }
-    }
-
-    /// Gets a mutable byte slice to the inner type
-    fn as_bytes_mut(&mut self) -> &[u8] {
-        unsafe {
-            std::slice::from_raw_parts::<'_, u8>(
-                self.as_mut_ptr() as *mut _ as *mut u8,
-                self.size(),
-            )
-        }
-    }
 }
 
 // ===== Frame trait =====
@@ -1488,8 +1448,9 @@ impl AsRef<canfd_frame> for CanFdFrame {
 
 #[cfg(test)]
 mod tests {
+    use socketcan_raw::{as_bytes, as_bytes_mut, Location, ViolationType};
+
     use super::*;
-    use crate::errors;
 
     const STD_ID: Id = Id::Standard(StandardId::MAX);
     const EXT_ID: Id = Id::Extended(ExtendedId::MAX);
@@ -1718,8 +1679,8 @@ mod tests {
         assert!(matches!(err, CanError::TransmitTimeout));
 
         let err = CanError::ProtocolViolation {
-            vtype: errors::ViolationType::BitStuffingError,
-            location: errors::Location::Id0400,
+            vtype: ViolationType::BitStuffingError,
+            location: Location::Id0400,
         };
         let frame = CanErrorFrame::from(err);
         assert!(!frame.is_data_frame());
@@ -1728,8 +1689,8 @@ mod tests {
 
         match frame.into_error() {
             CanError::ProtocolViolation { vtype, location } => {
-                assert_eq!(vtype, errors::ViolationType::BitStuffingError);
-                assert_eq!(location, errors::Location::Id0400);
+                assert_eq!(vtype, ViolationType::BitStuffingError);
+                assert_eq!(location, Location::Id0400);
             }
             _ => assert!(false),
         }
@@ -1848,8 +1809,7 @@ mod tests {
 
         // Make sure FD flags turned off
         let mut fdframe = canfd_frame_default();
-        crate::as_bytes_mut(&mut fdframe)[..size_of::<can_frame>()]
-            .clone_from_slice(crate::as_bytes(&frame.0));
+        as_bytes_mut(&mut fdframe)[..size_of::<can_frame>()].clone_from_slice(as_bytes(&frame.0));
         assert_eq!(fdframe.flags, 0);
     }
 }

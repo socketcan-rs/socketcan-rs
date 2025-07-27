@@ -13,7 +13,8 @@
 
 use anyhow::Context;
 use embedded_can::{blocking::Can, Frame as EmbeddedFrame, StandardId};
-use socketcan::{CanFrame, CanSocket, Frame, Socket};
+use socketcan::{CanFrame, CanSocket, Frame};
+use socketcan_raw::Socket;
 use std::env;
 
 fn frame_to_string<F: Frame>(frame: &F) -> String {

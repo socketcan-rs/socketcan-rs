@@ -980,6 +980,8 @@ pub mod tests {
     ///
     /// Intended for use (ONLY) in tests as follows:
     /// ```
+    /// use socketcan::nl::tests::TemporaryInterface;
+    ///
     /// #[test]
     /// fn my_test() {
     ///     let interface = TemporaryInterface::new("my_test").unwrap();

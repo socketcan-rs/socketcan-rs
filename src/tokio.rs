@@ -13,7 +13,8 @@
 //!
 //! ```no_run
 //! use futures_util::stream::StreamExt;
-//! use socketcan::{Error, tokio::CanSocket};
+//! use socketcan_raw::Error;
+//! use socketcan::tokio::CanSocket;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Error> {
@@ -26,10 +27,9 @@
 //!     Ok(())
 //! }
 //! ```
-use crate::{
-    frame::AsPtr, CanAddr, CanAnyFrame, CanFrame, Error, IoResult, Result, Socket, SocketOptions,
-};
+use crate::{CanAnyFrame, CanFrame};
 use futures::{prelude::*, ready, task::Context};
+use socketcan_raw::{AsPtr, CanAddr, Error, IoResult, Result, Socket, SocketOptions};
 use std::{
     io::{Read, Write},
     os::unix::{
@@ -39,9 +39,7 @@ use std::{
     pin::Pin,
     task::Poll,
 };
-use tokio::io::unix::AsyncFd;
-use tokio::io::Interest;
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::io::{unix::AsyncFd, AsyncRead, AsyncWrite, Interest, ReadBuf};
 
 /// An asynchronous I/O wrapped CanSocket
 #[derive(Debug)]
@@ -295,14 +293,12 @@ impl AsyncWrite for CanFdSocket {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        frame::{can_frame_default, AsPtr},
-        CanFdFrame, CanFrame, Frame, IoErrorKind, StandardId,
-    };
+    use crate::{frame::can_frame_default, CanFdFrame, CanFrame, Frame, StandardId};
     use embedded_can::Frame as EmbeddedFrame;
     use futures::{select, try_join};
     use futures_timer::Delay;
     use serial_test::serial;
+    use socketcan_raw::{as_bytes_mut, AsPtr, IoErrorKind};
     use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -328,7 +324,7 @@ mod tests {
     async fn recv_frame_with_async_read(mut socket: CanSocket) -> Result<CanSocket> {
         let mut frame = can_frame_default();
         select!(
-            frame = socket.read_exact(crate::as_bytes_mut(&mut frame)).fuse() => if let Ok(_bytes_read) = frame { Ok(socket) } else { panic!("unexpected") },
+            frame = socket.read_exact(as_bytes_mut(&mut frame)).fuse() => if let Ok(_bytes_read) = frame { Ok(socket) } else { panic!("unexpected") },
             _timeout = Delay::new(TIMEOUT).fuse() => Err(IoErrorKind::TimedOut.into()),
         )
     }
@@ -367,7 +363,7 @@ mod tests {
     async fn recv_frame_fd_with_async_read(mut socket: CanFdSocket) -> Result<CanFdSocket> {
         let mut frame = can_frame_default();
         select!(
-            frame = socket.read_exact(crate::as_bytes_mut(&mut frame)).fuse() => if let Ok(_bytes_read) = frame { Ok(socket) } else { panic!("unexpected") },
+            frame = socket.read_exact(as_bytes_mut(&mut frame)).fuse() => if let Ok(_bytes_read) = frame { Ok(socket) } else { panic!("unexpected") },
             _timeout = Delay::new(TIMEOUT).fuse() => Err(IoErrorKind::TimedOut.into()),
         )
     }

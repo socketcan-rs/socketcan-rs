@@ -11,7 +11,8 @@
 
 //! Bindings to async-io for CANbus 2.0 and FD sockets using SocketCAN on Linux.
 
-use crate::{frame::AsPtr, CanAnyFrame, CanFrame, Socket, SocketOptions};
+use crate::{CanAnyFrame, CanFrame};
+use socketcan_raw::{AsPtr, Socket, SocketOptions};
 use std::{
     io,
     os::unix::io::{AsRawFd, RawFd},

@@ -25,7 +25,8 @@
 
 use anyhow::Context;
 use embedded_can::{blocking::Can, Frame as EmbeddedFrame};
-use socketcan::{CanFrame, CanSocket, Frame, Socket};
+use socketcan::{CanFrame, CanSocket, Frame};
+use socketcan_raw::Socket;
 use std::{
     env,
     sync::atomic::{AtomicBool, Ordering},

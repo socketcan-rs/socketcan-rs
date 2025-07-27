@@ -14,7 +14,8 @@
 use anyhow::Context;
 use embedded_can::{nb::Can, Frame as EmbeddedFrame, StandardId};
 use nb::block;
-use socketcan::{CanFrame, CanSocket, Frame, Socket};
+use socketcan::{CanFrame, CanSocket, Frame};
+use socketcan_raw::Socket;
 use std::env;
 
 fn main() -> anyhow::Result<()> {
