@@ -1,9 +1,11 @@
 [workspace]
 members = [
     "."
+,   "raw"
 ]
 
 [workspace.package]
+version = "3.5.0"
 edition = "2021"
 rust-version = "1.70"
 repository = "https://github.com/mbr/socketcan-rs"
@@ -39,7 +41,7 @@ tokio = "1"
 
 [package]
 name = "socketcan"
-version = "3.5.0"
+version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 authors = [
