@@ -49,7 +49,7 @@ log = "0.4"
 hex = "0.4"
 itertools = "0.13"
 libc = "0.2"
-nix = { version="0.29", features = ["poll", "process", "net"] }
+nix = { version="0.30", features = ["poll", "process", "net"] }
 bitflags = "2.6"
 thiserror = "2"
 socket2 = { version = "0.5", features = ["all"] }
