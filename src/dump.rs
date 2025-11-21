@@ -43,6 +43,7 @@ use std::{
     fs::File,
     io::{self, BufRead, BufReader},
     path::Path,
+    str::FromStr,
 };
 use thiserror::Error;
 
@@ -64,9 +65,42 @@ pub enum ParseError {
     /// Invalid CAN frame
     #[error("Invalid CAN frame")]
     InvalidCanFrame,
+    /// Invalid frame direction
+    #[error("Invalid frame direction")]
+    InvalidFrameDirection,
     /// Error creating the frame
     #[error(transparent)]
     ConstructionError(#[from] ConstructionError),
+}
+
+/// CAN frame direction
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Direction {
+    /// CAN frame was originally received on this interface
+    Received,
+    /// CAN frame was originally transmitted from this interface
+    Transmitted,
+}
+
+impl FromStr for Direction {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_uppercase().as_str() {
+            "R" => Ok(Direction::Received),
+            "T" => Ok(Direction::Transmitted),
+            _ => Err(()),
+        }
+    }
+}
+
+impl fmt::Display for Direction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Direction::Received => write!(f, "R"),
+            Direction::Transmitted => write!(f, "T"),
+        }
+    }
 }
 
 /// Recorded CAN frame.
@@ -79,6 +113,8 @@ pub struct CanDumpRecord {
     pub device: String,
     /// The parsed frame
     pub frame: CanAnyFrame,
+    /// The original direction of the frame (if specified)
+    pub direction: Option<Direction>,
 }
 
 impl fmt::Display for CanDumpRecord {
@@ -91,18 +127,23 @@ impl fmt::Display for CanDumpRecord {
             self.frame.raw_id()
         )?;
 
+        let direction = self
+            .direction
+            .as_ref()
+            .map_or_else(String::default, |dir| format!(" {dir}"));
+
         use CanAnyFrame::*;
         match self.frame {
-            Remote(frame) if frame.len() == 0 => f.write_str("#R"),
-            Remote(frame) => write!(f, "#R{}", frame.dlc()),
+            Remote(frame) if frame.len() == 0 => write!(f, "#R{direction}"),
+            Remote(frame) => write!(f, "#R{}{direction}", frame.dlc()),
             Error(_frame) => f.write_str(""),
             Normal(frame) => {
                 let mut parts = frame.data().iter().map(|v| format!("{:02X}", v));
-                write!(f, "#{}", parts.join(""))
+                write!(f, "#{}{direction}", parts.join(""))
             }
             Fd(frame) => {
                 let mut parts = frame.data().iter().map(|v| format!("{:02X}", v));
-                write!(f, "##{}", parts.join(""))
+                write!(f, "##{}{direction}", parts.join(""))
             }
         }
     }
@@ -230,10 +271,17 @@ impl<R: BufRead> Reader<R> {
         }
         .ok_or(ParseError::InvalidCanFrame)?;
 
+        let direction = field_iter
+            .next()
+            .map(Direction::from_str)
+            .transpose()
+            .map_err(|_| ParseError::InvalidFrameDirection)?;
+
         Ok(Some(CanDumpRecord {
             t_us,
             device,
             frame,
+            direction,
         }))
     }
 }
@@ -300,6 +348,8 @@ mod test {
             panic!("Expected Normal frame, got FD");
         }
 
+        assert!(rec1.direction.is_none());
+
         let rec2 = reader.next_record().unwrap().unwrap();
         assert_eq!(rec2.t_us, 1469439874299654);
         assert_eq!(rec2.device, "can1");
@@ -313,6 +363,8 @@ mod test {
         } else {
             panic!("Expected Normal frame, got FD");
         }
+
+        assert!(rec2.direction.is_none());
 
         assert!(reader.next_record().unwrap().is_none());
     }
@@ -339,6 +391,8 @@ mod test {
             panic!("Expected Normal frame, got FD");
         }
 
+        assert!(rec1.direction.is_none());
+
         let rec2 = reader.next_record().unwrap().unwrap();
         assert_eq!(rec2.t_us, 1469439874299654);
         assert_eq!(rec2.device, "can1");
@@ -352,6 +406,8 @@ mod test {
         } else {
             panic!("Expected Normal frame, got FD");
         }
+
+        assert!(rec2.direction.is_none());
 
         assert!(reader.next_record().unwrap().is_none());
     }
@@ -380,6 +436,8 @@ mod test {
             panic!("Expected Remote frame");
         }
 
+        assert!(rec1.direction.is_none());
+
         let rec2 = reader.next_record().unwrap().unwrap();
         assert_eq!(rec2.t_us, 1469439874299654);
         assert_eq!(rec2.device, "can0");
@@ -394,6 +452,8 @@ mod test {
         } else {
             panic!("Expected Remote frame");
         }
+
+        assert!(rec2.direction.is_none());
 
         assert!(reader.next_record().unwrap().is_none());
     }
@@ -417,6 +477,8 @@ mod test {
             frame.data(),
             &[0x0, 0x011, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB]
         );
+
+        assert!(rec.direction.is_none());
     }
 
     #[test]
@@ -446,6 +508,8 @@ mod test {
             panic!("Expected FD frame, got Normal");
         }
 
+        assert!(rec1.direction.is_none());
+
         let rec2 = reader.next_record().unwrap().unwrap();
         assert_eq!(rec2.t_us, 1469439874299654);
         assert_eq!(rec2.device, "can1");
@@ -464,6 +528,51 @@ mod test {
         } else {
             panic!("Expected FD frame, got Normal");
         }
+
+        assert!(rec2.direction.is_none());
+
+        assert!(reader.next_record().unwrap().is_none());
+    }
+
+    #[test]
+    fn test_direction() {
+        let input: &[u8] = b"(1469439874.299591) can1 080# R\n\
+                             (1469439874.299654) can1 701#7F T";
+
+        let mut reader = Reader::from_reader(input);
+
+        let rec1 = reader.next_record().unwrap().unwrap();
+
+        assert_eq!(rec1.t_us, 1469439874299591);
+        assert_eq!(rec1.device, "can1");
+
+        if let CanAnyFrame::Normal(frame) = rec1.frame {
+            assert_eq!(frame.raw_id(), 0x080);
+            assert!(!frame.is_remote_frame());
+            assert!(!frame.is_error_frame());
+            assert!(!frame.is_extended());
+            assert_eq!(frame.data(), &[]);
+        } else {
+            panic!("Expected Normal frame, got FD");
+        }
+
+        assert_eq!(rec1.direction, Some(Direction::Received));
+
+        let rec2 = reader.next_record().unwrap().unwrap();
+        assert_eq!(rec2.t_us, 1469439874299654);
+        assert_eq!(rec2.device, "can1");
+
+        if let CanAnyFrame::Normal(frame) = rec2.frame {
+            assert_eq!(frame.raw_id(), 0x701);
+            assert!(!frame.is_remote_frame());
+            assert!(!frame.is_error_frame());
+            assert!(!frame.is_extended());
+            assert_eq!(frame.data(), &[0x7F]);
+        } else {
+            panic!("Expected Normal frame, got FD");
+        }
+
+        assert_eq!(rec2.direction, Some(Direction::Transmitted));
 
         assert!(reader.next_record().unwrap().is_none());
     }
