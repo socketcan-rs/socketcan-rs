@@ -140,7 +140,7 @@ impl Reader<File> {
 impl<R: BufRead> Reader<R> {
     /// Returns an iterator over all records
     #[deprecated(since = "3.5.0", note = "Use `iter()`")]
-    pub fn records(&mut self) -> CanDumpRecords<R> {
+    pub fn records(&mut self) -> CanDumpRecords<'_, R> {
         CanDumpRecords { src: self }
     }
 
