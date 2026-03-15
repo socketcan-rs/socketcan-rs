@@ -26,7 +26,7 @@ v3.2 increased the interface configuration coverage with Netlink, allowing an ap
 ### What's New in Version 3.5
 
 - `CanAnyFrame` implements `From` trait for `CanDataFrame`, `CanRemoteFrame`, and `CanErrorFrame`.
-- `CanFdSocket` implementa `TryFrom` trait for `CanSocket`
+- `CanFdSocket` implements `TryFrom` trait for `CanSocket`
 - Added FdFlags::FDF bit mask for CANFD_FDF
     - The FDF flag is forced on when creating a CanFdFrame.
 - Updates to `dump` module:
@@ -139,7 +139,7 @@ Integrating the full suite of tests into a CI system is non-trivial as it relies
 
 Therefore, tests requiring `vcan0` were placed behind an optional feature, `vcan_tests`.
 
-The steps to install and add a virtual interface to Linux are in the `scripts/vcan.sh` script. Run it with root proveleges, then run the tests:
+The steps to install and add a virtual interface to Linux are in the `scripts/vcan.sh` script. Run it with root privileges, then run the tests:
 
 ```sh
 $ sudo ./scripts/vcan.sh
