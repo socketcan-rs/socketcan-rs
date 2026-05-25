@@ -25,7 +25,7 @@ fn frame_info<F: Frame>(frame: &F) -> String {
         .data()
         .iter()
         .fold(String::new(), |s, b| format!("{s} {b:02X}"));
-    format!("{id:08X}  [{:}]{data}", frame.dlc())
+    format!("{id:08X}  [{}]{data}", frame.dlc())
 }
 
 fn main() -> std::io::Result<()> {

@@ -277,7 +277,9 @@ pub trait Socket: AsRawFd {
     /// Requires [`SocketOptions::set_recv_timestamp`] to be called with `true`
     /// before this method. Returns an `InvalidData` error if no
     /// `SO_TIMESTAMPNS` control message was delivered.
-    fn read_frame_with_timestamp(&self) -> IoResult<(Self::FrameType, SystemTime)>;
+    fn read_frame_with_timestamp(&self) -> IoResult<(Self::FrameType, SystemTime)> {
+        Err(IoError::from_raw_os_error(libc::ENOSYS))
+    }
 
     /// Blocking read a CAN frame and its raw hardware clock timestamp.
     ///
@@ -285,14 +287,18 @@ pub trait Socket: AsRawFd {
     /// `SOF_TIMESTAMPING_RX_HARDWARE | SOF_TIMESTAMPING_OPT_CMSG` (and any
     /// other desired flags) before this method. Returns an `InvalidData` error
     /// if no hardware timestamp was delivered.
-    fn read_frame_with_hw_timestamp(&self) -> IoResult<(Self::FrameType, Duration)>;
+    fn read_frame_with_hw_timestamp(&self) -> IoResult<(Self::FrameType, Duration)> {
+        Err(IoError::from_raw_os_error(libc::ENOSYS))
+    }
 
     /// Blocking read a CAN frame and all available timestamps.
     ///
     /// Populates whichever [`CanTimestamps`] fields correspond to the
     /// `SO_TIMESTAMPNS` and/or `SO_TIMESTAMPING` modes that were enabled on
     /// the socket before the call. Fields for disabled modes are `None`.
-    fn read_frame_with_timestamps(&self) -> IoResult<(Self::FrameType, CanTimestamps)>;
+    fn read_frame_with_timestamps(&self) -> IoResult<(Self::FrameType, CanTimestamps)> {
+        Err(IoError::from_raw_os_error(libc::ENOSYS))
+    }
 
     /// Writes a normal CAN 2.0 frame to the socket.
     fn write_frame<F>(&self, frame: &F) -> IoResult<()>
@@ -490,8 +496,8 @@ pub trait SocketOptions: AsRawFd {
     ///
     /// [`SOF_TIMESTAMPING_OPT_CMSG`]: crate::SOF_TIMESTAMPING_OPT_CMSG
     fn set_timestamping(&self, flags: u32) -> IoResult<()> {
-        let flags = flags as c_int;
-        self.set_socket_option(SOL_SOCKET, libc::SO_TIMESTAMPING, &flags)
+        let val = flags as c_int;
+        self.set_socket_option(SOL_SOCKET, libc::SO_TIMESTAMPING, &val)
     }
 }
 
@@ -512,7 +518,7 @@ fn hw_timestamps_supported(fd: RawFd) -> bool {
         let mut addr: libc::sockaddr_can = zeroed();
         let mut addrlen = size_of::<libc::sockaddr_can>() as socklen_t;
         let ret = libc::getsockname(fd, &mut addr as *mut _ as *mut libc::sockaddr, &mut addrlen);
-        if ret != 0 || addr.can_ifindex == 0 {
+        if ret != 0 || addr.can_ifindex <= 0 {
             return false;
         }
         addr.can_ifindex as libc::c_uint
