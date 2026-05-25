@@ -56,10 +56,10 @@ jobs:
         run: cargo +${{ matrix.rust }} check
 
       - name: Features build check
-        run: cargo +${{ matrix.rust }} check --features=utils,tokio,async-io,async-std,smol,enumerate
+        run: cargo +${{ matrix.rust }} check --features=utils,tokio,async-io,async-std,smol
 
       - name: Examples build check
-        run: cargo +${{ matrix.rust }} check --examples --features=utils,tokio,async-io,async-std,smol,enumerate
+        run: cargo +${{ matrix.rust }} check --examples --features=utils,tokio,async-io,async-std,smol
 
       - name: Doc generation
         run: cargo +${{ matrix.rust }} doc --no-deps
