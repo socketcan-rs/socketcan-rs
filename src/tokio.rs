@@ -27,7 +27,8 @@
 //! }
 //! ```
 use crate::{
-    frame::AsPtr, CanAddr, CanAnyFrame, CanFrame, Error, IoResult, Result, Socket, SocketOptions,
+    frame::AsPtr, timestamp::CanTimestamps, CanAddr, CanAnyFrame, CanFrame, Error, IoResult,
+    Result, Socket, SocketOptions,
 };
 use futures::{prelude::*, ready, task::Context};
 use std::{
@@ -38,6 +39,7 @@ use std::{
     },
     pin::Pin,
     task::Poll,
+    time::{Duration, SystemTime},
 };
 use tokio::io::unix::AsyncFd;
 use tokio::io::Interest;
@@ -93,6 +95,39 @@ impl CanSocket {
     pub async fn read_frame(&self) -> IoResult<CanFrame> {
         self.0
             .async_io(Interest::READABLE, |inner| inner.read_frame())
+            .await
+    }
+
+    /// Returns `true` if the bound interface supports hardware receive timestamps.
+    pub fn has_hw_timestamps(&self) -> bool {
+        self.0.get_ref().has_hw_timestamps()
+    }
+
+    /// Read a CAN frame and its socket-layer arrival timestamp asynchronously.
+    ///
+    /// Requires [`SocketOptions::set_recv_timestamp`] to be called first.
+    pub async fn read_frame_with_timestamp(&self) -> IoResult<(CanFrame, SystemTime)> {
+        self.0
+            .async_io(Interest::READABLE, |inner| inner.read_frame_with_timestamp())
+            .await
+    }
+
+    /// Read a CAN frame and all available timestamps asynchronously.
+    ///
+    /// Timestamp fields are `None` for modes not enabled on the socket.
+    pub async fn read_frame_with_timestamps(&self) -> IoResult<(CanFrame, CanTimestamps)> {
+        self.0
+            .async_io(Interest::READABLE, |inner| inner.read_frame_with_timestamps())
+            .await
+    }
+
+    /// Read a CAN frame and its raw hardware clock timestamp asynchronously.
+    ///
+    /// Requires [`SocketOptions::set_timestamping`] with
+    /// `SOF_TIMESTAMPING_RX_HARDWARE | SOF_TIMESTAMPING_OPT_CMSG` to be called first.
+    pub async fn read_frame_with_hw_timestamp(&self) -> IoResult<(CanFrame, Duration)> {
+        self.0
+            .async_io(Interest::READABLE, |inner| inner.read_frame_with_hw_timestamp())
             .await
     }
 }
@@ -200,6 +235,39 @@ impl CanFdSocket {
     pub async fn read_frame(&self) -> IoResult<CanAnyFrame> {
         self.0
             .async_io(Interest::READABLE, |inner| inner.read_frame())
+            .await
+    }
+
+    /// Returns `true` if the bound interface supports hardware receive timestamps.
+    pub fn has_hw_timestamps(&self) -> bool {
+        self.0.get_ref().has_hw_timestamps()
+    }
+
+    /// Read a CAN frame and its socket-layer arrival timestamp asynchronously.
+    ///
+    /// Requires [`SocketOptions::set_recv_timestamp`] to be called first.
+    pub async fn read_frame_with_timestamp(&self) -> IoResult<(CanAnyFrame, SystemTime)> {
+        self.0
+            .async_io(Interest::READABLE, |inner| inner.read_frame_with_timestamp())
+            .await
+    }
+
+    /// Read a CAN frame and all available timestamps asynchronously.
+    ///
+    /// Timestamp fields are `None` for modes not enabled on the socket.
+    pub async fn read_frame_with_timestamps(&self) -> IoResult<(CanAnyFrame, CanTimestamps)> {
+        self.0
+            .async_io(Interest::READABLE, |inner| inner.read_frame_with_timestamps())
+            .await
+    }
+
+    /// Read a CAN frame and its raw hardware clock timestamp asynchronously.
+    ///
+    /// Requires [`SocketOptions::set_timestamping`] with
+    /// `SOF_TIMESTAMPING_RX_HARDWARE | SOF_TIMESTAMPING_OPT_CMSG` to be called first.
+    pub async fn read_frame_with_hw_timestamp(&self) -> IoResult<(CanAnyFrame, Duration)> {
+        self.0
+            .async_io(Interest::READABLE, |inner| inner.read_frame_with_hw_timestamp())
             .await
     }
 }
