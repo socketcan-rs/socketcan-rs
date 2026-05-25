@@ -687,7 +687,7 @@ impl Socket for CanSocket {
                 "no SO_TIMESTAMPNS control message received",
             )
         })?;
-        Ok((CanFrame::from(frame), timestamp))
+        Ok((frame, timestamp))
     }
 
     fn read_frame_with_hw_timestamp(&self) -> IoResult<(CanFrame, Duration)> {
@@ -698,7 +698,7 @@ impl Socket for CanSocket {
                 "no SO_TIMESTAMPING hardware timestamp received",
             )
         })?;
-        Ok((CanFrame::from(frame), hw_ts))
+        Ok((frame, hw_ts))
     }
 
     fn read_frame_with_timestamps(&self) -> IoResult<(CanFrame, CanTimestamps)> {
