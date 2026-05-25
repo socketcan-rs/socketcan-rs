@@ -31,8 +31,8 @@ v3.2 increased the interface configuration coverage with Netlink, allowing an ap
     - The FDF flag is forced on when creating a CanFdFrame.
 - Updates to `dump` module:
     - Re-implemented with text parsing
-    - `ParseError` now implements std `Error` trait via `thiserror::Error` 
-    - Parses FdFlags field properly 
+    - `ParseError` now implements std `Error` trait via `thiserror::Error`
+    - Parses FdFlags field properly
     - CANFD_FDF bit flag recognized on input
     - Fixed reading remote frames
     - Now reads remote length
@@ -64,7 +64,7 @@ A number of items still did not make it into a release. These will be added in v
 
 ## Minimum Supported Rust Version (MSRV)
 
-The current version of the crate targets Rust Edition 2021 with an MSRV of Rust v1.70.
+The current version of the crate targets Rust Edition 2021 with an MSRV of Rust v1.75.
 
 Note that, the core library can likely compile with an earlier version if dependencies are carefully selected, but tests are being done with the latest stable compiler and the stated MSRV.
 

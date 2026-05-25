@@ -38,7 +38,7 @@ jobs:
       matrix:
         rust:
           - stable
-          - 1.70.0
+          - 1.75.0
     steps:
       - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1
@@ -75,7 +75,7 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: 1.70.0
+          toolchain: 1.75.0
           components: clippy
 
       - name: Resolve dependencies for MSRV
@@ -85,4 +85,4 @@ jobs:
           cargo +stable update
 
       - name: Run clippy
-        run: cargo +1.70.0 clippy -- -D warnings
+        run: cargo +1.75.0 clippy -- -D warnings
