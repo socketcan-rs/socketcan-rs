@@ -26,7 +26,9 @@
 
 use std::time::{Duration, SystemTime};
 
-// ===== SOF_TIMESTAMPING_* flags (not yet in libc) =====
+// --------------------------------------------------------------------------
+// SOF_TIMESTAMPING_* flags
+// TODO: These should be PR'd into libc
 
 /// Software transmit timestamp, generated just before driver queues the packet.
 pub const SOF_TIMESTAMPING_TX_HARDWARE: u32 = 1 << 0;
@@ -46,7 +48,9 @@ pub const SOF_TIMESTAMPING_RAW_HARDWARE: u32 = 1 << 6;
 /// returned by `recvmsg()`.
 pub const SOF_TIMESTAMPING_OPT_CMSG: u32 = 1 << 10;
 
-// ===== ethtool constants / structs (not in libc) =====
+// --------------------------------------------------------------------------
+// ethtool constants / structs
+// TODO: These should be PR'd into libc
 
 pub(crate) const ETHTOOL_GET_TS_INFO: u32 = 0x0000_0041;
 
@@ -62,7 +66,27 @@ pub(crate) struct EthtoolTsInfo {
     pub rx_reserved: [u32; 3],
 }
 
-// ===== Public timestamp types =====
+// ===== Private conversion helpers =====
+
+/// Convert a `libc::timespec` to a `SystemTime`.
+///
+/// Assumes the timespec is a non-negative UNIX timestamp, which is always
+/// the case for kernel-generated socket timestamps.
+#[inline]
+pub(crate) fn timespec_to_system_time(ts: libc::timespec) -> SystemTime {
+    SystemTime::UNIX_EPOCH + timespec_to_duration(ts)
+}
+
+/// Convert a `libc::timespec` to a `Duration`.
+///
+/// Used for hardware timestamps, which are reported in the adapter's own
+/// clock domain rather than as wall-clock time.
+#[inline]
+pub(crate) fn timespec_to_duration(ts: libc::timespec) -> Duration {
+    Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32)
+}
+
+/////////////////////////////////////////////////////////////////////////////
 
 /// Timestamps associated with a received CAN frame.
 ///
@@ -82,27 +106,7 @@ pub struct CanTimestamps {
     pub sw: Option<SystemTime>,
     /// `SOF_TIMESTAMPING_RX_HARDWARE` — raw hardware clock value.
     ///
-    /// Not a wall-clock time; reported as nanoseconds in the adapter's own
-    /// clock domain.
+    /// Reported as nanoseconds in the adapter's own clock domain.
+    /// This is not a wall-clock time!
     pub hw: Option<Duration>,
-}
-
-// ===== Private conversion helpers =====
-
-/// Convert a `libc::timespec` to a `SystemTime`.
-///
-/// Assumes the timespec is a non-negative UNIX timestamp, which is always
-/// the case for kernel-generated socket timestamps.
-#[inline]
-pub(crate) fn timespec_to_system_time(ts: libc::timespec) -> SystemTime {
-    SystemTime::UNIX_EPOCH + Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32)
-}
-
-/// Convert a `libc::timespec` to a `Duration`.
-///
-/// Used for hardware timestamps, which are reported in the adapter's own
-/// clock domain rather than as wall-clock time.
-#[inline]
-pub(crate) fn timespec_to_duration(ts: libc::timespec) -> Duration {
-    Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32)
 }

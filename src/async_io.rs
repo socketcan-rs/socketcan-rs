@@ -79,7 +79,9 @@ impl CanSocket {
     /// Requires [`SocketOptions::set_timestamping`] with
     /// `SOF_TIMESTAMPING_RX_HARDWARE | SOF_TIMESTAMPING_OPT_CMSG` to be called first.
     pub async fn read_frame_with_hw_timestamp(&self) -> io::Result<(CanFrame, Duration)> {
-        self.0.read_with(|fd| fd.read_frame_with_hw_timestamp()).await
+        self.0
+            .read_with(|fd| fd.read_frame_with_hw_timestamp())
+            .await
     }
 }
 
@@ -151,7 +153,9 @@ impl CanFdSocket {
     /// Requires [`SocketOptions::set_timestamping`] with
     /// `SOF_TIMESTAMPING_RX_HARDWARE | SOF_TIMESTAMPING_OPT_CMSG` to be called first.
     pub async fn read_frame_with_hw_timestamp(&self) -> io::Result<(CanAnyFrame, Duration)> {
-        self.0.read_with(|fd| fd.read_frame_with_hw_timestamp()).await
+        self.0
+            .read_with(|fd| fd.read_frame_with_hw_timestamp())
+            .await
     }
 }
 

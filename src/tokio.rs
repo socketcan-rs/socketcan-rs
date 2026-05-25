@@ -108,7 +108,9 @@ impl CanSocket {
     /// Requires [`SocketOptions::set_recv_timestamp`] to be called first.
     pub async fn read_frame_with_timestamp(&self) -> IoResult<(CanFrame, SystemTime)> {
         self.0
-            .async_io(Interest::READABLE, |inner| inner.read_frame_with_timestamp())
+            .async_io(Interest::READABLE, |inner| {
+                inner.read_frame_with_timestamp()
+            })
             .await
     }
 
@@ -117,7 +119,9 @@ impl CanSocket {
     /// Timestamp fields are `None` for modes not enabled on the socket.
     pub async fn read_frame_with_timestamps(&self) -> IoResult<(CanFrame, CanTimestamps)> {
         self.0
-            .async_io(Interest::READABLE, |inner| inner.read_frame_with_timestamps())
+            .async_io(Interest::READABLE, |inner| {
+                inner.read_frame_with_timestamps()
+            })
             .await
     }
 
@@ -127,7 +131,9 @@ impl CanSocket {
     /// `SOF_TIMESTAMPING_RX_HARDWARE | SOF_TIMESTAMPING_OPT_CMSG` to be called first.
     pub async fn read_frame_with_hw_timestamp(&self) -> IoResult<(CanFrame, Duration)> {
         self.0
-            .async_io(Interest::READABLE, |inner| inner.read_frame_with_hw_timestamp())
+            .async_io(Interest::READABLE, |inner| {
+                inner.read_frame_with_hw_timestamp()
+            })
             .await
     }
 }
@@ -248,7 +254,9 @@ impl CanFdSocket {
     /// Requires [`SocketOptions::set_recv_timestamp`] to be called first.
     pub async fn read_frame_with_timestamp(&self) -> IoResult<(CanAnyFrame, SystemTime)> {
         self.0
-            .async_io(Interest::READABLE, |inner| inner.read_frame_with_timestamp())
+            .async_io(Interest::READABLE, |inner| {
+                inner.read_frame_with_timestamp()
+            })
             .await
     }
 
@@ -257,7 +265,9 @@ impl CanFdSocket {
     /// Timestamp fields are `None` for modes not enabled on the socket.
     pub async fn read_frame_with_timestamps(&self) -> IoResult<(CanAnyFrame, CanTimestamps)> {
         self.0
-            .async_io(Interest::READABLE, |inner| inner.read_frame_with_timestamps())
+            .async_io(Interest::READABLE, |inner| {
+                inner.read_frame_with_timestamps()
+            })
             .await
     }
 
@@ -267,7 +277,9 @@ impl CanFdSocket {
     /// `SOF_TIMESTAMPING_RX_HARDWARE | SOF_TIMESTAMPING_OPT_CMSG` to be called first.
     pub async fn read_frame_with_hw_timestamp(&self) -> IoResult<(CanAnyFrame, Duration)> {
         self.0
-            .async_io(Interest::READABLE, |inner| inner.read_frame_with_hw_timestamp())
+            .async_io(Interest::READABLE, |inner| {
+                inner.read_frame_with_hw_timestamp()
+            })
             .await
     }
 }
