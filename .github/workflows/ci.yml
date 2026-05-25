@@ -52,14 +52,14 @@ jobs:
           echo 'resolver.incompatible-rust-versions = "fallback"' > $HOME/.cargo/config.toml
           cargo +stable update
 
-      - name: Library build check
+      - name: Library default build check
         run: cargo +${{ matrix.rust }} check
 
-      - name: Features build check
-        run: cargo +${{ matrix.rust }} check --features=utils,tokio,async-io,async-std,smol
+      - name: Tokio build check
+        run: cargo +${{ matrix.rust }} check --all-targets --features=tokio,utils
 
-      - name: Examples build check
-        run: cargo +${{ matrix.rust }} check --examples --features=utils,tokio,async-io,async-std,smol
+      - name: smol build check
+        run: cargo +${{ matrix.rust }} check --all-targets --features=smol,utils
 
       - name: Doc generation
         run: cargo +${{ matrix.rust }} doc --no-deps
