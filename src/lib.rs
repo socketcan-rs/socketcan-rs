@@ -158,6 +158,13 @@ pub mod dump;
 pub mod socket;
 pub use socket::{CanFdSocket, CanFilter, CanSocket, ShouldRetry, Socket, SocketOptions};
 
+pub mod timestamp;
+pub use timestamp::{
+    CanTimestamps, SOF_TIMESTAMPING_OPT_CMSG, SOF_TIMESTAMPING_RAW_HARDWARE,
+    SOF_TIMESTAMPING_RX_HARDWARE, SOF_TIMESTAMPING_RX_SOFTWARE, SOF_TIMESTAMPING_SOFTWARE,
+    SOF_TIMESTAMPING_TX_HARDWARE, SOF_TIMESTAMPING_TX_SOFTWARE,
+};
+
 #[cfg(feature = "netlink")]
 pub mod nl;
 

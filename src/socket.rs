@@ -15,24 +15,25 @@ use crate::{
     as_bytes, as_bytes_mut,
     frame::{can_frame_default, canfd_frame_default, AsPtr},
     id::CAN_ERR_MASK,
+    timestamp::CanTimestamps,
     CanAnyFrame, CanFdFrame, CanFrame, CanRawFrame, Error, IoError, IoErrorKind, IoResult, Result,
 };
 pub use embedded_can::{
     self, blocking::Can as BlockingCan, nb::Can as NonBlockingCan, ExtendedId,
     Frame as EmbeddedFrame, Id, StandardId,
 };
-use libc::{canid_t, socklen_t, AF_CAN, EINPROGRESS};
+use libc::{canid_t, socklen_t, AF_CAN, EINPROGRESS, SOL_SOCKET};
 use socket2::SockAddr;
 use std::{
     fmt,
     io::{Read, Write},
-    mem::{size_of, size_of_val},
+    mem::{size_of, size_of_val, zeroed},
     os::{
         raw::{c_int, c_void},
         unix::io::{AsFd, AsRawFd, BorrowedFd, IntoRawFd, OwnedFd, RawFd},
     },
     ptr,
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 pub use libc::{
@@ -271,6 +272,28 @@ pub trait Socket: AsRawFd {
         }
     }
 
+    /// Blocking read a CAN frame and its socket-layer arrival timestamp.
+    ///
+    /// Requires [`SocketOptions::set_recv_timestamp`] to be called with `true`
+    /// before this method. Returns an `InvalidData` error if no
+    /// `SO_TIMESTAMPNS` control message was delivered.
+    fn read_frame_with_timestamp(&self) -> IoResult<(Self::FrameType, SystemTime)>;
+
+    /// Blocking read a CAN frame and all available timestamps.
+    ///
+    /// Populates whichever [`CanTimestamps`] fields correspond to the
+    /// `SO_TIMESTAMPNS` and/or `SO_TIMESTAMPING` modes that were enabled on
+    /// the socket before the call. Fields for disabled modes are `None`.
+    fn read_frame_with_timestamps(&self) -> IoResult<(Self::FrameType, CanTimestamps)>;
+
+    /// Blocking read a CAN frame and its raw hardware clock timestamp.
+    ///
+    /// Requires [`SocketOptions::set_timestamping`] to be called with
+    /// `SOF_TIMESTAMPING_RX_HARDWARE | SOF_TIMESTAMPING_OPT_CMSG` (and any
+    /// other desired flags) before this method. Returns an `InvalidData` error
+    /// if no hardware timestamp was delivered.
+    fn read_frame_with_hw_timestamp(&self) -> IoResult<(Self::FrameType, Duration)>;
+
     //
     // /// Write a single can frame.
     // ///
@@ -453,35 +476,146 @@ pub trait SocketOptions: AsRawFd {
         let join_filters = c_int::from(enabled);
         self.set_socket_option(SOL_CAN_RAW, CAN_RAW_JOIN_FILTERS, &join_filters)
     }
-}
 
-// TODO: We need to restore this, but preferably with TIMESTAMPING
-
-/*
-impl CanSocket {
-
-    /// Blocking read a single can frame with timestamp
+    /// Enable or disable `SO_TIMESTAMPNS` on the socket.
     ///
-    /// Note that reading a frame and retrieving the timestamp requires two
-    /// consecutive syscalls. To avoid race conditions, exclusive access
-    /// to the socket is enforce through requiring a `mut &self`.
-    pub fn read_frame_with_timestamp(&mut self) -> IoResult<(CanFrame, time::SystemTime)> {
-        let frame = self.read_frame()?;
-
-        let mut ts = timespec { tv_sec: 0, tv_nsec: 0 };
-        let ret = unsafe {
-            libc::ioctl(self.fd, SIOCGSTAMPNS as c_ulong, &mut ts as *mut timespec)
-        };
-
-        if ret == -1 {
-            return Err(IoError::last_os_error());
-        }
-
-        Ok((frame, system_time_from_timespec(ts)))
+    /// When enabled, `recvmsg()` delivers a `SCM_TIMESTAMPNS` control message
+    /// containing the socket-layer arrival time as a `timespec`. Call this
+    /// before using [`Socket::read_frame_with_timestamp`].
+    fn set_recv_timestamp(&self, enable: bool) -> IoResult<()> {
+        let val = c_int::from(enable);
+        self.set_socket_option(SOL_SOCKET, libc::SO_TIMESTAMPNS, &val)
     }
 
+    /// Set `SO_TIMESTAMPING` flags on the socket.
+    ///
+    /// `flags` is a bitmask of `SOF_TIMESTAMPING_*` constants. At minimum,
+    /// combine the desired source flags with [`SOF_TIMESTAMPING_OPT_CMSG`]
+    /// so that the kernel delivers timestamps via ancillary data on receive.
+    ///
+    /// Call this before using [`Socket::read_frame_with_timestamps`] or
+    /// [`Socket::read_frame_with_hw_timestamp`].
+    ///
+    /// [`SOF_TIMESTAMPING_OPT_CMSG`]: crate::SOF_TIMESTAMPING_OPT_CMSG
+    fn set_timestamping(&self, flags: u32) -> IoResult<()> {
+        let flags = flags as c_int;
+        self.set_socket_option(SOL_SOCKET, libc::SO_TIMESTAMPING, &flags)
+    }
 }
-*/
+
+// ===== Private helpers =====
+
+/// Returns true if the interface bound to `fd` reports RX hardware timestamp support.
+///
+/// Issues a `SIOCETHTOOL` / `ETHTOOL_GET_TS_INFO` ioctl and checks the
+/// `SOF_TIMESTAMPING_RX_HARDWARE` bit. Returns `false` on any error (unbound
+/// socket, unsupported ioctl, unknown interface, etc.).
+fn hw_timestamps_supported(fd: RawFd) -> bool {
+    use crate::timestamp::{EthtoolTsInfo, ETHTOOL_GET_TS_INFO, SOF_TIMESTAMPING_RX_HARDWARE};
+
+    // Retrieve the interface index from the bound socket address.
+    let ifindex = unsafe {
+        let mut addr: libc::sockaddr_can = zeroed();
+        let mut addrlen = size_of::<libc::sockaddr_can>() as socklen_t;
+        let ret = libc::getsockname(
+            fd,
+            &mut addr as *mut _ as *mut libc::sockaddr,
+            &mut addrlen,
+        );
+        if ret != 0 || addr.can_ifindex == 0 {
+            return false;
+        }
+        addr.can_ifindex as libc::c_uint
+    };
+
+    // Convert interface index to a name string.
+    let mut ifname = [0 as libc::c_char; libc::IF_NAMESIZE];
+    if unsafe { libc::if_indextoname(ifindex, ifname.as_mut_ptr()) }.is_null() {
+        return false;
+    }
+
+    // Query hardware timestamping capabilities via SIOCETHTOOL.
+    let mut ts_info = EthtoolTsInfo {
+        cmd: ETHTOOL_GET_TS_INFO,
+        so_timestamping: 0,
+        phc_index: 0,
+        tx_types: 0,
+        tx_reserved: [0; 3],
+        rx_filters: 0,
+        rx_reserved: [0; 3],
+    };
+    let ret = unsafe {
+        let mut ifr: libc::ifreq = zeroed();
+        ifr.ifr_name.copy_from_slice(&ifname);
+        ifr.ifr_ifru.ifru_data = (&mut ts_info as *mut EthtoolTsInfo).cast();
+        libc::ioctl(fd, libc::SIOCETHTOOL, &mut ifr)
+    };
+
+    ret == 0 && ts_info.so_timestamping & SOF_TIMESTAMPING_RX_HARDWARE != 0
+}
+
+/// Size of the `recvmsg()` control buffer, large enough to hold both a
+/// `SO_TIMESTAMPNS` cmsg (one `timespec`) and a `SO_TIMESTAMPING` cmsg
+/// (three `timespec` values) simultaneously.
+const CTRL_BUF_SIZE: usize = 256;
+
+/// Issues `recvmsg()` on `fd`, writing frame bytes into `frame_buf`, and
+/// parses any `SOL_SOCKET` timestamp control messages into a [`CanTimestamps`].
+///
+/// Returns `(bytes_received, timestamps)`. Timestamp fields are `None` when
+/// the corresponding socket option was not enabled before the call.
+fn recvmsg_with_ctrl(
+    fd: RawFd,
+    frame_buf: &mut [u8],
+    ctrl_buf: &mut [u8],
+) -> IoResult<(usize, CanTimestamps)> {
+    use crate::timestamp::{timespec_to_duration, timespec_to_system_time};
+
+    let mut iov = libc::iovec {
+        iov_base: frame_buf.as_mut_ptr() as *mut libc::c_void,
+        iov_len: frame_buf.len(),
+    };
+    let mut msg: libc::msghdr = unsafe { zeroed() };
+    msg.msg_iov = &mut iov;
+    msg.msg_iovlen = 1;
+    msg.msg_control = ctrl_buf.as_mut_ptr() as *mut libc::c_void;
+    msg.msg_controllen = ctrl_buf.len() as _;
+
+    let nbytes = unsafe { libc::recvmsg(fd, &mut msg, 0) };
+    if nbytes < 0 {
+        return Err(IoError::last_os_error());
+    }
+
+    let mut ts = CanTimestamps::default();
+    let mut cmsg = unsafe { libc::CMSG_FIRSTHDR(&msg) };
+    while !cmsg.is_null() {
+        let (level, typ) = unsafe { ((*cmsg).cmsg_level, (*cmsg).cmsg_type) };
+        let data = unsafe { libc::CMSG_DATA(cmsg) };
+        match (level, typ) {
+            (SOL_SOCKET, libc::SO_TIMESTAMPNS) => {
+                let timespec =
+                    unsafe { ptr::read_unaligned(data.cast::<libc::timespec>()) };
+                ts.socket = Some(timespec_to_system_time(timespec));
+            }
+            (SOL_SOCKET, libc::SO_TIMESTAMPING) => {
+                // scm_timestamping: [timespec; 3]
+                // [0] = RX_SOFTWARE (sw), [1] deprecated (zero), [2] = HW
+                let tss =
+                    unsafe { ptr::read_unaligned(data.cast::<[libc::timespec; 3]>()) };
+                if tss[0].tv_sec != 0 || tss[0].tv_nsec != 0 {
+                    ts.sw = Some(timespec_to_system_time(tss[0]));
+                }
+                if tss[2].tv_sec != 0 || tss[2].tv_nsec != 0 {
+                    ts.hw = Some(timespec_to_duration(tss[2]));
+                }
+            }
+            _ => {}
+        }
+        cmsg = unsafe { libc::CMSG_NXTHDR(&msg, cmsg) };
+    }
+
+    Ok((nbytes as usize, ts))
+}
 
 // ===== CanSocket =====
 
@@ -504,6 +638,14 @@ impl CanSocket {
         let mut frame = can_frame_default();
         self.as_raw_socket().read_exact(as_bytes_mut(&mut frame))?;
         Ok(frame)
+    }
+
+    /// Returns `true` if the bound interface supports hardware receive timestamps.
+    ///
+    /// Returns `false` if the socket is unbound, the interface does not exist,
+    /// or the driver does not implement the ethtool timestamp query.
+    pub fn has_hw_timestamps(&self) -> bool {
+        hw_timestamps_supported(self.as_raw_fd())
     }
 }
 
@@ -539,6 +681,42 @@ impl Socket for CanSocket {
     fn read_frame(&self) -> IoResult<CanFrame> {
         let frame = self.read_raw_frame()?;
         Ok(frame.into())
+    }
+
+    fn read_frame_with_timestamp(&self) -> IoResult<(CanFrame, SystemTime)> {
+        let mut frame = can_frame_default();
+        let mut ctrl = [0u8; CTRL_BUF_SIZE];
+        let (n, ts) = recvmsg_with_ctrl(self.as_raw_fd(), as_bytes_mut(&mut frame), &mut ctrl)?;
+        if n != CAN_MTU {
+            return Err(IoError::from(IoErrorKind::InvalidData));
+        }
+        let timestamp = ts.socket.ok_or_else(|| {
+            IoError::new(IoErrorKind::InvalidData, "no SO_TIMESTAMPNS control message received")
+        })?;
+        Ok((CanFrame::from(frame), timestamp))
+    }
+
+    fn read_frame_with_timestamps(&self) -> IoResult<(CanFrame, CanTimestamps)> {
+        let mut frame = can_frame_default();
+        let mut ctrl = [0u8; CTRL_BUF_SIZE];
+        let (n, ts) = recvmsg_with_ctrl(self.as_raw_fd(), as_bytes_mut(&mut frame), &mut ctrl)?;
+        if n != CAN_MTU {
+            return Err(IoError::from(IoErrorKind::InvalidData));
+        }
+        Ok((CanFrame::from(frame), ts))
+    }
+
+    fn read_frame_with_hw_timestamp(&self) -> IoResult<(CanFrame, Duration)> {
+        let mut frame = can_frame_default();
+        let mut ctrl = [0u8; CTRL_BUF_SIZE];
+        let (n, ts) = recvmsg_with_ctrl(self.as_raw_fd(), as_bytes_mut(&mut frame), &mut ctrl)?;
+        if n != CAN_MTU {
+            return Err(IoError::from(IoErrorKind::InvalidData));
+        }
+        let hw_ts = ts.hw.ok_or_else(|| {
+            IoError::new(IoErrorKind::InvalidData, "no SO_TIMESTAMPING hardware timestamp received")
+        })?;
+        Ok((CanFrame::from(frame), hw_ts))
     }
 }
 
@@ -670,6 +848,14 @@ impl CanFdSocket {
         }
     }
 
+    /// Returns `true` if the bound interface supports hardware receive timestamps.
+    ///
+    /// Returns `false` if the socket is unbound, the interface does not exist,
+    /// or the driver does not implement the ethtool timestamp query.
+    pub fn has_hw_timestamps(&self) -> bool {
+        hw_timestamps_supported(self.as_raw_fd())
+    }
+
     /// Reads a raw CAN frame from the socket.
     ///
     /// This might be either type of CAN frame, a classic CAN 2.0 frame
@@ -737,6 +923,66 @@ impl Socket for CanFdSocket {
             CANFD_MTU => Ok(CanFdFrame::from(fdframe).into()),
             _ => Err(IoError::last_os_error()),
         }
+    }
+
+    fn read_frame_with_timestamp(&self) -> IoResult<(CanAnyFrame, SystemTime)> {
+        let mut fdframe = canfd_frame_default();
+        let mut ctrl = [0u8; CTRL_BUF_SIZE];
+        let (n, ts) =
+            recvmsg_with_ctrl(self.as_raw_fd(), as_bytes_mut(&mut fdframe), &mut ctrl)?;
+        let any_frame = match n {
+            CAN_MTU => {
+                let mut frame = can_frame_default();
+                as_bytes_mut(&mut frame)[..CAN_MTU]
+                    .copy_from_slice(&as_bytes(&fdframe)[..CAN_MTU]);
+                CanFrame::from(frame).into()
+            }
+            CANFD_MTU => CanFdFrame::from(fdframe).into(),
+            _ => return Err(IoError::from(IoErrorKind::InvalidData)),
+        };
+        let timestamp = ts.socket.ok_or_else(|| {
+            IoError::new(IoErrorKind::InvalidData, "no SO_TIMESTAMPNS control message received")
+        })?;
+        Ok((any_frame, timestamp))
+    }
+
+    fn read_frame_with_timestamps(&self) -> IoResult<(CanAnyFrame, CanTimestamps)> {
+        let mut fdframe = canfd_frame_default();
+        let mut ctrl = [0u8; CTRL_BUF_SIZE];
+        let (n, ts) =
+            recvmsg_with_ctrl(self.as_raw_fd(), as_bytes_mut(&mut fdframe), &mut ctrl)?;
+        let any_frame = match n {
+            CAN_MTU => {
+                let mut frame = can_frame_default();
+                as_bytes_mut(&mut frame)[..CAN_MTU]
+                    .copy_from_slice(&as_bytes(&fdframe)[..CAN_MTU]);
+                CanFrame::from(frame).into()
+            }
+            CANFD_MTU => CanFdFrame::from(fdframe).into(),
+            _ => return Err(IoError::from(IoErrorKind::InvalidData)),
+        };
+        Ok((any_frame, ts))
+    }
+
+    fn read_frame_with_hw_timestamp(&self) -> IoResult<(CanAnyFrame, Duration)> {
+        let mut fdframe = canfd_frame_default();
+        let mut ctrl = [0u8; CTRL_BUF_SIZE];
+        let (n, ts) =
+            recvmsg_with_ctrl(self.as_raw_fd(), as_bytes_mut(&mut fdframe), &mut ctrl)?;
+        let any_frame = match n {
+            CAN_MTU => {
+                let mut frame = can_frame_default();
+                as_bytes_mut(&mut frame)[..CAN_MTU]
+                    .copy_from_slice(&as_bytes(&fdframe)[..CAN_MTU]);
+                CanFrame::from(frame).into()
+            }
+            CANFD_MTU => CanFdFrame::from(fdframe).into(),
+            _ => return Err(IoError::from(IoErrorKind::InvalidData)),
+        };
+        let hw_ts = ts.hw.ok_or_else(|| {
+            IoError::new(IoErrorKind::InvalidData, "no SO_TIMESTAMPING hardware timestamp received")
+        })?;
+        Ok((any_frame, hw_ts))
     }
 }
 
