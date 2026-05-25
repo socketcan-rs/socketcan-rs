@@ -1,84 +1,88 @@
+# GitHub Actions CI check for the 'socketcan' Rust crate
+#
+# It does the following:
+# - Format check of the sources using nightly
+# - Build check using the current stable compiler and the MSRV version.
+#   - Check library, utils, examples, and tests
+# - Clippy check using the MSRV compiler
+#
+# Note that the current MSRV predates the new cargo resolver, v3, so we go
+# out of our way to use it from stable to create a Cargo.lock file that
+# properly resolves dependencies for the MSRV.
+#
+
 on: [push, pull_request]
 
 name: Continuous integration
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  check:
-    name: Check
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        rust:
-          - stable
-          - 1.70.0
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: ${{ matrix.rust }}
-          override: true
-      - uses: actions-rs/cargo@v1
-        with:
-          command: check
-
-  test:
-    name: Test Suite
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        rust:
-          - stable
-          - 1.70.0
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: ${{ matrix.rust }}
-          override: true
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
-
   fmt:
     name: Rustfmt
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          override: true
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         rust:
           - stable
           - 1.70.0
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: ${{ matrix.rust }}
-          override: true
-      - run: rustup component add rustfmt
-      - uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
+
+      - name: Resolve dependencies for MSRV
+        run: |
+          mkdir -p $HOME/.cargo
+          echo 'resolver.incompatible-rust-versions = "fallback"' > $HOME/.cargo/config.toml
+          cargo +stable update
+
+      - name: Library build check
+        run: cargo +${{ matrix.rust }} check
+
+      - name: Features build check
+        run: cargo +${{ matrix.rust }} check --features=utils,tokio,async-io,async-std,smol,enumerate
+
+      - name: Examples build check
+        run: cargo +${{ matrix.rust }} check --examples --features=utils,tokio,async-io,async-std,smol,enumerate
+
+      - name: Doc generation
+        run: cargo +${{ matrix.rust }} doc --no-deps
+
+      - name: Run tests
+        run: cargo +${{ matrix.rust }} test
 
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        rust:
-          - stable
-          - 1.70.0
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: ${{ matrix.rust }}
-          override: true
-      - run: rustup component add clippy
-      - uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: -- -D warnings
+          toolchain: 1.70.0
+          components: clippy
+
+      - name: Resolve dependencies for MSRV
+        run: |
+          mkdir -p $HOME/.cargo
+          echo 'resolver.incompatible-rust-versions = "fallback"' > $HOME/.cargo/config.toml
+          cargo +stable update
+
+      - name: Run clippy
+        run: cargo +1.70.0 clippy -- -D warnings
