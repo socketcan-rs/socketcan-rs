@@ -81,11 +81,14 @@ pub(crate) fn timespec_to_system_time(ts: libc::timespec) -> SystemTime {
 /// Convert a `libc::timespec` to a `Duration`.
 ///
 /// Used for hardware timestamps, which are reported in the adapter's own
-/// clock domain rather than as wall-clock time.
+/// clock domain rather than as wall-clock time. Negative `tv_sec` or
+/// `tv_nsec` values (which the kernel should never produce here) are
+/// clamped to zero so the function never panics on `Duration::new`.
 #[inline]
 pub(crate) fn timespec_to_duration(ts: libc::timespec) -> Duration {
-    debug_assert!(ts.tv_sec >= 0, "negative timespec from kernel");
-    Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32)
+    let secs = ts.tv_sec.max(0) as u64;
+    let nsec = ts.tv_nsec.clamp(0, 999_999_999) as u32;
+    Duration::new(secs, nsec)
 }
 
 /////////////////////////////////////////////////////////////////////////////

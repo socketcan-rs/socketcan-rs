@@ -550,21 +550,35 @@ fn hw_timestamps_supported(fd: RawFd) -> bool {
     ret == 0 && ts_info.so_timestamping & SOF_TIMESTAMPING_RX_HARDWARE != 0
 }
 
-/// Size of the `recvmsg()` control buffer, large enough to hold both a
-/// `SO_TIMESTAMPNS` cmsg (one `timespec`) and a `SO_TIMESTAMPING` cmsg
-/// (three `timespec` values) simultaneously.
+/// Size of the `recvmsg()` ancillary control buffer.
+///
+/// Comfortably larger than what we need today:
+/// `CMSG_SPACE(sizeof(timespec))`            — `SO_TIMESTAMPNS` cmsg
+/// `+ CMSG_SPACE(3 * sizeof(timespec))`      — `SO_TIMESTAMPING` cmsg
+/// ≈ 80 bytes on 64-bit Linux. 256 leaves headroom for future cmsg types.
 const CTRL_BUF_SIZE: usize = 256;
+
+/// Properly-aligned backing storage for the `recvmsg()` ancillary buffer.
+///
+/// `CMSG_FIRSTHDR`/`CMSG_NXTHDR` interpret the buffer as a sequence of
+/// `cmsghdr` structures, which require `usize` alignment on Linux. A raw
+/// `[u8; N]` has alignment 1; aligning to 8 bytes satisfies the contract
+/// on all supported architectures.
+#[repr(C, align(8))]
+struct CtrlBuf([u8; CTRL_BUF_SIZE]);
 
 /// Issues `recvmsg()` on `fd`, writing frame bytes into `frame_buf`, and
 /// parses any `SOL_SOCKET` timestamp control messages into a [`CanTimestamps`].
 ///
-/// Returns `(bytes_received, timestamps)`. Timestamp fields are `None` when
+/// Returns `(bytes_received, timestamps)`. The returned byte count is the
+/// *real* packet size on the wire (via `MSG_TRUNC`), even if it exceeds
+/// `frame_buf.len()`; callers should compare against `CAN_MTU`/`CANFD_MTU`
+/// before trusting the buffer contents. Timestamp fields are `None` when
 /// the corresponding socket option was not enabled before the call.
-fn recvmsg_with_ctrl(
-    fd: RawFd,
-    frame_buf: &mut [u8],
-    ctrl_buf: &mut [u8],
-) -> IoResult<(usize, CanTimestamps)> {
+///
+/// Returns `InvalidData` if the kernel sets `MSG_CTRUNC`, indicating the
+/// ancillary buffer was too small to hold all delivered cmsgs.
+fn recvmsg_with_ctrl(fd: RawFd, frame_buf: &mut [u8]) -> IoResult<(usize, CanTimestamps)> {
     use crate::timestamp::{timespec_to_duration, timespec_to_system_time};
 
     let mut iov = libc::iovec {
@@ -572,29 +586,51 @@ fn recvmsg_with_ctrl(
         iov_len: frame_buf.len(),
     };
 
+    let mut ctrl = CtrlBuf([0u8; CTRL_BUF_SIZE]);
     let mut msg: libc::msghdr = unsafe { zeroed() };
     msg.msg_iov = &mut iov;
     msg.msg_iovlen = 1;
-    msg.msg_control = ctrl_buf.as_mut_ptr() as *mut libc::c_void;
-    msg.msg_controllen = ctrl_buf.len() as _;
+    msg.msg_control = ctrl.0.as_mut_ptr() as *mut libc::c_void;
+    msg.msg_controllen = ctrl.0.len() as _;
 
-    let nbytes = unsafe { libc::recvmsg(fd, &mut msg, 0) };
-    if nbytes < 0 {
+    // MSG_TRUNC: return the real packet length even if the iov was too small,
+    // so callers can distinguish classic vs. FD frames by byte count rather
+    // than silently truncating an FD frame into a classic-sized buffer.
+    let n = unsafe { libc::recvmsg(fd, &mut msg, libc::MSG_TRUNC) };
+    if n < 0 {
         return Err(IoError::last_os_error());
     }
+
+    if msg.msg_flags & libc::MSG_CTRUNC != 0 {
+        return Err(IoError::new(
+            IoErrorKind::InvalidData,
+            "recvmsg ancillary control buffer overflowed (MSG_CTRUNC)",
+        ));
+    }
+
+    // Minimum cmsg_len for the two payload types we accept. A shorter cmsg
+    // means the payload is truncated; skip rather than reading past it.
+    let ns_min = unsafe { libc::CMSG_LEN(size_of::<libc::timespec>() as u32) } as usize;
+    let scm_min = unsafe { libc::CMSG_LEN((3 * size_of::<libc::timespec>()) as u32) } as usize;
 
     let mut ts = CanTimestamps::default();
     let mut cmsg = unsafe { libc::CMSG_FIRSTHDR(&msg) };
 
     while !cmsg.is_null() {
-        let (level, typ) = unsafe { ((*cmsg).cmsg_level, (*cmsg).cmsg_type) };
+        let (level, typ, len) = unsafe {
+            (
+                (*cmsg).cmsg_level,
+                (*cmsg).cmsg_type,
+                (*cmsg).cmsg_len as usize,
+            )
+        };
         let data = unsafe { libc::CMSG_DATA(cmsg) };
         match (level, typ) {
-            (SOL_SOCKET, libc::SO_TIMESTAMPNS) => {
+            (SOL_SOCKET, libc::SO_TIMESTAMPNS) if len >= ns_min => {
                 let timespec = unsafe { ptr::read_unaligned(data.cast::<libc::timespec>()) };
                 ts.socket = Some(timespec_to_system_time(timespec));
             }
-            (SOL_SOCKET, libc::SO_TIMESTAMPING) => {
+            (SOL_SOCKET, libc::SO_TIMESTAMPING) if len >= scm_min => {
                 // scm_timestamping: [timespec; 3]
                 // [0] = RX_SOFTWARE (sw), [1] deprecated (zero), [2] = HW
                 let tss = unsafe { ptr::read_unaligned(data.cast::<[libc::timespec; 3]>()) };
@@ -610,7 +646,7 @@ fn recvmsg_with_ctrl(
         cmsg = unsafe { libc::CMSG_NXTHDR(&msg, cmsg) };
     }
 
-    Ok((nbytes as usize, ts))
+    Ok((n as usize, ts))
 }
 
 // ===== CanSocket =====
@@ -703,8 +739,7 @@ impl Socket for CanSocket {
 
     fn read_frame_with_timestamps(&self) -> IoResult<(CanFrame, CanTimestamps)> {
         let mut frame = can_frame_default();
-        let mut ctrl = [0u8; CTRL_BUF_SIZE];
-        let (n, ts) = recvmsg_with_ctrl(self.as_raw_fd(), as_bytes_mut(&mut frame), &mut ctrl)?;
+        let (n, ts) = recvmsg_with_ctrl(self.as_raw_fd(), as_bytes_mut(&mut frame))?;
         if n != CAN_MTU {
             return Err(IoError::from(IoErrorKind::InvalidData));
         }
@@ -947,8 +982,7 @@ impl Socket for CanFdSocket {
 
     fn read_frame_with_timestamps(&self) -> IoResult<(CanAnyFrame, CanTimestamps)> {
         let mut fdframe = canfd_frame_default();
-        let mut ctrl = [0u8; CTRL_BUF_SIZE];
-        let (n, ts) = recvmsg_with_ctrl(self.as_raw_fd(), as_bytes_mut(&mut fdframe), &mut ctrl)?;
+        let (n, ts) = recvmsg_with_ctrl(self.as_raw_fd(), as_bytes_mut(&mut fdframe))?;
         let any_frame = Self::convert_raw_frame(n, fdframe)?;
         Ok((any_frame, ts))
     }
