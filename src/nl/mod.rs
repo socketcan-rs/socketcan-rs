@@ -67,7 +67,7 @@ use neli::{
     types::{Buffer, RtBuffer},
     FromBytes, ToBytes,
 };
-use nix::{self, net::if_::if_nametoindex, unistd};
+use nix::{self, net::if_::if_nametoindex};
 use rt::IflaCan;
 use std::{
     ffi::CStr,
@@ -469,16 +469,19 @@ impl CanInterface {
         }
     }
 
-    /// Opens a new netlink socket, bound to this process' PID.
+    /// Opens a new netlink socket with a kernel-assigned port ID.
+    ///
+    /// Passing `None` for the port ID lets the kernel pick a unique value,
+    /// which avoids `EADDRINUSE` when multiple netlink sockets are open
+    /// in the same process — for example, from concurrent calls on
+    /// different threads, or when a getter is invoked while a setter is
+    /// still in flight. Binding all sockets to `Pid::this()` would collide.
+    ///
     /// The function is generic to allow for usage in contexts where NlError
     /// has specific, non-default, generic parameters.
     fn open_route_socket<T, P>() -> Result<NlSocketHandle, NlError<T, P>> {
-        // retrieve PID
-        let pid = unistd::Pid::this().as_raw() as u32;
-
-        // open and bind socket
-        // groups is set to None(0), because we want no notifications
-        let sock = NlSocketHandle::connect(NlFamily::Route, Some(pid), &[])?;
+        // groups is empty because we want no multicast notifications
+        let sock = NlSocketHandle::connect(NlFamily::Route, None, &[])?;
         Ok(sock)
     }
 

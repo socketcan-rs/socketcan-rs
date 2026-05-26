@@ -7,6 +7,7 @@ The change log for the Rust [socketcan](https://crates.io/crates/socketcan) libr
 
 - Added received timestamp capabilities
     - Software and Hardware timestamps
+- [#89](https://github.com/socketcan-rs/socketcan-rs/issues/89) CanInterface binds to hardcoded nl_pid
 - [#81](https://github.com/socketcan-rs/socketcan-rs/pull/81) Remove explicit 'mio' dependency.
 - Bumped MSRV to v1.75.0
 
