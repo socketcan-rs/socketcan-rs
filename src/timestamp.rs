@@ -101,6 +101,16 @@ pub(crate) fn timespec_to_duration(ts: libc::timespec) -> Duration {
 /// Enable socket-layer timestamps with [`SocketOptions::set_recv_timestamp`]
 /// and network-stack / hardware timestamps with [`SocketOptions::set_timestamping`].
 ///
+/// # Limitation
+///
+/// The kernel reports each unrequested timestamp source as all-zero rather
+/// than omitting it from the cmsg. This implementation treats an exactly-zero
+/// `sw` or `hw` value as "not delivered" and reports it as `None`, which
+/// collapses three otherwise-distinct cases: the source was disabled, the
+/// kernel returned zero, or (for `hw` only) the adapter's clock genuinely
+/// read zero. In practice this is only ambiguous in the first nanosecond
+/// after a hardware clock starts up.
+///
 /// [`SocketOptions::set_recv_timestamp`]: crate::SocketOptions::set_recv_timestamp
 /// [`SocketOptions::set_timestamping`]: crate::SocketOptions::set_timestamping
 #[derive(Debug, Clone, Copy, Default)]

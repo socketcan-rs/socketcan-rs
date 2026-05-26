@@ -480,6 +480,13 @@ pub trait SocketOptions: AsRawFd {
     /// When enabled, `recvmsg()` delivers a `SCM_TIMESTAMPNS` control message
     /// containing the socket-layer arrival time as a `timespec`. Call this
     /// before using [`Socket::read_frame_with_timestamp`].
+    ///
+    /// This option is independent of [`set_timestamping`]; both can be
+    /// enabled simultaneously and the resulting timestamps land in
+    /// separate fields of [`CanTimestamps`].
+    ///
+    /// [`set_timestamping`]: Self::set_timestamping
+    /// [`CanTimestamps`]: crate::CanTimestamps
     fn set_recv_timestamp(&self, enable: bool) -> IoResult<()> {
         let val = c_int::from(enable);
         self.set_socket_option(SOL_SOCKET, libc::SO_TIMESTAMPNS, &val)
@@ -487,14 +494,31 @@ pub trait SocketOptions: AsRawFd {
 
     /// Set `SO_TIMESTAMPING` flags on the socket.
     ///
-    /// `flags` is a bitmask of `SOF_TIMESTAMPING_*` constants. At minimum,
-    /// combine the desired source flags with [`SOF_TIMESTAMPING_OPT_CMSG`]
-    /// so that the kernel delivers timestamps via ancillary data on receive.
+    /// `flags` is a bitmask of `SOF_TIMESTAMPING_*` constants. Each
+    /// timestamp source needs two flags — one to select **when** it is
+    /// taken, and one to request that it be **reported** in the ancillary
+    /// data:
+    ///
+    /// | When (selector)                  | Report (in ancillary data)            |
+    /// |----------------------------------|---------------------------------------|
+    /// | [`SOF_TIMESTAMPING_RX_SOFTWARE`] | [`SOF_TIMESTAMPING_SOFTWARE`]         |
+    /// | [`SOF_TIMESTAMPING_RX_HARDWARE`] | [`SOF_TIMESTAMPING_RAW_HARDWARE`]     |
+    ///
+    /// Setting only a selector flag silently delivers no timestamps;
+    /// setting only a reporter flag captures nothing to report.
+    ///
+    /// In addition, [`SOF_TIMESTAMPING_OPT_CMSG`] is required for RX
+    /// timestamps to actually appear in the cmsg returned by `recvmsg()`
+    /// on non-IP sockets (which includes CAN raw).
     ///
     /// Call this before using [`Socket::read_frame_with_timestamps`] or
     /// [`Socket::read_frame_with_hw_timestamp`].
     ///
     /// [`SOF_TIMESTAMPING_OPT_CMSG`]: crate::SOF_TIMESTAMPING_OPT_CMSG
+    /// [`SOF_TIMESTAMPING_RX_SOFTWARE`]: crate::SOF_TIMESTAMPING_RX_SOFTWARE
+    /// [`SOF_TIMESTAMPING_SOFTWARE`]: crate::SOF_TIMESTAMPING_SOFTWARE
+    /// [`SOF_TIMESTAMPING_RX_HARDWARE`]: crate::SOF_TIMESTAMPING_RX_HARDWARE
+    /// [`SOF_TIMESTAMPING_RAW_HARDWARE`]: crate::SOF_TIMESTAMPING_RAW_HARDWARE
     fn set_timestamping(&self, flags: u32) -> IoResult<()> {
         let val = flags as c_int;
         self.set_socket_option(SOL_SOCKET, libc::SO_TIMESTAMPING, &val)
