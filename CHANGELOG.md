@@ -3,6 +3,13 @@
 The change log for the Rust [socketcan](https://crates.io/crates/socketcan) library.
 
 
+## [Version 3.6.0](https://github.com/socketcan-rs/socketcan-rs/compare/v3.5.0..v3.6.0)  (2026-05-31)
+
+- Added received timestamp capabilities
+    - Software and Hardware timestamps
+- [#81](https://github.com/socketcan-rs/socketcan-rs/pull/81) Remove explicit 'mio' dependency.
+- Bumped MSRV to v1.75.0
+
 ## [Version 3.5.0](https://github.com/socketcan-rs/socketcan-rs/compare/v3.4.0..v3.5.0)  (2024-12-29)
 
 - `CanAnyFrame` implements `From` trait for `CanDataFrame`, `CanRemoteFrame`, and `CanErrorFrame`.
@@ -11,8 +18,8 @@ The change log for the Rust [socketcan](https://crates.io/crates/socketcan) libr
     - The FDF flag is forced on when creating a CanFdFrame.
 - Updates to `dump` module:
     - Re-implemented with text parsing
-    - `ParseError` now implements std `Error` trait via `thiserror::Error` 
-    - Parses FdFlags field properly 
+    - `ParseError` now implements std `Error` trait via `thiserror::Error`
+    - Parses FdFlags field properly
     - CANFD_FDF bit flag recognized on input
     - Fixed reading remote frames
     - Now reads remote length
