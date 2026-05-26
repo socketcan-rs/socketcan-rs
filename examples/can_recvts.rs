@@ -15,7 +15,8 @@
 
 use socketcan::{
     CanSocket, Frame, Socket, SocketOptions, SOF_TIMESTAMPING_OPT_CMSG,
-    SOF_TIMESTAMPING_RX_HARDWARE, SOF_TIMESTAMPING_RX_SOFTWARE,
+    SOF_TIMESTAMPING_RAW_HARDWARE, SOF_TIMESTAMPING_RX_HARDWARE, SOF_TIMESTAMPING_RX_SOFTWARE,
+    SOF_TIMESTAMPING_SOFTWARE,
 };
 use std::{env, time::UNIX_EPOCH};
 
@@ -35,18 +36,29 @@ fn main() -> std::io::Result<()> {
     if sock.has_hw_timestamps() {
         println!("HW timestamps supported on {iface}");
         sock.set_recv_timestamp(true)?;
+        // Each timestamp source needs two flags: one to select when it
+        // is taken (RX_*) and one to request that it be reported in the
+        // ancillary data (SOFTWARE / RAW_HARDWARE). OPT_CMSG is required
+        // for RX cmsg delivery on non-IP sockets like CAN raw.
         sock.set_timestamping(
-            SOF_TIMESTAMPING_RX_HARDWARE | SOF_TIMESTAMPING_RX_SOFTWARE | SOF_TIMESTAMPING_OPT_CMSG,
+            SOF_TIMESTAMPING_RX_HARDWARE
+                | SOF_TIMESTAMPING_RAW_HARDWARE
+                | SOF_TIMESTAMPING_RX_SOFTWARE
+                | SOF_TIMESTAMPING_SOFTWARE
+                | SOF_TIMESTAMPING_OPT_CMSG,
         )?;
         loop {
             let (frame, ts) = sock.read_frame_with_timestamps()?;
             let sw = ts
                 .sw
                 .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                .map(|d| d.as_secs_f64())
-                .unwrap_or(0.0);
-            let hw_ns = ts.hw.map(|d| d.as_nanos()).unwrap_or(0);
-            println!("{sw:.6}  ({hw_ns})  {}", frame_info(&frame));
+                .map(|d| format!("{:.6}", d.as_secs_f64()))
+                .unwrap_or_else(|| "-".into());
+            let hw_ns = ts
+                .hw
+                .map(|d| d.as_nanos().to_string())
+                .unwrap_or_else(|| "-".into());
+            println!("{sw}  ({hw_ns})  {}", frame_info(&frame));
         }
     } else {
         println!("HW timestamps not supported on {iface}; using software timestamps");
@@ -55,9 +67,9 @@ fn main() -> std::io::Result<()> {
             let (frame, ts) = sock.read_frame_with_timestamp()?;
             let sw = ts
                 .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_secs_f64())
-                .unwrap_or(0.0);
-            println!("{sw:.6}  {}", frame_info(&frame));
+                .map(|d| format!("{:.6}", d.as_secs_f64()))
+                .unwrap_or_else(|_| "-".into());
+            println!("{sw}  {}", frame_info(&frame));
         }
     }
 }
