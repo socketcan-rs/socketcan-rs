@@ -220,13 +220,22 @@ impl TryFrom<u32> for CanId {
 impl ops::Add<u32> for CanId {
     type Output = Self;
 
+    /// Adds `val` to the ID modulo the ID's address space.
+    ///
+    /// Uses wrapping addition so debug builds don't panic on overflow;
+    /// the subsequent mask keeps the result inside the standard (11-bit)
+    /// or extended (29-bit) ID range.
     fn add(self, val: u32) -> Self::Output {
         use CanId::*;
         match self {
             Standard(id) => {
-                Self::standard((id.as_raw() + val as u16) & CAN_SFF_MASK as u16).unwrap()
+                let sum = (id.as_raw() as u32).wrapping_add(val);
+                Self::standard((sum & CAN_SFF_MASK) as u16).unwrap()
             }
-            Extended(id) => Self::extended((id.as_raw() + val) & CAN_EFF_MASK).unwrap(),
+            Extended(id) => {
+                let sum = id.as_raw().wrapping_add(val);
+                Self::extended(sum & CAN_EFF_MASK).unwrap()
+            }
         }
     }
 }

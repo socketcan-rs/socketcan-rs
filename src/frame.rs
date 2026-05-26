@@ -92,13 +92,8 @@ pub trait AsPtr {
     }
 
     /// Gets a mutable byte slice to the inner type
-    fn as_bytes_mut(&mut self) -> &[u8] {
-        unsafe {
-            std::slice::from_raw_parts::<'_, u8>(
-                self.as_mut_ptr() as *mut _ as *mut u8,
-                self.size(),
-            )
-        }
+    fn as_bytes_mut(&mut self) -> &mut [u8] {
+        unsafe { std::slice::from_raw_parts_mut(self.as_mut_ptr() as *mut u8, self.size()) }
     }
 }
 
@@ -787,9 +782,14 @@ impl Frame for CanDataFrame {
         self.0.can_id
     }
 
-    /// Sets the CAN ID for the frame
+    /// Sets the CAN ID for the frame.
+    ///
+    /// Preserves any RTR/ERR flag bits already in the ID word — the type's
+    /// invariant says they shouldn't be set on a data frame, but masking
+    /// defensively avoids silent state loss if a caller has manipulated
+    /// the inner `can_frame` directly.
     fn set_id(&mut self, id: impl Into<Id>) {
-        self.0.can_id = id_to_canid_t(id);
+        self.0.can_id = id_to_canid_t(id) | (self.0.can_id & (CAN_ERR_FLAG | CAN_RTR_FLAG));
     }
 
     /// Sets the data payload of the frame.
@@ -1181,8 +1181,11 @@ impl TryFrom<can_frame> for CanErrorFrame {
     /// Try to create a `CanErrorFrame` from a C `can_frame`
     ///
     /// This will only succeed the C frame is marked as an error frame.
-    fn try_from(frame: can_frame) -> Result<Self, Self::Error> {
+    fn try_from(mut frame: can_frame) -> Result<Self, Self::Error> {
         if frame.can_id & CAN_ERR_FLAG != 0 {
+            // Error frames carry the full 8-byte payload by convention; force
+            // can_dlc so that `dlc()`, `len()` and `data()` agree.
+            frame.can_dlc = CAN_MAX_DLEN as u8;
             Ok(Self(frame))
         } else {
             Err(ConstructionError::WrongFrameType)
@@ -1413,9 +1416,14 @@ impl Frame for CanFdFrame {
         self.0.len as usize
     }
 
-    /// Sets the CAN ID for the frame
+    /// Sets the CAN ID for the frame.
+    ///
+    /// Preserves any RTR/ERR flag bits already in the ID word. FD frames
+    /// don't carry these by spec, but masking defensively avoids silent
+    /// state loss if a caller has manipulated the inner `canfd_frame`
+    /// directly.
     fn set_id(&mut self, id: impl Into<Id>) {
-        self.0.can_id = id_to_canid_t(id);
+        self.0.can_id = id_to_canid_t(id) | (self.0.can_id & (CAN_ERR_FLAG | CAN_RTR_FLAG));
     }
 
     /// Sets the data payload of the frame.
@@ -1474,6 +1482,15 @@ impl From<CanDataFrame> for CanFdFrame {
 impl From<canfd_frame> for CanFdFrame {
     fn from(mut frame: canfd_frame) -> Self {
         frame.flags |= CANFD_FDF as u8;
+        // Defensively normalise `len` so that `dlc()` and `data()` agree
+        // even if a non-spec length somehow lands here. First clamp to the
+        // buffer size to keep `data()` from indexing out of bounds, then
+        // round up to the next valid CANFD length and zero the padding so
+        // we don't expose uninitialised bytes.
+        let actual = (frame.len as usize).min(CANFD_MAX_DLEN);
+        let normalised = Self::next_valid_ext_dlen(actual);
+        frame.data[actual..normalised].fill(0);
+        frame.len = normalised as u8;
         Self(frame)
     }
 }
