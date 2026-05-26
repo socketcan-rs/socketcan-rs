@@ -1865,8 +1865,13 @@ mod tests {
 
         // Make sure FD flags turned off
         let mut fdframe = canfd_frame_default();
-        crate::as_bytes_mut(&mut fdframe)[..size_of::<can_frame>()]
-            .clone_from_slice(crate::as_bytes(&frame.0));
+        // SAFETY: `fdframe` is zero-initialised by `canfd_frame_default`;
+        // `frame.0` was constructed by `CanDataFrame::new` which zeroes the
+        // backing `can_frame` then sets fields, so all bytes are initialised.
+        unsafe {
+            crate::as_bytes_mut(&mut fdframe)[..size_of::<can_frame>()]
+                .clone_from_slice(crate::as_bytes(&frame.0));
+        }
         assert_eq!(fdframe.flags, 0);
     }
 }

@@ -110,7 +110,10 @@ impl CanAddr {
 
     /// Gets the underlying address as a byte slice
     pub fn as_bytes(&self) -> &[u8] {
-        crate::as_bytes(&self.0)
+        // SAFETY: `CanAddr` is constructed only through `new`/`new_j1939`/
+        // `new_isotp`/`From<sockaddr_can>`, all of which initialise the
+        // entire `sockaddr_can` (via `mem::zeroed` plus typed field writes).
+        unsafe { crate::as_bytes(&self.0) }
     }
 
     /// Converts the address into a `sockaddr_storage` type.
@@ -121,7 +124,8 @@ impl CanAddr {
         let len = can_addr.len();
 
         let mut storage: sockaddr_storage = unsafe { mem::zeroed() };
-        let sock_addr = crate::as_bytes_mut(&mut storage);
+        // SAFETY: `storage` is fully zero-initialised on the line above.
+        let sock_addr = unsafe { crate::as_bytes_mut(&mut storage) };
 
         sock_addr[..len].copy_from_slice(can_addr);
         (storage, len as socklen_t)
@@ -193,6 +197,10 @@ mod tests {
         let (sock_addr, len) = addr.clone().into_storage();
 
         assert_eq!(CanAddr::len() as socklen_t, len);
-        assert_eq!(as_bytes(&addr), &as_bytes(&sock_addr)[0..len as usize]);
+        // SAFETY: both values are fully initialised — `addr` via `CanAddr::new`
+        // and `sock_addr` returned from `into_storage` which zero-initialises
+        // `sockaddr_storage` before copying.
+        let (lhs, rhs) = unsafe { (as_bytes(&addr), as_bytes(&sock_addr)) };
+        assert_eq!(lhs, &rhs[0..len as usize]);
     }
 }

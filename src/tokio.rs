@@ -408,7 +408,8 @@ mod tests {
     async fn recv_frame_with_async_read(mut socket: CanSocket) -> Result<CanSocket> {
         let mut frame = can_frame_default();
         select!(
-            frame = socket.read_exact(crate::as_bytes_mut(&mut frame)).fuse() => if let Ok(_bytes_read) = frame { Ok(socket) } else { panic!("unexpected") },
+            // SAFETY: `frame` is fully zero-initialised by `can_frame_default`.
+            frame = socket.read_exact(unsafe { crate::as_bytes_mut(&mut frame) }).fuse() => if let Ok(_bytes_read) = frame { Ok(socket) } else { panic!("unexpected") },
             _timeout = Delay::new(TIMEOUT).fuse() => Err(IoErrorKind::TimedOut.into()),
         )
     }
@@ -447,7 +448,8 @@ mod tests {
     async fn recv_frame_fd_with_async_read(mut socket: CanFdSocket) -> Result<CanFdSocket> {
         let mut frame = can_frame_default();
         select!(
-            frame = socket.read_exact(crate::as_bytes_mut(&mut frame)).fuse() => if let Ok(_bytes_read) = frame { Ok(socket) } else { panic!("unexpected") },
+            // SAFETY: `frame` is fully zero-initialised by `can_frame_default`.
+            frame = socket.read_exact(unsafe { crate::as_bytes_mut(&mut frame) }).fuse() => if let Ok(_bytes_read) = frame { Ok(socket) } else { panic!("unexpected") },
             _timeout = Delay::new(TIMEOUT).fuse() => Err(IoErrorKind::TimedOut.into()),
         )
     }

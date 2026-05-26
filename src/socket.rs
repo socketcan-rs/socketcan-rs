@@ -692,7 +692,9 @@ impl CanSocket {
     /// Reads a low-level libc `can_frame` from the socket.
     pub fn read_raw_frame(&self) -> IoResult<libc::can_frame> {
         let mut frame = can_frame_default();
-        self.as_raw_socket().read_exact(as_bytes_mut(&mut frame))?;
+        // SAFETY: `frame` is fully zero-initialised by `can_frame_default`.
+        self.as_raw_socket()
+            .read_exact(unsafe { as_bytes_mut(&mut frame) })?;
         Ok(frame)
     }
 
@@ -763,7 +765,9 @@ impl Socket for CanSocket {
 
     fn read_frame_with_timestamps(&self) -> IoResult<(CanFrame, CanTimestamps)> {
         let mut frame = can_frame_default();
-        let (n, ts) = recvmsg_with_ctrl(self.as_raw_fd(), as_bytes_mut(&mut frame))?;
+        // SAFETY: `frame` is fully zero-initialised by `can_frame_default`.
+        let buf = unsafe { as_bytes_mut(&mut frame) };
+        let (n, ts) = recvmsg_with_ctrl(self.as_raw_fd(), buf)?;
         if n != CAN_MTU {
             return Err(IoError::from(IoErrorKind::InvalidData));
         }
@@ -906,8 +910,13 @@ impl CanFdSocket {
         match mtu_len {
             CAN_MTU => {
                 let mut frame = can_frame_default();
-                as_bytes_mut(&mut frame)[..CAN_MTU]
-                    .copy_from_slice(&as_bytes(&raw_frame)[..CAN_MTU]);
+                // SAFETY: `frame` is zero-initialised; `raw_frame` was either
+                // filled by the kernel or zero-initialised before partial fill,
+                // so all its bytes are valid for read.
+                unsafe {
+                    as_bytes_mut(&mut frame)[..CAN_MTU]
+                        .copy_from_slice(&as_bytes(&raw_frame)[..CAN_MTU]);
+                }
                 Ok(CanFrame::from(frame).into())
             }
             CANFD_MTU => Ok(CanFdFrame::from(raw_frame).into()),
@@ -930,13 +939,20 @@ impl CanFdSocket {
     pub fn read_raw_frame(&self) -> IoResult<CanRawFrame> {
         let mut fdframe = canfd_frame_default();
 
-        match self.as_raw_socket().read(as_bytes_mut(&mut fdframe))? {
+        // SAFETY: `fdframe` is fully zero-initialised by `canfd_frame_default`.
+        let buf = unsafe { as_bytes_mut(&mut fdframe) };
+        match self.as_raw_socket().read(buf)? {
             // If we only get 'can_frame' number of bytes, then the return is,
             // by definition, a can_frame, so we just copy the bytes into the
             // proper type.
             CAN_MTU => {
                 let mut frame = can_frame_default();
-                as_bytes_mut(&mut frame)[..CAN_MTU].copy_from_slice(&as_bytes(&fdframe)[..CAN_MTU]);
+                // SAFETY: `frame` zero-initialised; `fdframe` likewise (and
+                // possibly partially overwritten by the kernel above).
+                unsafe {
+                    as_bytes_mut(&mut frame)[..CAN_MTU]
+                        .copy_from_slice(&as_bytes(&fdframe)[..CAN_MTU]);
+                }
                 Ok(frame.into())
             }
             CANFD_MTU => Ok(fdframe.into()),
@@ -978,7 +994,10 @@ impl Socket for CanFdSocket {
     fn read_frame(&self) -> IoResult<CanAnyFrame> {
         let mut fdframe = canfd_frame_default();
 
-        let n = self.as_raw_socket().read(as_bytes_mut(&mut fdframe))?;
+        // SAFETY: `fdframe` is fully zero-initialised by `canfd_frame_default`.
+        let n = self
+            .as_raw_socket()
+            .read(unsafe { as_bytes_mut(&mut fdframe) })?;
         Self::convert_raw_frame(n, fdframe)
     }
 
@@ -1006,7 +1025,9 @@ impl Socket for CanFdSocket {
 
     fn read_frame_with_timestamps(&self) -> IoResult<(CanAnyFrame, CanTimestamps)> {
         let mut fdframe = canfd_frame_default();
-        let (n, ts) = recvmsg_with_ctrl(self.as_raw_fd(), as_bytes_mut(&mut fdframe))?;
+        // SAFETY: `fdframe` is fully zero-initialised by `canfd_frame_default`.
+        let buf = unsafe { as_bytes_mut(&mut fdframe) };
+        let (n, ts) = recvmsg_with_ctrl(self.as_raw_fd(), buf)?;
         let any_frame = Self::convert_raw_frame(n, fdframe)?;
         Ok((any_frame, ts))
     }
