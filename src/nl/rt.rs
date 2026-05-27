@@ -80,7 +80,9 @@ pub struct can_bittiming_const {
 
 impl ToBytes for can_bittiming_const {
     fn to_bytes(&self, buf: &mut Cursor<Vec<u8>>) -> Result<(), SerError> {
-        buf.write_all(as_bytes(self))?;
+        // SAFETY: `can_bittiming_const` is a `#[repr(C)]` struct of eight
+        // `u32` fields with no padding, so every byte is initialised.
+        buf.write_all(unsafe { as_bytes(self) })?;
         Ok(())
     }
 }
@@ -88,7 +90,8 @@ impl ToBytes for can_bittiming_const {
 impl<'a> FromBytes<'a> for can_bittiming_const {
     fn from_bytes(buf: &mut Cursor<&'a [u8]>) -> Result<Self, DeError> {
         let mut timing_const: can_bittiming_const = unsafe { mem::zeroed() };
-        buf.read_exact(as_bytes_mut(&mut timing_const))?;
+        // SAFETY: `timing_const` is fully zero-initialised on the line above.
+        buf.read_exact(unsafe { as_bytes_mut(&mut timing_const) })?;
         Ok(timing_const)
     }
 }
@@ -185,7 +188,7 @@ pub const CAN_CTRLMODE_FD_NON_ISO: u32 = 0x80;
 pub const CAN_CTRLMODE_CC_LEN8_DLC: u32 = 0x100;
 
 /// u16 termination range: 1..65535 Ohms
-pub const CAN_TERMINATION_DISABLED: u32 = 0;
+pub const CAN_TERMINATION_DISABLED: u16 = 0;
 
 ///
 /// CAN device statistics
@@ -269,7 +272,9 @@ pub mod tests {
                     size_of::<can_bittiming>(),
                 )
             },
-            as_bytes(&timing)
+            // SAFETY: `can_bittiming` is a `#[repr(C)]` struct of `u32`
+            // fields fully initialised by the literal above.
+            unsafe { as_bytes(&timing) }
         );
     }
 }

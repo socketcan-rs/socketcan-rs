@@ -1,6 +1,6 @@
-// socketcan/examples/tokio_send.rs
+// socketcan/examples/fd_send.rs
 //
-// Example application for using Tokio with socketcan-rs.
+// Example: send a single CAN FD frame on the given interface.
 //
 // This file is part of the Rust 'socketcan-rs' library.
 //
@@ -10,13 +10,12 @@
 // to those terms.
 //
 
-//! A SocketCAN example using tokio.
+//! A SocketCAN FD send example.
 //!
-//! This sends data frames to the CANbus.
-//!
+//! Opens a `CanFdSocket` and writes one CAN FD data frame to the bus.
 
 use embedded_can::{Frame, StandardId};
-use socketcan::{CanFdSocket, CanFrame, Result, Socket};
+use socketcan::{CanFdFrame, CanFdSocket, Result, Socket};
 use std::env;
 
 fn main() -> Result<()> {
@@ -24,9 +23,10 @@ fn main() -> Result<()> {
     let socket_tx = CanFdSocket::open(&iface).unwrap();
 
     let id = StandardId::new(0x100).unwrap();
-    let frame = CanFrame::new(id, &[0]).unwrap();
+    // 12-byte payload demonstrates an extended FD length (DLC 9).
+    let frame = CanFdFrame::new(id, &[0xDE, 0xAD, 0xBE, 0xEF, 0, 1, 2, 3, 4, 5, 6, 7]).unwrap();
 
-    println!("Writing on {}", iface);
+    println!("Writing FD frame on {}", iface);
     socket_tx.write_frame(&frame)?;
 
     Ok(())

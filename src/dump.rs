@@ -83,27 +83,50 @@ pub struct CanDumpRecord {
 
 impl fmt::Display for CanDumpRecord {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "({:.6}) {} {:03X}",
-            1.0e-6 * self.t_us as f64,
-            self.device,
-            self.frame.raw_id()
-        )?;
-
+        // Width of the ID field matches candump's log format: 3 hex chars
+        // for SFF, 8 for EFF. Error frames use the full 29-bit error mask
+        // width so future kernel additions outside CAN_SFF_MASK still render.
+        write!(f, "({:.6}) {} ", 1.0e-6 * self.t_us as f64, self.device)?;
         use CanAnyFrame::*;
         match self.frame {
-            Remote(frame) if frame.len() == 0 => f.write_str("#R"),
-            Remote(frame) => write!(f, "#R{}", frame.dlc()),
-            Error(_frame) => f.write_str(""),
+            Remote(frame) if frame.len() == 0 => {
+                Self::fmt_id(f, &frame)?;
+                f.write_str("#R")
+            }
+            Remote(frame) => {
+                Self::fmt_id(f, &frame)?;
+                write!(f, "#R{:X}", frame.dlc())
+            }
+            Error(frame) => {
+                write!(f, "{:08X}#", frame.error_bits())?;
+                let mut parts = frame.data().iter().map(|v| format!("{:02X}", v));
+                write!(f, "{}", parts.join(""))
+            }
             Normal(frame) => {
+                Self::fmt_id(f, &frame)?;
                 let mut parts = frame.data().iter().map(|v| format!("{:02X}", v));
                 write!(f, "#{}", parts.join(""))
             }
             Fd(frame) => {
+                Self::fmt_id(f, &frame)?;
                 let mut parts = frame.data().iter().map(|v| format!("{:02X}", v));
-                write!(f, "##{}", parts.join(""))
+                // Single-hex-nibble flags between `##` and the payload, matching
+                // candump's `.log` format so this output round-trips through
+                // the parser.
+                write!(f, "##{:X}{}", frame.flags().bits() & 0x0F, parts.join(""))
             }
+        }
+    }
+}
+
+impl CanDumpRecord {
+    /// Writes the CAN ID with candump-style zero padding: 3 hex chars for
+    /// standard IDs, 8 for extended.
+    fn fmt_id<F: Frame>(f: &mut fmt::Formatter<'_>, frame: &F) -> fmt::Result {
+        if frame.is_extended() {
+            write!(f, "{:08X}", frame.raw_id())
+        } else {
+            write!(f, "{:03X}", frame.raw_id())
         }
     }
 }
@@ -140,18 +163,28 @@ impl Reader<File> {
 impl<R: BufRead> Reader<R> {
     /// Returns an iterator over all records
     #[deprecated(since = "3.5.0", note = "Use `iter()`")]
-    pub fn records(&mut self) -> CanDumpRecords<R> {
+    pub fn records(&mut self) -> CanDumpRecords<'_, R> {
         CanDumpRecords { src: self }
     }
 
     /// Advance state, returning next record.
     pub fn next_record(&mut self) -> Result<Option<CanDumpRecord>, ParseError> {
+        // Cap each line at 64 KiB so a malformed/corrupt log can't OOM the
+        // reader. A real candump line is on the order of ~120 bytes.
+        const MAX_LINE: u64 = 64 * 1024;
+
         self.buf.clear();
-        let nread = self.rdr.read_line(&mut self.buf)?;
+        let mut handle = io::Read::take(&mut self.rdr, MAX_LINE);
+        let nread = handle.read_line(&mut self.buf)?;
 
         // reached EOF
         if nread == 0 {
             return Ok(None);
+        }
+
+        // If we hit the cap without a trailing newline the line was over-long.
+        if nread as u64 == MAX_LINE && !self.buf.ends_with('\n') {
+            return Err(ParseError::InvalidCanFrame);
         }
 
         let line = self.buf[..nread].trim();
@@ -168,13 +201,23 @@ impl<R: BufRead> Reader<R> {
 
         let t_us = match ts.split_once('.') {
             Some((num, mant)) => {
+                // candump uses microsecond precision: exactly six digits after
+                // the decimal point. Reject anything else rather than silently
+                // misinterpreting the precision. Use checked arithmetic so a
+                // pathological `num` doesn't overflow into a
+                // wrong-but-valid-looking timestamp.
+                if mant.len() != 6 {
+                    return Err(ParseError::InvalidTimestamp);
+                }
                 let num = num
                     .parse::<u64>()
                     .map_err(|_| ParseError::InvalidTimestamp)?;
                 let mant = mant
                     .parse::<u64>()
                     .map_err(|_| ParseError::InvalidTimestamp)?;
-                num.saturating_mul(1_000_000).saturating_add(mant)
+                num.checked_mul(1_000_000)
+                    .and_then(|v| v.checked_add(mant))
+                    .ok_or(ParseError::InvalidTimestamp)?
             }
             _ => return Err(ParseError::InvalidTimestamp),
         };
@@ -217,7 +260,13 @@ impl<R: BufRead> Reader<R> {
                 .map(CanAnyFrame::Fd)
         } else if can_data.starts_with('R') {
             can_data = &can_data[1..];
-            let rlen = can_data.parse::<usize>().unwrap_or(0);
+            // Spec: the DLC after `R` is a single hex nibble (0..=F).
+            // An empty tail is allowed and means DLC = 0.
+            let rlen = if can_data.is_empty() {
+                0
+            } else {
+                usize::from_str_radix(can_data, 16).map_err(|_| ParseError::InvalidCanFrame)?
+            };
             CanRemoteFrame::new_remote(can_id, rlen)
                 .map(CanFrame::Remote)
                 .map(CanAnyFrame::from)
