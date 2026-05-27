@@ -68,9 +68,40 @@ impl CanSocket {
         self.0.write_with(|fd| fd.write_frame(frame)).await
     }
 
+    /// Attempt to write a CAN frame to the socket without blocking.
+    ///
+    /// Returns `WouldBlock` if the send buffer is full.
+    ///
+    /// Bypasses the async-io readiness reactor: this call goes straight to
+    /// the underlying non-blocking fd, so no reactor readiness event is
+    /// consumed. Mixing with [`write_frame`](Self::write_frame) on the same
+    /// socket is safe — the async path will simply re-check OS-level
+    /// readiness on its next poll and may briefly round-trip through
+    /// `WouldBlock` before re-arming.
+    pub fn try_write_frame<F>(&self, frame: &F) -> io::Result<()>
+    where
+        F: Into<CanFrame> + AsPtr,
+    {
+        self.0.get_ref().write_frame(frame)
+    }
+
     /// Reads a frame from the socket asynchronously.
     pub async fn read_frame(&self) -> io::Result<CanFrame> {
         self.0.read_with(|fd| fd.read_frame()).await
+    }
+
+    /// Attempt to read a CAN frame from the socket without blocking.
+    ///
+    /// Returns `WouldBlock` if no frame is immediately available.
+    ///
+    /// Bypasses the async-io readiness reactor: this call goes straight to
+    /// the underlying non-blocking fd, so no reactor readiness event is
+    /// consumed. Mixing with [`read_frame`](Self::read_frame) on the same
+    /// socket is safe — the async path will simply re-check OS-level
+    /// readiness on its next poll and may briefly round-trip through
+    /// `WouldBlock` before re-arming.
+    pub fn try_read_frame(&self) -> io::Result<CanFrame> {
+        self.0.get_ref().read_frame()
     }
 
     /// Returns `true` if the bound interface supports hardware receive timestamps.
@@ -198,9 +229,40 @@ impl CanFdSocket {
         self.0.write_with(|fd| fd.write_frame(frame)).await
     }
 
+    /// Attempt to write a CAN frame to the socket without blocking.
+    ///
+    /// Returns `WouldBlock` if the send buffer is full.
+    ///
+    /// Bypasses the async-io readiness reactor: this call goes straight to
+    /// the underlying non-blocking fd, so no reactor readiness event is
+    /// consumed. Mixing with [`write_frame`](Self::write_frame) on the same
+    /// socket is safe — the async path will simply re-check OS-level
+    /// readiness on its next poll and may briefly round-trip through
+    /// `WouldBlock` before re-arming.
+    pub fn try_write_frame<F>(&self, frame: &F) -> io::Result<()>
+    where
+        F: Into<CanAnyFrame> + AsPtr,
+    {
+        self.0.get_ref().write_frame(frame)
+    }
+
     /// Reads a frame from the socket asynchronously.
     pub async fn read_frame(&self) -> io::Result<CanAnyFrame> {
         self.0.read_with(|fd| fd.read_frame()).await
+    }
+
+    /// Attempt to read a CAN frame from the socket without blocking.
+    ///
+    /// Returns `WouldBlock` if no frame is immediately available.
+    ///
+    /// Bypasses the async-io readiness reactor: this call goes straight to
+    /// the underlying non-blocking fd, so no reactor readiness event is
+    /// consumed. Mixing with [`read_frame`](Self::read_frame) on the same
+    /// socket is safe — the async path will simply re-check OS-level
+    /// readiness on its next poll and may briefly round-trip through
+    /// `WouldBlock` before re-arming.
+    pub fn try_read_frame(&self) -> io::Result<CanAnyFrame> {
+        self.0.get_ref().read_frame()
     }
 
     /// Returns `true` if the bound interface supports hardware receive timestamps.

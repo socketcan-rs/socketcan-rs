@@ -91,7 +91,16 @@ impl CanSocket {
             .await
     }
 
-    /// Attempt to write a CAN frame to the socket without blocking
+    /// Attempt to write a CAN frame to the socket without blocking.
+    ///
+    /// Returns `WouldBlock` if the send buffer is full.
+    ///
+    /// Bypasses the tokio readiness reactor: this call goes straight to
+    /// the underlying non-blocking fd, so no `AsyncFd` readiness event is
+    /// consumed. Mixing with [`write_frame`](Self::write_frame) on the same
+    /// socket is safe — the async path will simply re-check OS-level
+    /// readiness on its next poll and may briefly round-trip through
+    /// `WouldBlock` before re-arming.
     pub fn try_write_frame(&self, frame: CanFrame) -> IoResult<()> {
         self.0.get_ref().write_frame(&frame)
     }
@@ -103,9 +112,16 @@ impl CanSocket {
             .await
     }
 
-    /// Attempt to read a CAN frame from the socket without blocking
+    /// Attempt to read a CAN frame from the socket without blocking.
     ///
-    /// If no message is immediately available, a WouldBlock error is returned.
+    /// Returns `WouldBlock` if no frame is immediately available.
+    ///
+    /// Bypasses the tokio readiness reactor: this call goes straight to
+    /// the underlying non-blocking fd, so no `AsyncFd` readiness event is
+    /// consumed. Mixing with [`read_frame`](Self::read_frame) on the same
+    /// socket is safe — the async path will simply re-check OS-level
+    /// readiness on its next poll and may briefly round-trip through
+    /// `WouldBlock` before re-arming.
     pub fn try_read_frame(&self) -> IoResult<CanFrame> {
         self.0.get_ref().read_frame()
     }
@@ -250,7 +266,16 @@ impl CanFdSocket {
             .await
     }
 
-    /// Attempt to write a CAN frame to the socket without blocking
+    /// Attempt to write a CAN frame to the socket without blocking.
+    ///
+    /// Returns `WouldBlock` if the send buffer is full.
+    ///
+    /// Bypasses the tokio readiness reactor: this call goes straight to
+    /// the underlying non-blocking fd, so no `AsyncFd` readiness event is
+    /// consumed. Mixing with [`write_frame`](Self::write_frame) on the same
+    /// socket is safe — the async path will simply re-check OS-level
+    /// readiness on its next poll and may briefly round-trip through
+    /// `WouldBlock` before re-arming.
     pub fn try_write_frame<F>(&self, frame: &F) -> IoResult<()>
     where
         F: Into<CanAnyFrame> + AsPtr,
@@ -265,9 +290,16 @@ impl CanFdSocket {
             .await
     }
 
-    /// Attempt to read a CAN frame from the socket without blocking
+    /// Attempt to read a CAN frame from the socket without blocking.
     ///
-    /// If no message is immediately available, a WouldBlock error is returned.
+    /// Returns `WouldBlock` if no frame is immediately available.
+    ///
+    /// Bypasses the tokio readiness reactor: this call goes straight to
+    /// the underlying non-blocking fd, so no `AsyncFd` readiness event is
+    /// consumed. Mixing with [`read_frame`](Self::read_frame) on the same
+    /// socket is safe — the async path will simply re-check OS-level
+    /// readiness on its next poll and may briefly round-trip through
+    /// `WouldBlock` before re-arming.
     pub fn try_read_frame(&self) -> IoResult<CanAnyFrame> {
         self.0.get_ref().read_frame()
     }
@@ -585,7 +617,7 @@ mod tests {
         assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
 
         try_write_frame(&socket1)?;
-        std::thread::sleep(Duration::from_millis(100));
+        tokio::time::sleep(Duration::from_millis(100)).await;
 
         socket2.try_read_frame()?;
 
@@ -823,7 +855,7 @@ mod tests {
         assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
 
         try_write_frame_fd_canfd(&socket1)?;
-        std::thread::sleep(Duration::from_millis(100));
+        tokio::time::sleep(Duration::from_millis(100)).await;
 
         socket2.try_read_frame()?;
 

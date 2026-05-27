@@ -98,6 +98,56 @@ async fn async_read_frame_with_timestamp() {
 #[cfg(all(feature = "vcan_tests", feature = "async-io"))]
 #[serial]
 #[async_std::test]
+async fn async_try_read_and_try_write() {
+    // Mirror of tokio's `test_tryread_and_trywrite`: confirm that
+    // `try_read_frame` returns `WouldBlock` when nothing is queued, that a
+    // frame written via `try_write_frame` round-trips, and that the queue
+    // drains to `WouldBlock` again.
+    let socket1 = AsyncCanSocket::open(VCAN).unwrap();
+    let socket2 = AsyncCanSocket::open(VCAN).unwrap();
+
+    let result = socket2.try_read_frame();
+    assert!(result.is_err(), "Expected no frames available");
+    assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+
+    let frame = socketcan::CanFrame::new(Id::from(StandardId::new(0x1).unwrap()), &[0]).unwrap();
+    socket1.try_write_frame(&frame).unwrap();
+    async_io::Timer::after(std::time::Duration::from_millis(100)).await;
+
+    socket2.try_read_frame().unwrap();
+
+    let result = socket2.try_read_frame();
+    assert!(result.is_err(), "Expected no frames available");
+    assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+}
+
+#[cfg(all(feature = "vcan_tests", feature = "async-io"))]
+#[serial]
+#[async_std::test]
+async fn async_try_read_and_try_write_fd() {
+    // FD variant — same shape as `async_try_read_and_try_write`, but over
+    // `CanFdSocket` and using a `CanFdFrame` payload.
+    let socket1 = AsyncCanFdSocket::open(VCAN).unwrap();
+    let socket2 = AsyncCanFdSocket::open(VCAN).unwrap();
+
+    let result = socket2.try_read_frame();
+    assert!(result.is_err(), "Expected no frames available");
+    assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+
+    let frame = CanFdFrame::new(StandardId::new(0x1).unwrap(), &[0u8; 8]).unwrap();
+    socket1.try_write_frame(&frame).unwrap();
+    async_io::Timer::after(std::time::Duration::from_millis(100)).await;
+
+    socket2.try_read_frame().unwrap();
+
+    let result = socket2.try_read_frame();
+    assert!(result.is_err(), "Expected no frames available");
+    assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+}
+
+#[cfg(all(feature = "vcan_tests", feature = "async-io"))]
+#[serial]
+#[async_std::test]
 async fn async_stream_and_sink() {
     use futures::{SinkExt, StreamExt};
 
