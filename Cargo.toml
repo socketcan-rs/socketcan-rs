@@ -16,9 +16,9 @@ Linux SocketCAN library. Send and receive CAN frames via CANbus on Linux.
 
 # Features:
 #
-# "netlink" (default) - Whether to include CAN interface configuration 
+# "netlink" (default) - Whether to include CAN interface configuration
 #       capabilities based on netlink kernel communications
-# "dump" (default) - Whether to include 'candump' log file parsing 
+# "dump" (default) - Whether to include 'candump' log file parsing
 #	capabilities.
 # "enumerate" - Ability to enumerate the available CAN network interfaces
 #
@@ -82,6 +82,11 @@ async-std = { version = "1.12", features = ["attributes"]}
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "io-util"] }
 futures = "0.3"
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+targets = ["x86_64-unknown-linux-gnu", "i686-unknown-linux-gnu"]
+
 
 [[bin]]
 name = "rcan"
@@ -138,4 +143,3 @@ required-features = ["async-std"]
 [[example]]
 name = "async_std_print_frames"
 required-features = ["async-std"]
-

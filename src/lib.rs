@@ -112,6 +112,7 @@
 //!   Requires superuser privileges to run/pass.
 //!
 
+#![cfg_attr(docsrs, feature(doc_cfg))]
 // clippy: do not warn about things like "SocketCAN" inside the docs
 #![allow(clippy::doc_markdown)]
 // Some lints
