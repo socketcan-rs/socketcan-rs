@@ -164,14 +164,15 @@ impl Sink<CanFrame> for CanSocket {
         Poll::Ready(Ok(()))
     }
 
-    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
-        let mut ready_guard = ready!(self.0.poll_write_ready(cx))?;
-        ready_guard.clear_ready();
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<()>> {
+        // Nothing to flush; the underlying fd closes on drop.
         Poll::Ready(Ok(()))
     }
 
     fn start_send(self: Pin<&mut Self>, item: CanFrame) -> Result<()> {
-        self.0.get_ref().write_frame_insist(&item)?;
+        // `poll_ready` already cleared write-readiness, so a single
+        // non-blocking write is sufficient — no need to busy-retry.
+        self.0.get_ref().write_frame(&item)?;
         Ok(())
     }
 }
@@ -310,14 +311,15 @@ impl Sink<CanAnyFrame> for CanFdSocket {
         Poll::Ready(Ok(()))
     }
 
-    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
-        let mut ready_guard = ready!(self.0.poll_write_ready(cx))?;
-        ready_guard.clear_ready();
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<()>> {
+        // Nothing to flush; the underlying fd closes on drop.
         Poll::Ready(Ok(()))
     }
 
     fn start_send(self: Pin<&mut Self>, item: CanAnyFrame) -> Result<()> {
-        self.0.get_ref().write_frame_insist(&item)?;
+        // `poll_ready` already cleared write-readiness, so a single
+        // non-blocking write is sufficient — no need to busy-retry.
+        self.0.get_ref().write_frame(&item)?;
         Ok(())
     }
 }

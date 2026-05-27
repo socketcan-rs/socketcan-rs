@@ -83,12 +83,45 @@ impl From<io::ErrorKind> for Error {
 
 #[cfg(feature = "enumerate")]
 impl From<libudev::Error> for Error {
-    /// Creates an Io error straight from a libudev::Error
+    /// Creates an Io error from a libudev::Error, preserving the underlying
+    /// description as the `io::Error` message.
     fn from(e: libudev::Error) -> Error {
-        match e.kind() {
-            libudev::ErrorKind::NoMem => Self::from(io::ErrorKind::OutOfMemory),
-            libudev::ErrorKind::InvalidInput => Self::from(io::ErrorKind::InvalidInput),
-            libudev::ErrorKind::Io(ek) => Self::from(ek),
+        let kind = match e.kind() {
+            libudev::ErrorKind::NoMem => io::ErrorKind::OutOfMemory,
+            libudev::ErrorKind::InvalidInput => io::ErrorKind::InvalidInput,
+            libudev::ErrorKind::Io(ek) => ek,
+        };
+        Self::Io(io::Error::new(kind, e.to_string()))
+    }
+}
+
+#[cfg(feature = "netlink")]
+impl<T, P> From<neli::err::NlError<T, P>> for Error
+where
+    T: neli::consts::nl::NlType,
+    P: fmt::Debug,
+{
+    /// Wraps a netlink error as an [`io::Error`] of kind `Other`, preserving
+    /// the underlying description. Lets callers `?` netlink results across
+    /// module boundaries into the crate-level [`enum@Error`].
+    fn from(e: neli::err::NlError<T, P>) -> Error {
+        Self::Io(io::Error::other(e.to_string()))
+    }
+}
+
+#[cfg(feature = "dump")]
+impl From<crate::dump::ParseError> for Error {
+    /// Maps a [`ParseError`](crate::dump::ParseError) into an [`io::Error`]
+    /// of kind `InvalidData`, preserving the description. Lets callers `?`
+    /// dump-parsing results into the crate-level [`enum@Error`].
+    fn from(e: crate::dump::ParseError) -> Error {
+        use crate::dump::ParseError;
+        match e {
+            ParseError::Io(io_err) => Self::Io(io_err),
+            other => Self::Io(io::Error::new(
+                io::ErrorKind::InvalidData,
+                other.to_string(),
+            )),
         }
     }
 }

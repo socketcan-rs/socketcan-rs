@@ -234,7 +234,6 @@ impl TryFrom<&InterfaceCanParams> for RtBuffer<Ifla, Buffer> {
         let mut rtattrs: RtBuffer<Ifla, Buffer> = RtBuffer::new();
         let mut data = Rtattr::new(None, IflaInfo::Data, Buffer::new())?;
 
-        // TODO: Set the rest of the writable params
         if let Some(bt) = params.bit_timing {
             data.add_nested_attribute(&Rtattr::new(None, IflaCan::BitTiming, bt)?)?;
         }
@@ -336,10 +335,13 @@ impl CanCtrlModes {
         self.0 = can_ctrlmode::default();
     }
 
-    /// Test if this CanCtrlModes has a specific `mode` turned on
+    /// Test if this CanCtrlModes has a specific `mode` turned on.
     ///
-    /// This can be useful for inspecting an [InterfaceCanParams] obtained from
-    /// [CanInterface::details].
+    /// This inspects the `flags` field — i.e. the kernel-reported current mode
+    /// state — and is intended for use on a [CanCtrlModes] obtained from
+    /// [CanInterface::details]. When used on a value being built up to *set*
+    /// modes, the result will only reflect bits already pushed into `flags`,
+    /// not pending changes recorded in `mask`.
     ///
     /// # Examples
     ///
@@ -560,7 +562,9 @@ impl CanInterface {
     where
         I: Into<Option<u32>>,
     {
-        if name.len() > libc::IFNAMSIZ {
+        // IFNAMSIZ includes the trailing NUL, so the usable name length is
+        // IFNAMSIZ - 1 (15 bytes on Linux).
+        if name.len() >= libc::IFNAMSIZ {
             return Err(NlError::Msg("Interface name too long".into()));
         }
         let index = index.into();
@@ -699,46 +703,7 @@ impl CanInterface {
     /// PRIVILEGED: This requires root privilege.
     ///
     pub fn set_can_params(&self, params: &InterfaceCanParams) -> NlResult<()> {
-        let info = self.info_msg(
-            //RtBuffer<Ifla, Buffer>::try_from(params)?);
-            RtBuffer::try_from(params)?,
-        );
-        /*
-            let mut rtattrs: RtBuffer<Ifla, Buffer> = RtBuffer::new();
-            let mut data = Rtattr::new(None, IflaInfo::Data, Buffer::new())?;
-
-            if let Some(bt) = params.bit_timing {
-                data.add_nested_attribute(&Rtattr::new(None, IflaCan::BitTiming, bt)?)?;
-            }
-            if let Some(r) = params.restart_ms {
-                data.add_nested_attribute(&Rtattr::new(
-                    None,
-                    IflaCan::RestartMs,
-                    &r.to_ne_bytes()[..],
-                )?)?;
-            }
-            if let Some(cm) = params.ctrl_mode {
-                data.add_nested_attribute(&Rtattr::new::<can_ctrlmode>(
-                    None,
-                    IflaCan::CtrlMode,
-                    cm.into(),
-                )?)?;
-            }
-            if let Some(dbt) = params.data_bit_timing {
-                data.add_nested_attribute(&Rtattr::new(None, IflaCan::DataBitTiming, dbt)?)?;
-            }
-            if let Some(t) = params.termination {
-                data.add_nested_attribute(&Rtattr::new(None, IflaCan::Termination, t)?)?;
-            }
-
-            let mut link_info = Rtattr::new(None, Ifla::Linkinfo, Buffer::new())?;
-            link_info.add_nested_attribute(&Rtattr::new(None, IflaInfo::Kind, "can")?)?;
-            link_info.add_nested_attribute(&data)?;
-
-            rtattrs.push(link_info);
-            rtattrs
-        });
-        */
+        let info = self.info_msg(RtBuffer::try_from(params)?);
         Self::send_info_msg(Rtm::Newlink, info, &[])
     }
 

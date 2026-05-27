@@ -25,6 +25,28 @@ The change log for the Rust [socketcan](https://crates.io/crates/socketcan) libr
     - `rcan` CLI no longer contains duplicate `loopback` subcommand arms
     - `examples/can_recvts.rs` now requests the full set of timestamp flags so software and hardware timestamps actually arrive
     - `examples/fd_send.rs` now sends an actual CAN FD frame
+    - `fmt::UpperHex` on classic frames uses `raw_id()` (no flag-bit leakage), zero-pads the ID to 3 chars (SFF) / 8 chars (EFF), joins data bytes without spaces, and emits `#R<dlc>` for remote frames so the output matches candump's log format
+    - `fmt::UpperHex` on `CanFdFrame` prints the FD flags as a single hex nibble between `##` and the data bytes (no stray space)
+    - `CanRemoteFrame::data()` now returns `&[]` (spec-correct: remote frames carry only a DLC); use `dlc()` to read the requested length
+    - `CanInterface::create` rejects names of length `IFNAMSIZ` and above (off-by-one — `IFNAMSIZ` includes the trailing NUL)
+    - `CAN_TERMINATION_DISABLED` is now `u16` (matches the rest of the termination API)
+    - `From<libudev::Error>` preserves the underlying description on the wrapped `io::Error`
+    - `CanAddr` gained hand-rolled `PartialEq`/`Eq`/`Hash` impls comparing `(can_family, can_ifindex)` only; deriving them would compare the `can_addr` union plus padding, which is unsound
+    - `CanAddr::Debug` now renders the `can_addr` union bytes (J1939 / ISO-TP fields are no longer dropped)
+    - `From<sockaddr_can> for CanAddr` now `debug_assert!`s `can_family == AF_CAN`
+    - Tokio `Sink::poll_close` no longer attempts a spurious `clear_ready()`; `Sink::start_send` issues a single non-blocking `write_frame()` instead of busy-retrying via `write_frame_insist`
+    - Typo: "socke options" → "socket options" in `set_socket_option_mult` doc
+    - `dump::Reader` caps each line at 64 KiB so a malformed or hostile log can't OOM the reader; over-long lines produce `InvalidCanFrame`
+    - `dump::Reader` requires exactly six mantissa digits on the timestamp (real candump format), and uses checked arithmetic so an overflow errors instead of producing a wrong timestamp
+    - `dump::Reader` propagates remote-frame DLC parse errors via `InvalidCanFrame` (previously silently coerced to 0); the DLC is now parsed as a hex nibble matching candump's `R<X>` format
+    - `dump::CanDumpRecord` `Display` now emits parseable lines for error frames (`<error_bits>#<8 hex bytes>`) and FD frames (`##<flag-nibble><bytes>`), and zero-pads the ID width (3 hex for SFF, 8 hex for EFF) on all variants
+- New `Error` conversions:
+    - `From<neli::err::NlError<T, P>>` (feature `netlink`) — netlink errors flow into the crate-level `Error` via `io::Error::other`
+    - `From<dump::ParseError>` (feature `dump`) — dump-parse errors flow into `Error` via `io::Error::new(InvalidData, …)` (passing through I/O variants)
+- Docs:
+    - `Socket::read_frame` documents concurrent-reader semantics (each `&self` reader sees a disjoint subset of frames)
+    - `CanCtrlModes::has_mode` documents that it inspects `flags` (kernel-reported state) and ignores pending `mask` bits
+    - `CanFdFrame::new_remote` documents that CAN FD has no RTR by spec, so the method always returns `None`
 - Internals:
     - `crate::as_bytes` / `crate::as_bytes_mut` helpers are now `unsafe fn` with a proper `# Safety` contract; call sites annotated
 - Issues & PR's

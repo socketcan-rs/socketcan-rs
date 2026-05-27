@@ -188,7 +188,7 @@ pub const CAN_CTRLMODE_FD_NON_ISO: u32 = 0x80;
 pub const CAN_CTRLMODE_CC_LEN8_DLC: u32 = 0x100;
 
 /// u16 termination range: 1..65535 Ohms
-pub const CAN_TERMINATION_DISABLED: u32 = 0;
+pub const CAN_TERMINATION_DISABLED: u16 = 0;
 
 ///
 /// CAN device statistics

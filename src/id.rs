@@ -22,8 +22,11 @@ pub use libc::{
     CAN_MAX_DLEN, CAN_RTR_FLAG, CAN_SFF_MASK,
 };
 
-// TODO: This was sent upstream to libc 2024-12-27
-/// Mark CAN FD for dual use of struct canfd_frame
+/// Mark CAN FD for dual use of struct canfd_frame.
+///
+/// Mirrors `libc::CANFD_FDF` (added in libc 0.2.170); kept as a local
+/// constant for older libc consumers that may still build against this
+/// crate via a lower minor version.
 pub const CANFD_FDF: libc::c_int = 0x04;
 
 /// An error mask that will cause SocketCAN to report all errors

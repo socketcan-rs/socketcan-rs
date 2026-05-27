@@ -253,6 +253,13 @@ pub trait Socket: AsRawFd {
     }
 
     /// Blocking read a single can frame.
+    ///
+    /// Concurrent readers: each `recvmsg()` consumes one frame from the
+    /// socket's kernel receive queue. If two tasks call `read_frame*` on the
+    /// same socket concurrently (via shared references), each will receive a
+    /// disjoint subset of frames, but no two will ever observe the same
+    /// frame. The frames are not duplicated and the call is safe, but the
+    /// per-reader stream is not deterministic — design with that in mind.
     fn read_frame(&self) -> IoResult<Self::FrameType>;
 
     /// Blocking read a single can frame with timeout.
@@ -359,7 +366,7 @@ pub trait SocketOptions: AsRawFd {
         }
     }
 
-    /// Sets a collection of multiple socke options with one call.
+    /// Sets a collection of multiple socket options with one call.
     fn set_socket_option_mult<T>(&self, level: c_int, name: c_int, values: &[T]) -> IoResult<()> {
         let ret = if values.is_empty() {
             // can't pass in a ptr to a 0-len slice, pass a null ptr instead
