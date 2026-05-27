@@ -109,7 +109,7 @@ impl CanSocket {
     pub fn try_read_frame(&self) -> IoResult<CanFrame> {
         self.0.get_ref().read_frame()
     }
-  
+
     /// Returns `true` if the bound interface supports hardware receive timestamps.
     pub fn has_hw_timestamps(&self) -> bool {
         self.0.get_ref().has_hw_timestamps()
