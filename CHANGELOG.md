@@ -6,10 +6,31 @@ The change log for the Rust [socketcan](https://crates.io/crates/socketcan) libr
 ## [Version 3.6.0](https://github.com/socketcan-rs/socketcan-rs/compare/v3.5.0..v3.6.0)  (2026-05-31)
 
 - Added received timestamp capabilities
-    - Software and Hardware timestamps
-- [#89](https://github.com/socketcan-rs/socketcan-rs/issues/89) CanInterface binds to hardcoded nl_pid
-- [#81](https://github.com/socketcan-rs/socketcan-rs/pull/81) Remove explicit 'mio' dependency.
+    - New `CanTimestamps` type carrying socket-layer, network-stack software, and hardware receive timestamps
+    - `SocketOptions::set_recv_timestamp` (`SO_TIMESTAMPNS`) and `SocketOptions::set_timestamping` (`SO_TIMESTAMPING`) to enable delivery on the socket
+    - `Socket::read_frame_with_timestamp`, `Socket::read_frame_with_timestamps`, and `Socket::read_frame_with_hw_timestamp` on the `Socket` trait (default implementations return `ENOSYS` to preserve semver for out-of-tree `Socket` implementors)
+    - `CanSocket::has_hw_timestamps` / `CanFdSocket::has_hw_timestamps` query interface capability via `ETHTOOL_GET_TS_INFO`
+    - Re-exports for the `SOF_TIMESTAMPING_*` flag constants from the crate root
+    - All read methods deliver the frame and ancillary timestamp data in a single `recvmsg()` call, eliminating the race window of the old `SIOCGSTAMPNS` approach
+    - Async equivalents on the `tokio::CanSocket`/`CanFdSocket` and `async_io::CanSocket`/`CanFdSocket` wrappers
 - Bumped MSRV to v1.75.0
+- Bug fixes:
+    - `recvmsg()` ancillary control buffer is now properly aligned and validated; `MSG_TRUNC`/`MSG_CTRUNC` handled correctly
+    - `timespec_to_duration` no longer wraps on a negative `tv_sec` in release builds
+    - `From<canfd_frame> for CanFdFrame` normalises non-spec lengths so `dlc()` and `data()` stay consistent and no uninitialised bytes can leak
+    - `TryFrom<can_frame> for CanErrorFrame` forces `can_dlc = CAN_MAX_DLEN` so the len/dlc/data invariant holds
+    - `CanDataFrame::set_id` and `CanFdFrame::set_id` preserve `CAN_ERR_FLAG`/`CAN_RTR_FLAG` bits in the ID word
+    - `CanId + u32` no longer panics on overflow in debug builds
+    - `AsPtr::as_bytes_mut` now returns `&mut [u8]` instead of `&[u8]`
+    - `rcan` CLI no longer contains duplicate `loopback` subcommand arms
+    - `examples/can_recvts.rs` now requests the full set of timestamp flags so software and hardware timestamps actually arrive
+    - `examples/fd_send.rs` now sends an actual CAN FD frame
+- Internals:
+    - `crate::as_bytes` / `crate::as_bytes_mut` helpers are now `unsafe fn` with a proper `# Safety` contract; call sites annotated
+- Issues & PR's
+    - [#89](https://github.com/socketcan-rs/socketcan-rs/issues/89) CanInterface binds to hardcoded nl_pid
+    - [#81](https://github.com/socketcan-rs/socketcan-rs/pull/81) Remove explicit 'mio' dependency.
+
 
 ## [Version 3.5.0](https://github.com/socketcan-rs/socketcan-rs/compare/v3.4.0..v3.5.0)  (2024-12-29)
 
@@ -40,7 +61,7 @@ The change log for the Rust [socketcan](https://crates.io/crates/socketcan) libr
 - Moved from UD utility functions and types from frame module to id
 - Added a CAN FD example, [echo_fd](https://github.com/socketcan-rs/socketcan-rs/blob/master/examples/echo_fd.rs)
 - Split out `CanAddr` and related code into a new `addr` module.
-- New `CanRawFrame` encapsulatea either type of libc, raw, CAN frame (Classic or FD)
+- New `CanRawFrame` encapsulates either type of libc, raw, CAN frame (Classic or FD)
 - Raw frame reads for CanSocket and CanFdSocket.
 - Implemented `Read` and `Write` traits for `CanSocket`
 - InterfaceCanParams now has all items as Option<>. Can be used to get or set multiple options.

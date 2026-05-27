@@ -15,7 +15,7 @@ use serial_test::serial;
 #[cfg(all(feature = "vcan_tests", feature = "async-io"))]
 use socketcan::{
     async_io::CanFdSocket as AsyncCanFdSocket, async_io::CanSocket as AsyncCanSocket,
-    frame::FdFlags, CanAnyFrame, CanFdFrame, EmbeddedFrame, Id, StandardId,
+    frame::FdFlags, CanAnyFrame, CanFdFrame, EmbeddedFrame, Id, SocketOptions, StandardId,
 };
 
 // The virtual CAN interface to use for tests.
@@ -62,4 +62,34 @@ async fn async_canfd_simple() {
         CanAnyFrame::Fd(read_frame) => assert_eq!(read_frame.data(), frame.data()),
         _ => panic!("Did not get FD frame back!"),
     }
+}
+
+#[cfg(all(feature = "vcan_tests", feature = "async-io"))]
+#[serial]
+#[async_std::test]
+async fn async_read_frame_with_timestamp() {
+    let writer = AsyncCanSocket::open(VCAN).unwrap();
+    let reader = AsyncCanSocket::open(VCAN).unwrap();
+    reader.set_recv_timestamp(true).unwrap();
+
+    let frame =
+        socketcan::CanFrame::new(Id::from(StandardId::new(0x77).unwrap()), &[7, 7, 7]).unwrap();
+    let sent_at = std::time::SystemTime::now();
+
+    let (write_result, read_result) = futures::join!(
+        writer.write_frame(&frame),
+        reader.read_frame_with_timestamp(),
+    );
+    write_result.unwrap();
+
+    let (rx, ts) = read_result.unwrap();
+    assert_eq!(rx.data(), frame.data());
+    let delta = ts
+        .duration_since(sent_at)
+        .or_else(|e| Ok::<_, std::time::SystemTimeError>(e.duration()))
+        .unwrap();
+    assert!(
+        delta < std::time::Duration::from_secs(2),
+        "async timestamp out of range: {delta:?}"
+    );
 }
