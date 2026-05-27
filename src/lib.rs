@@ -158,6 +158,13 @@ pub mod dump;
 pub mod socket;
 pub use socket::{CanFdSocket, CanFilter, CanSocket, ShouldRetry, Socket, SocketOptions};
 
+pub mod timestamp;
+pub use timestamp::{
+    CanTimestamps, SOF_TIMESTAMPING_OPT_CMSG, SOF_TIMESTAMPING_RAW_HARDWARE,
+    SOF_TIMESTAMPING_RX_HARDWARE, SOF_TIMESTAMPING_RX_SOFTWARE, SOF_TIMESTAMPING_SOFTWARE,
+    SOF_TIMESTAMPING_TX_HARDWARE, SOF_TIMESTAMPING_TX_SOFTWARE,
+};
+
 #[cfg(feature = "netlink")]
 pub mod nl;
 
@@ -191,17 +198,33 @@ pub use enumerate::available_interfaces;
 
 // ===== helper functions =====
 
-/// Gets a byte slice for any sized variable.
+/// Reinterprets a sized value as a byte slice.
 ///
-/// Note that this should normally be unsafe, but since we're only
-/// using it internally for types sent to the kernel, it's OK.
-pub(crate) fn as_bytes<T: Sized>(val: &T) -> &[u8] {
+/// # Safety
+///
+/// All `size_of::<T>()` bytes of `*val` — including any padding — must be
+/// initialised at the time of this call. Reading the returned slice is
+/// undefined behaviour otherwise. The simplest way to satisfy this is to
+/// initialise `*val` with `mem::zeroed()` (or a helper such as
+/// [`can_frame_default`]/[`canfd_frame_default`]) and write only through
+/// typed field accesses before calling this fn.
+///
+/// [`can_frame_default`]: crate::frame::can_frame_default
+/// [`canfd_frame_default`]: crate::frame::canfd_frame_default
+pub(crate) unsafe fn as_bytes<T: Sized>(val: &T) -> &[u8] {
     let sz = size_of::<T>();
     unsafe { std::slice::from_raw_parts::<'_, u8>(val as *const _ as *const u8, sz) }
 }
 
-/// Gets a mutable byte slice for any sized variable.
-pub(crate) fn as_bytes_mut<T: Sized>(val: &mut T) -> &mut [u8] {
+/// Reinterprets a sized value as a mutable byte slice.
+///
+/// # Safety
+///
+/// Either all `size_of::<T>()` bytes of `*val` must be initialised at the
+/// time of the call, OR the caller must overwrite the entire slice before
+/// reading from it. Constructing the slice itself is sound for any `T`,
+/// but reading uninitialised bytes through it is undefined behaviour.
+pub(crate) unsafe fn as_bytes_mut<T: Sized>(val: &mut T) -> &mut [u8] {
     let sz = size_of::<T>();
     unsafe { std::slice::from_raw_parts_mut(val as *mut _ as *mut u8, sz) }
 }

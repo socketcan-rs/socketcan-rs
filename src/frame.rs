@@ -32,7 +32,6 @@
 
 use crate::{id::CanId, CanError, ConstructionError};
 use embedded_can::{ExtendedId, Frame as EmbeddedFrame, Id, StandardId};
-use itertools::Itertools;
 use libc::{can_frame, canfd_frame, canid_t};
 use std::{
     ffi::c_void,
@@ -56,7 +55,7 @@ pub fn can_frame_default() -> can_frame {
     unsafe { mem::zeroed() }
 }
 
-/// Creates a default C `can_frame`.
+/// Creates a default C `canfd_frame`.
 /// This initializes the entire structure to zeros.
 #[inline(always)]
 pub fn canfd_frame_default() -> canfd_frame {
@@ -92,13 +91,8 @@ pub trait AsPtr {
     }
 
     /// Gets a mutable byte slice to the inner type
-    fn as_bytes_mut(&mut self) -> &[u8] {
-        unsafe {
-            std::slice::from_raw_parts::<'_, u8>(
-                self.as_mut_ptr() as *mut _ as *mut u8,
-                self.size(),
-            )
-        }
+    fn as_bytes_mut(&mut self) -> &mut [u8] {
+        unsafe { std::slice::from_raw_parts_mut(self.as_mut_ptr() as *mut u8, self.size()) }
     }
 }
 
@@ -183,7 +177,7 @@ pub trait Frame: EmbeddedFrame {
 
 /// An FD socket can read a raw classic 2.0 or FD frame.
 #[allow(missing_debug_implementations)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CanRawFrame {
     /// A classic CAN 2.0 frame, with up to 8-bytes of data
     Classic(can_frame),
@@ -204,7 +198,7 @@ impl From<canfd_frame> for CanRawFrame {
 }
 
 /// Any frame type.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CanAnyFrame {
     /// A classic CAN 2.0 frame, with up to 8-bytes of data
     Normal(CanDataFrame),
@@ -252,8 +246,10 @@ impl Frame for CanAnyFrame {
 }
 
 impl EmbeddedFrame for CanAnyFrame {
-    /// Create a new CAN frame
-    /// If the data
+    /// Create a new CAN frame.
+    ///
+    /// Picks `CanDataFrame` when the data fits in a classic 8-byte payload,
+    /// otherwise creates a `CanFdFrame`.
     fn new(id: impl Into<Id>, data: &[u8]) -> Option<Self> {
         if data.len() <= CAN_MAX_DLEN {
             CanDataFrame::new(id, data).map(CanAnyFrame::Normal)
@@ -469,7 +465,7 @@ impl TryFrom<CanAnyFrame> for CanFdFrame {
 // ===== CanFrame =====
 
 /// The classic CAN 2.0 frame with up to 8-bytes of data.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CanFrame {
     /// A data frame
     Data(CanDataFrame),
@@ -708,7 +704,7 @@ impl TryFrom<CanFdFrame> for CanFrame {
 ///
 /// This is highly compatible with the `can_frame` from libc.
 /// ([ref](https://docs.rs/libc/latest/libc/struct.can_frame.html))
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CanDataFrame(can_frame);
 
 impl CanDataFrame {
@@ -787,9 +783,14 @@ impl Frame for CanDataFrame {
         self.0.can_id
     }
 
-    /// Sets the CAN ID for the frame
+    /// Sets the CAN ID for the frame.
+    ///
+    /// Preserves any RTR/ERR flag bits already in the ID word — the type's
+    /// invariant says they shouldn't be set on a data frame, but masking
+    /// defensively avoids silent state loss if a caller has manipulated
+    /// the inner `can_frame` directly.
     fn set_id(&mut self, id: impl Into<Id>) {
-        self.0.can_id = id_to_canid_t(id);
+        self.0.can_id = id_to_canid_t(id) | (self.0.can_id & (CAN_ERR_FLAG | CAN_RTR_FLAG));
     }
 
     /// Sets the data payload of the frame.
@@ -806,7 +807,7 @@ impl Frame for CanDataFrame {
 }
 
 impl Default for CanDataFrame {
-    /// The default FD frame has all fields and data set to zero, and all flags off.
+    /// The default data frame has all fields and data set to zero, and all flags off.
     fn default() -> Self {
         Self(can_frame_default())
     }
@@ -822,9 +823,15 @@ impl fmt::Debug for CanDataFrame {
 
 impl fmt::UpperHex for CanDataFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{:X}#", self.0.can_id)?;
-        let mut parts = self.data().iter().map(|v| format!("{:02X}", v));
-        write!(f, "{}", parts.join(" "))
+        if self.is_extended() {
+            write!(f, "{:08X}#", self.raw_id())?;
+        } else {
+            write!(f, "{:03X}#", self.raw_id())?;
+        }
+        for byte in self.data() {
+            write!(f, "{:02X}", byte)?;
+        }
+        Ok(())
     }
 }
 
@@ -870,7 +877,7 @@ impl AsRef<can_frame> for CanDataFrame {
 ///
 /// This is highly compatible with the `can_frame` from libc.
 /// ([ref](https://docs.rs/libc/latest/libc/struct.can_frame.html))
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CanRemoteFrame(can_frame);
 
 impl CanRemoteFrame {
@@ -948,10 +955,13 @@ impl EmbeddedFrame for CanRemoteFrame {
         self.0.can_dlc as usize
     }
 
-    /// A slice into the actual data. Slice will always be <= 8 bytes in length
+    /// A slice into the actual data.
+    ///
+    /// Remote frames carry no payload by spec — only the DLC is meaningful.
+    /// This always returns an empty slice; use [`dlc()`](Self::dlc) to read
+    /// the requested length.
     fn data(&self) -> &[u8] {
-        // TODO: Is this OK, or just an empty slice?
-        &self.0.data[..self.dlc()]
+        &[]
     }
 }
 
@@ -995,9 +1005,17 @@ impl fmt::Debug for CanRemoteFrame {
 
 impl fmt::UpperHex for CanRemoteFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{:X}#", self.0.can_id)?;
-        let mut parts = self.data().iter().map(|v| format!("{:02X}", v));
-        write!(f, "{}", parts.join(" "))
+        if self.is_extended() {
+            write!(f, "{:08X}", self.raw_id())?;
+        } else {
+            write!(f, "{:03X}", self.raw_id())?;
+        }
+        let dlc = self.dlc();
+        if dlc == 0 {
+            f.write_str("#R")
+        } else {
+            write!(f, "#R{:X}", dlc)
+        }
     }
 }
 
@@ -1033,7 +1051,7 @@ impl AsRef<can_frame> for CanRemoteFrame {
 ///
 /// This is highly compatible with the `can_frame` from libc.
 /// ([ref](https://docs.rs/libc/latest/libc/struct.can_frame.html))
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CanErrorFrame(can_frame);
 
 impl CanErrorFrame {
@@ -1169,9 +1187,14 @@ impl fmt::Debug for CanErrorFrame {
 
 impl fmt::UpperHex for CanErrorFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{:X}#", self.0.can_id)?;
-        let mut parts = self.data().iter().map(|v| format!("{:02X}", v));
-        write!(f, "{}", parts.join(" "))
+        // Render the full 29-bit error-class field so future kernel additions
+        // outside CAN_SFF_MASK stay readable. `error_bits()` already strips
+        // CAN_ERR_FLAG and any other non-class bits.
+        write!(f, "{:08X}#", self.error_bits())?;
+        for byte in self.data() {
+            write!(f, "{:02X}", byte)?;
+        }
+        Ok(())
     }
 }
 
@@ -1181,8 +1204,11 @@ impl TryFrom<can_frame> for CanErrorFrame {
     /// Try to create a `CanErrorFrame` from a C `can_frame`
     ///
     /// This will only succeed the C frame is marked as an error frame.
-    fn try_from(frame: can_frame) -> Result<Self, Self::Error> {
+    fn try_from(mut frame: can_frame) -> Result<Self, Self::Error> {
         if frame.can_id & CAN_ERR_FLAG != 0 {
+            // Error frames carry the full 8-byte payload by convention; force
+            // can_dlc so that `dlc()`, `len()` and `data()` agree.
+            frame.can_dlc = CAN_MAX_DLEN as u8;
             Ok(Self(frame))
         } else {
             Err(ConstructionError::WrongFrameType)
@@ -1244,7 +1270,7 @@ const VALID_EXT_DLENGTHS: [usize; 7] = [12, 16, 20, 24, 32, 48, 64];
 ///
 /// Note:
 ///   - The FDF flag is forced on when created.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CanFdFrame(canfd_frame);
 
 impl CanFdFrame {
@@ -1306,7 +1332,7 @@ impl CanFdFrame {
         if on {
             self.0.flags |= CANFD_ESI as u8;
         } else {
-            self.0.flags &= !CANFD_ESI as u8;
+            self.0.flags &= !(CANFD_ESI as u8);
         }
     }
 
@@ -1356,7 +1382,8 @@ impl EmbeddedFrame for CanFdFrame {
         Self::init(can_id, data, FdFlags::empty()).ok()
     }
 
-    /// CAN FD frames don't support remote
+    /// CAN FD does not support remote transmission requests by spec
+    /// (CAN FD frames have no RTR bit), so this always returns `None`.
     fn new_remote(_id: impl Into<Id>, _dlc: usize) -> Option<Self> {
         None
     }
@@ -1413,9 +1440,14 @@ impl Frame for CanFdFrame {
         self.0.len as usize
     }
 
-    /// Sets the CAN ID for the frame
+    /// Sets the CAN ID for the frame.
+    ///
+    /// Preserves any RTR/ERR flag bits already in the ID word. FD frames
+    /// don't carry these by spec, but masking defensively avoids silent
+    /// state loss if a caller has manipulated the inner `canfd_frame`
+    /// directly.
     fn set_id(&mut self, id: impl Into<Id>) {
-        self.0.can_id = id_to_canid_t(id);
+        self.0.can_id = id_to_canid_t(id) | (self.0.can_id & (CAN_ERR_FLAG | CAN_RTR_FLAG));
     }
 
     /// Sets the data payload of the frame.
@@ -1451,10 +1483,15 @@ impl fmt::Debug for CanFdFrame {
 
 impl fmt::UpperHex for CanFdFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{:X}##", self.0.can_id)?;
-        write!(f, "{} ", self.0.flags)?;
-        let mut parts = self.data().iter().map(|v| format!("{:02X}", v));
-        write!(f, "{}", parts.join(" "))
+        if self.is_extended() {
+            write!(f, "{:08X}##{:X}", self.raw_id(), self.0.flags & 0x0F)?;
+        } else {
+            write!(f, "{:03X}##{:X}", self.raw_id(), self.0.flags & 0x0F)?;
+        }
+        for byte in self.data() {
+            write!(f, "{:02X}", byte)?;
+        }
+        Ok(())
     }
 }
 
@@ -1474,6 +1511,15 @@ impl From<CanDataFrame> for CanFdFrame {
 impl From<canfd_frame> for CanFdFrame {
     fn from(mut frame: canfd_frame) -> Self {
         frame.flags |= CANFD_FDF as u8;
+        // Defensively normalise `len` so that `dlc()` and `data()` agree
+        // even if a non-spec length somehow lands here. First clamp to the
+        // buffer size to keep `data()` from indexing out of bounds, then
+        // round up to the next valid CANFD length and zero the padding so
+        // we don't expose uninitialised bytes.
+        let actual = (frame.len as usize).min(CANFD_MAX_DLEN);
+        let normalised = Self::next_valid_ext_dlen(actual);
+        frame.data[actual..normalised].fill(0);
+        frame.len = normalised as u8;
         Self(frame)
     }
 }
@@ -1510,7 +1556,6 @@ mod tests {
     const EXT_DATA_PADDED_DLC: usize = 0x09;
 
     const EMPTY_DATA: &[u8] = &[];
-    const ZERO_DATA: &[u8] = &[0u8; DATA_LEN];
 
     fn id_to_raw(id: Id) -> u32 {
         match id {
@@ -1642,7 +1687,7 @@ mod tests {
         assert!(!frame.is_error_frame());
         assert_eq!(DATA_LEN, frame.dlc());
         assert_eq!(DATA_LEN, frame.len());
-        assert_eq!(ZERO_DATA, frame.data());
+        assert_eq!(EMPTY_DATA, frame.data());
 
         assert!(frame.id_flags().contains(IdFlags::RTR));
         assert_eq!(CAN_RTR_FLAG, frame.id_word() & CAN_RTR_FLAG);
@@ -1655,7 +1700,7 @@ mod tests {
         assert!(!frame.is_data_frame());
         assert!(frame.is_remote_frame());
         assert!(!frame.is_error_frame());
-        assert_eq!(ZERO_DATA, frame.data());
+        assert_eq!(EMPTY_DATA, frame.data());
 
         assert!(matches!(frame, CanFrame::Remote(_)));
         assert!(frame.id_flags().contains(IdFlags::RTR));
@@ -1669,7 +1714,7 @@ mod tests {
         assert!(!frame.is_data_frame());
         assert!(frame.is_remote_frame());
         assert!(!frame.is_error_frame());
-        assert_eq!(ZERO_DATA, frame.data());
+        assert_eq!(EMPTY_DATA, frame.data());
 
         assert!(matches!(frame, CanFrame::Remote(_)));
         assert!(frame.id_flags().contains(IdFlags::RTR));
@@ -1848,8 +1893,74 @@ mod tests {
 
         // Make sure FD flags turned off
         let mut fdframe = canfd_frame_default();
-        crate::as_bytes_mut(&mut fdframe)[..size_of::<can_frame>()]
-            .clone_from_slice(crate::as_bytes(&frame.0));
+        // SAFETY: `fdframe` is zero-initialised by `canfd_frame_default`;
+        // `frame.0` was constructed by `CanDataFrame::new` which zeroes the
+        // backing `can_frame` then sets fields, so all bytes are initialised.
+        unsafe {
+            crate::as_bytes_mut(&mut fdframe)[..size_of::<can_frame>()]
+                .clone_from_slice(crate::as_bytes(&frame.0));
+        }
         assert_eq!(fdframe.flags, 0);
+    }
+
+    #[test]
+    fn test_frame_eq() {
+        // Two CanDataFrames built from the same id/data are equal.
+        let a = CanDataFrame::new(STD_ID, DATA).unwrap();
+        let b = CanDataFrame::new(STD_ID, DATA).unwrap();
+        assert_eq!(a, b);
+
+        // Different data → not equal.
+        let c = CanDataFrame::new(STD_ID, &[0xDE, 0xAD]).unwrap();
+        assert_ne!(a, c);
+
+        // Different id → not equal.
+        let d = CanDataFrame::new(EXT_ID, DATA).unwrap();
+        assert_ne!(a, d);
+
+        // Remote frames with the same DLC are equal.
+        let r1 = CanRemoteFrame::new_remote(STD_ID, 4).unwrap();
+        let r2 = CanRemoteFrame::new_remote(STD_ID, 4).unwrap();
+        assert_eq!(r1, r2);
+        let r3 = CanRemoteFrame::new_remote(STD_ID, 5).unwrap();
+        assert_ne!(r1, r3);
+
+        // Error frames with the same class+data are equal.
+        let e1 = CanErrorFrame::new_error(0x10, &[]).unwrap();
+        let e2 = CanErrorFrame::new_error(0x10, &[]).unwrap();
+        assert_eq!(e1, e2);
+        let e3 = CanErrorFrame::new_error(0x20, &[]).unwrap();
+        assert_ne!(e1, e3);
+
+        // FD frames: equal across constructor, distinct on id/data.
+        let fd1 = CanFdFrame::new(STD_ID, DATA).unwrap();
+        let fd2 = CanFdFrame::new(STD_ID, DATA).unwrap();
+        assert_eq!(fd1, fd2);
+        let fd3 = CanFdFrame::new(STD_ID, &[0u8; 16]).unwrap();
+        assert_ne!(fd1, fd3);
+
+        // CanFrame variants do not cross-compare.
+        let data = CanFrame::Data(a);
+        let remote = CanFrame::Remote(r1);
+        assert_ne!(data, remote);
+
+        // CanRawFrame: same variant + same bytes => equal; cross-variant unequal.
+        // `CanRawFrame` intentionally doesn't impl `Debug`, so use `assert!`
+        // rather than `assert_eq!`.
+        let raw_a: CanRawFrame = (*a.as_ref()).into();
+        let raw_b: CanRawFrame = (*b.as_ref()).into();
+        assert!(raw_a == raw_b);
+        let raw_fd: CanRawFrame = (*fd1.as_ref()).into();
+        assert!(raw_a != raw_fd);
+
+        // Hash agrees with Eq on equal frames; insertion into a HashSet
+        // dedupes byte-identical frames.
+        use std::collections::HashSet;
+        let mut set: HashSet<CanDataFrame> = HashSet::new();
+        set.insert(a);
+        set.insert(b);
+        assert_eq!(set.len(), 1);
+        set.insert(c);
+        assert_eq!(set.len(), 2);
     }
 }

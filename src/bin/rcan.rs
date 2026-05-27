@@ -43,12 +43,6 @@ fn iface_cmd(iface_name: &str, opts: &ArgMatches) -> Result<()> {
     } else if let Some(sub_opts) = opts.subcommand_matches("loopback") {
         let on = sub_opts.get_one::<String>("on").unwrap() == "on";
         iface.set_ctrlmode(CanCtrlMode::Loopback, on)?;
-    } else if let Some(sub_opts) = opts.subcommand_matches("loopback") {
-        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
-        iface.set_ctrlmode(CanCtrlMode::Loopback, on)?;
-    } else if let Some(sub_opts) = opts.subcommand_matches("loopback") {
-        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
-        iface.set_ctrlmode(CanCtrlMode::Loopback, on)?;
     } else if let Some(sub_opts) = opts.subcommand_matches("listen-only") {
         let on = sub_opts.get_one::<String>("on").unwrap() == "on";
         iface.set_ctrlmode(CanCtrlMode::ListenOnly, on)?;
