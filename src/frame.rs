@@ -177,7 +177,7 @@ pub trait Frame: EmbeddedFrame {
 
 /// An FD socket can read a raw classic 2.0 or FD frame.
 #[allow(missing_debug_implementations)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CanRawFrame {
     /// A classic CAN 2.0 frame, with up to 8-bytes of data
     Classic(can_frame),
@@ -198,7 +198,7 @@ impl From<canfd_frame> for CanRawFrame {
 }
 
 /// Any frame type.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CanAnyFrame {
     /// A classic CAN 2.0 frame, with up to 8-bytes of data
     Normal(CanDataFrame),
@@ -465,7 +465,7 @@ impl TryFrom<CanAnyFrame> for CanFdFrame {
 // ===== CanFrame =====
 
 /// The classic CAN 2.0 frame with up to 8-bytes of data.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CanFrame {
     /// A data frame
     Data(CanDataFrame),
@@ -704,7 +704,7 @@ impl TryFrom<CanFdFrame> for CanFrame {
 ///
 /// This is highly compatible with the `can_frame` from libc.
 /// ([ref](https://docs.rs/libc/latest/libc/struct.can_frame.html))
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CanDataFrame(can_frame);
 
 impl CanDataFrame {
@@ -877,7 +877,7 @@ impl AsRef<can_frame> for CanDataFrame {
 ///
 /// This is highly compatible with the `can_frame` from libc.
 /// ([ref](https://docs.rs/libc/latest/libc/struct.can_frame.html))
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CanRemoteFrame(can_frame);
 
 impl CanRemoteFrame {
@@ -1051,7 +1051,7 @@ impl AsRef<can_frame> for CanRemoteFrame {
 ///
 /// This is highly compatible with the `can_frame` from libc.
 /// ([ref](https://docs.rs/libc/latest/libc/struct.can_frame.html))
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CanErrorFrame(can_frame);
 
 impl CanErrorFrame {
@@ -1270,7 +1270,7 @@ const VALID_EXT_DLENGTHS: [usize; 7] = [12, 16, 20, 24, 32, 48, 64];
 ///
 /// Note:
 ///   - The FDF flag is forced on when created.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CanFdFrame(canfd_frame);
 
 impl CanFdFrame {
@@ -1901,5 +1901,66 @@ mod tests {
                 .clone_from_slice(crate::as_bytes(&frame.0));
         }
         assert_eq!(fdframe.flags, 0);
+    }
+
+    #[test]
+    fn test_frame_eq() {
+        // Two CanDataFrames built from the same id/data are equal.
+        let a = CanDataFrame::new(STD_ID, DATA).unwrap();
+        let b = CanDataFrame::new(STD_ID, DATA).unwrap();
+        assert_eq!(a, b);
+
+        // Different data → not equal.
+        let c = CanDataFrame::new(STD_ID, &[0xDE, 0xAD]).unwrap();
+        assert_ne!(a, c);
+
+        // Different id → not equal.
+        let d = CanDataFrame::new(EXT_ID, DATA).unwrap();
+        assert_ne!(a, d);
+
+        // Remote frames with the same DLC are equal.
+        let r1 = CanRemoteFrame::new_remote(STD_ID, 4).unwrap();
+        let r2 = CanRemoteFrame::new_remote(STD_ID, 4).unwrap();
+        assert_eq!(r1, r2);
+        let r3 = CanRemoteFrame::new_remote(STD_ID, 5).unwrap();
+        assert_ne!(r1, r3);
+
+        // Error frames with the same class+data are equal.
+        let e1 = CanErrorFrame::new_error(0x10, &[]).unwrap();
+        let e2 = CanErrorFrame::new_error(0x10, &[]).unwrap();
+        assert_eq!(e1, e2);
+        let e3 = CanErrorFrame::new_error(0x20, &[]).unwrap();
+        assert_ne!(e1, e3);
+
+        // FD frames: equal across constructor, distinct on id/data.
+        let fd1 = CanFdFrame::new(STD_ID, DATA).unwrap();
+        let fd2 = CanFdFrame::new(STD_ID, DATA).unwrap();
+        assert_eq!(fd1, fd2);
+        let fd3 = CanFdFrame::new(STD_ID, &[0u8; 16]).unwrap();
+        assert_ne!(fd1, fd3);
+
+        // CanFrame variants do not cross-compare.
+        let data = CanFrame::Data(a);
+        let remote = CanFrame::Remote(r1);
+        assert_ne!(data, remote);
+
+        // CanRawFrame: same variant + same bytes => equal; cross-variant unequal.
+        // `CanRawFrame` intentionally doesn't impl `Debug`, so use `assert!`
+        // rather than `assert_eq!`.
+        let raw_a: CanRawFrame = (*a.as_ref()).into();
+        let raw_b: CanRawFrame = (*b.as_ref()).into();
+        assert!(raw_a == raw_b);
+        let raw_fd: CanRawFrame = (*fd1.as_ref()).into();
+        assert!(raw_a != raw_fd);
+
+        // Hash agrees with Eq on equal frames; insertion into a HashSet
+        // dedupes byte-identical frames.
+        use std::collections::HashSet;
+        let mut set: HashSet<CanDataFrame> = HashSet::new();
+        set.insert(a);
+        set.insert(b);
+        assert_eq!(set.len(), 1);
+        set.insert(c);
+        assert_eq!(set.len(), 2);
     }
 }

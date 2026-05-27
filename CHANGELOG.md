@@ -14,6 +14,8 @@ The change log for the Rust [socketcan](https://crates.io/crates/socketcan) libr
     - All read methods deliver the frame and ancillary timestamp data in a single `recvmsg()` call, eliminating the race window of the old `SIOCGSTAMPNS` approach
     - Async equivalents on the `tokio::CanSocket`/`CanFdSocket` and `async_io::CanSocket`/`CanFdSocket` wrappers
 - Bumped MSRV to v1.75.0
+- All frame types now derive `PartialEq`, `Eq`, and `Hash` — both the concrete frame structs (`CanDataFrame`, `CanRemoteFrame`, `CanErrorFrame`, `CanFdFrame`) and the wrapper enums (`CanFrame`, `CanAnyFrame`, `CanRawFrame`). Equality is field-wise on the underlying `libc::can_frame` / `libc::canfd_frame`, which means it includes every byte of the structure (id, dlc, flags, the libc `__pad`/`__res0` fields, and the full data array). Note that `set_data` does not zero the unused trailing bytes of `can_frame::data`, so two semantically-equivalent frames built by different code paths may still compare unequal — callers should treat equality as "byte-identical wire image" rather than "same logical frame".
+- Enabled the `extra_traits` feature on the `libc` dependency so the trait derives can flow through (`libc::can_frame` / `canfd_frame` only `derive(PartialEq, Eq, Hash)` when that feature is on).
 - Bug fixes:
     - `recvmsg()` ancillary control buffer is now properly aligned and validated; `MSG_TRUNC`/`MSG_CTRUNC` handled correctly
     - `timespec_to_duration` no longer wraps on a negative `tv_sec` in release builds

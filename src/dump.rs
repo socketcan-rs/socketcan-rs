@@ -203,8 +203,9 @@ impl<R: BufRead> Reader<R> {
             Some((num, mant)) => {
                 // candump uses microsecond precision: exactly six digits after
                 // the decimal point. Reject anything else rather than silently
-                // mis-scaling. Use checked arithmetic so a pathological `num`
-                // doesn't overflow into a wrong-but-valid-looking timestamp.
+                // misinterpreting the precision. Use checked arithmetic so a
+                // pathological `num` doesn't overflow into a
+                // wrong-but-valid-looking timestamp.
                 if mant.len() != 6 {
                     return Err(ParseError::InvalidTimestamp);
                 }
