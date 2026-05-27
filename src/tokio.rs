@@ -91,6 +91,11 @@ impl CanSocket {
             .await
     }
 
+    /// Attempt to write a CAN frame to the socket without blocking
+    pub fn try_write_frame(&self, frame: CanFrame) -> IoResult<()> {
+        self.0.get_ref().write_frame(&frame)
+    }
+
     /// Read a CAN frame from the socket asynchronously
     pub async fn read_frame(&self) -> IoResult<CanFrame> {
         self.0
@@ -98,6 +103,13 @@ impl CanSocket {
             .await
     }
 
+    /// Attempt to read a CAN frame from the socket without blocking
+    ///
+    /// If no message is immediately available, a WouldBlock error is returned.
+    pub fn try_read_frame(&self) -> IoResult<CanFrame> {
+        self.0.get_ref().read_frame()
+    }
+  
     /// Returns `true` if the bound interface supports hardware receive timestamps.
     pub fn has_hw_timestamps(&self) -> bool {
         self.0.get_ref().has_hw_timestamps()
@@ -238,11 +250,26 @@ impl CanFdSocket {
             .await
     }
 
+    /// Attempt to write a CAN frame to the socket without blocking
+    pub fn try_write_frame<F>(&self, frame: &F) -> IoResult<()>
+    where
+        F: Into<CanAnyFrame> + AsPtr,
+    {
+        self.0.get_ref().write_frame(frame)
+    }
+
     /// Reads a CAN FD frame from the socket asynchronously
     pub async fn read_frame(&self) -> IoResult<CanAnyFrame> {
         self.0
             .async_io(Interest::READABLE, |inner| inner.read_frame())
             .await
+    }
+
+    /// Attempt to read a CAN frame from the socket without blocking
+    ///
+    /// If no message is immediately available, a WouldBlock error is returned.
+    pub fn try_read_frame(&self) -> IoResult<CanAnyFrame> {
+        self.0.get_ref().read_frame()
     }
 
     /// Returns `true` if the bound interface supports hardware receive timestamps.
@@ -423,6 +450,12 @@ mod tests {
         Ok(())
     }
 
+    fn try_write_frame(socket: &CanSocket) -> Result<()> {
+        let test_frame = CanFrame::new(StandardId::new(0x1).unwrap(), &[0]).unwrap();
+        socket.try_write_frame(test_frame)?;
+        Ok(())
+    }
+
     /// Write a test frame to the CanSocket using the `tokio::io::AsyncWrite` trait
     async fn write_frame_with_async_write(socket: &mut CanSocket) -> Result<()> {
         let test_frame = CanFrame::new(StandardId::new(0x1).unwrap(), &[0]).unwrap();
@@ -461,6 +494,13 @@ mod tests {
         let test_frame =
             CanFdFrame::new(StandardId::new(0x1).unwrap(), &[0, 0, 0, 0, 0, 0, 0, 0, 0]).unwrap();
         socket.write_frame(&test_frame).await?;
+        Ok(())
+    }
+
+    fn try_write_frame_fd_canfd(socket: &CanFdSocket) -> Result<()> {
+        let test_frame =
+            CanFdFrame::new(StandardId::new(0x1).unwrap(), &[0, 0, 0, 0, 0, 0, 0, 0, 0]).unwrap();
+        socket.try_write_frame(&test_frame)?;
         Ok(())
     }
 
@@ -530,6 +570,28 @@ mod tests {
         };
 
         try_join!(recv_frames, send_frames)?;
+
+        Ok(())
+    }
+
+    #[serial]
+    #[tokio::test]
+    async fn test_tryread_and_trywrite() -> Result<()> {
+        let socket1 = CanSocket::open("vcan0").unwrap();
+        let socket2 = CanSocket::open("vcan0").unwrap();
+
+        let result = socket2.try_read_frame();
+        assert!(result.is_err(), "Expected no frames available");
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+
+        try_write_frame(&socket1)?;
+        std::thread::sleep(Duration::from_millis(100));
+
+        socket2.try_read_frame()?;
+
+        let result = socket2.try_read_frame();
+        assert!(result.is_err(), "Expected no frames available");
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
 
         Ok(())
     }
@@ -746,6 +808,28 @@ mod tests {
         frame_send_r?;
 
         assert_eq!(x, 2);
+
+        Ok(())
+    }
+
+    #[serial]
+    #[tokio::test]
+    async fn test_tryread_and_trywrite_fd() -> Result<()> {
+        let socket1 = CanFdSocket::open("vcan0").unwrap();
+        let socket2 = CanFdSocket::open("vcan0").unwrap();
+
+        let result = socket2.try_read_frame();
+        assert!(result.is_err(), "Expected no frames available");
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+
+        try_write_frame_fd_canfd(&socket1)?;
+        std::thread::sleep(Duration::from_millis(100));
+
+        socket2.try_read_frame()?;
+
+        let result = socket2.try_read_frame();
+        assert!(result.is_err(), "Expected no frames available");
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
 
         Ok(())
     }
