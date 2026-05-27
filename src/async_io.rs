@@ -11,10 +11,16 @@
 
 //! Bindings to async-io for CANbus 2.0 and FD sockets using SocketCAN on Linux.
 
-use crate::{frame::AsPtr, timestamp::CanTimestamps, CanAnyFrame, CanFrame, Socket, SocketOptions};
+use crate::{
+    frame::AsPtr, timestamp::CanTimestamps, CanAddr, CanAnyFrame, CanFrame, Error, Socket,
+    SocketOptions,
+};
+use futures::{ready, sink::Sink, stream::Stream};
 use std::{
     io,
     os::unix::io::{AsRawFd, RawFd},
+    pin::Pin,
+    task::{Context, Poll},
     time::{Duration, SystemTime},
 };
 
@@ -40,6 +46,18 @@ impl CanSocket {
     /// as "can0", "vcan0", or "socan0".
     pub fn open(ifname: &str) -> io::Result<Self> {
         crate::CanSocket::open(ifname)?.try_into()
+    }
+
+    /// Open a CAN device by kernel interface number.
+    pub fn open_if(ifindex: u32) -> io::Result<Self> {
+        crate::CanSocket::open_iface(ifindex)?.try_into()
+    }
+
+    /// Open a CAN socket bound to a specific address.
+    ///
+    /// Useful for J1939 / ISO-TP variants of [`CanAddr`].
+    pub fn open_addr(addr: &CanAddr) -> io::Result<Self> {
+        crate::CanSocket::open_addr(addr)?.try_into()
     }
 
     /// Writes a frame to the socket asynchronously.
@@ -101,6 +119,50 @@ impl AsRawFd for CanSocket {
     }
 }
 
+impl Stream for CanSocket {
+    type Item = crate::Result<CanFrame>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        // Loop because `poll_readable` can spuriously report readiness without
+        // a frame actually being available (e.g. after a sibling reader
+        // consumed the queued frame); in that case the inner `read_frame`
+        // returns `WouldBlock` and we re-arm by polling again.
+        loop {
+            ready!(self.0.poll_readable(cx))?;
+            match self.0.get_ref().read_frame() {
+                Ok(frame) => return Poll::Ready(Some(Ok(frame))),
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => continue,
+                Err(e) => return Poll::Ready(Some(Err(e.into()))),
+            }
+        }
+    }
+}
+
+impl Sink<CanFrame> for CanSocket {
+    type Error = Error;
+
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<crate::Result<()>> {
+        ready!(self.0.poll_writable(cx))?;
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<crate::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<crate::Result<()>> {
+        // Nothing to flush; the underlying fd closes on drop.
+        Poll::Ready(Ok(()))
+    }
+
+    fn start_send(self: Pin<&mut Self>, item: CanFrame) -> crate::Result<()> {
+        // `poll_ready` already cleared write-readiness, so a single
+        // non-blocking write is sufficient.
+        self.0.get_ref().write_frame(&item)?;
+        Ok(())
+    }
+}
+
 /////////////////////////////////////////////////////////////////////////////
 
 /// An asynchronous CAN socket for use with `async-io`.
@@ -114,6 +176,18 @@ impl CanFdSocket {
     /// as "can0", "vcan0", or "socan0".
     pub fn open(ifname: &str) -> io::Result<Self> {
         crate::CanFdSocket::open(ifname)?.try_into()
+    }
+
+    /// Open a CAN device by kernel interface number.
+    pub fn open_if(ifindex: u32) -> io::Result<Self> {
+        crate::CanFdSocket::open_iface(ifindex)?.try_into()
+    }
+
+    /// Open a CAN socket bound to a specific address.
+    ///
+    /// Useful for J1939 / ISO-TP variants of [`CanAddr`].
+    pub fn open_addr(addr: &CanAddr) -> io::Result<Self> {
+        crate::CanFdSocket::open_addr(addr)?.try_into()
     }
 
     /// Writes a frame to the socket asynchronously.
@@ -172,5 +246,45 @@ impl TryFrom<crate::CanFdSocket> for CanFdSocket {
 impl AsRawFd for CanFdSocket {
     fn as_raw_fd(&self) -> RawFd {
         self.0.as_raw_fd()
+    }
+}
+
+impl Stream for CanFdSocket {
+    type Item = crate::Result<CanAnyFrame>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        loop {
+            ready!(self.0.poll_readable(cx))?;
+            match self.0.get_ref().read_frame() {
+                Ok(frame) => return Poll::Ready(Some(Ok(frame))),
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => continue,
+                Err(e) => return Poll::Ready(Some(Err(e.into()))),
+            }
+        }
+    }
+}
+
+impl Sink<CanAnyFrame> for CanFdSocket {
+    type Error = Error;
+
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<crate::Result<()>> {
+        ready!(self.0.poll_writable(cx))?;
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<crate::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<crate::Result<()>> {
+        // Nothing to flush; the underlying fd closes on drop.
+        Poll::Ready(Ok(()))
+    }
+
+    fn start_send(self: Pin<&mut Self>, item: CanAnyFrame) -> crate::Result<()> {
+        // `poll_ready` already cleared write-readiness, so a single
+        // non-blocking write is sufficient.
+        self.0.get_ref().write_frame(&item)?;
+        Ok(())
     }
 }

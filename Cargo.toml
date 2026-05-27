@@ -38,8 +38,9 @@ netlink_tests = ["netlink"]
 vcan_tests = ["netlink"]
 utils = ["clap", "anyhow"]
 tokio = ["dep:tokio", "futures"]
-async-std = ["dep:async-std", "dep:async-io"]
-async-io = ["dep:async-io"]
+async-std = ["dep:async-std", "dep:async-io", "futures"]
+async-io = ["dep:async-io", "futures"]
+smol = ["dep:smol", "futures"]
 enumerate = ["dep:libudev"]
 
 [dependencies]
@@ -108,6 +109,10 @@ required-features = ["tokio"]
 
 [[example]]
 name = "tokio_average"
+required-features = ["tokio"]
+
+[[example]]
+name = "tokio_recvts"
 required-features = ["tokio"]
 
 [[example]]
