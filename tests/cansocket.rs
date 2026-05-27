@@ -13,10 +13,11 @@
 use socketcan::{
     id::{ERR_MASK_ALL, ERR_MASK_NONE},
     CanFrame, CanSocket, EmbeddedFrame, ShouldRetry, Socket, SocketOptions, StandardId,
+    SOF_TIMESTAMPING_OPT_CMSG, SOF_TIMESTAMPING_RX_SOFTWARE, SOF_TIMESTAMPING_SOFTWARE,
 };
 
 #[cfg(feature = "vcan_tests")]
-use std::time;
+use std::time::{self, SystemTime};
 
 // The virtual CAN interface to use for tests.
 #[cfg(feature = "vcan_tests")]
@@ -78,6 +79,65 @@ fn vcan_test_nonblocking() {
 
     // no timeout set, but should return immediately
     assert!(sock.read_frame().should_retry());
+}
+
+#[test]
+#[cfg(feature = "vcan_tests")]
+fn vcan_has_hw_timestamps_returns_false() {
+    // vcan is a software-only driver, so it must never claim HW timestamp
+    // support — and the query must not panic on an unbound/SW interface.
+    let sock = CanSocket::open(VCAN).unwrap();
+    assert!(!sock.has_hw_timestamps());
+}
+
+#[test]
+#[cfg(feature = "vcan_tests")]
+fn vcan_read_frame_with_timestamp() {
+    let sock = CanSocket::open(VCAN).unwrap();
+    sock.set_loopback(true).unwrap();
+    sock.set_recv_own_msgs(true).unwrap();
+    sock.set_recv_timestamp(true).unwrap();
+
+    let id = StandardId::new(0x321).unwrap();
+    let frame = CanFrame::new(id, &[0xAA, 0xBB]).unwrap();
+    let sent_at = SystemTime::now();
+    sock.write_frame(&frame).unwrap();
+
+    let (rx, ts) = sock.read_frame_with_timestamp().unwrap();
+    assert_eq!(rx.data(), frame.data());
+
+    // Socket-layer timestamp should land within a couple of seconds of "now".
+    let delta = ts
+        .duration_since(sent_at)
+        .or_else(|e| Ok::<_, std::time::SystemTimeError>(e.duration()))
+        .unwrap();
+    assert!(
+        delta < time::Duration::from_secs(2),
+        "timestamp out of expected range: {delta:?}"
+    );
+}
+
+#[test]
+#[cfg(feature = "vcan_tests")]
+fn vcan_read_frame_with_timestamps_populates_sw() {
+    let sock = CanSocket::open(VCAN).unwrap();
+    sock.set_loopback(true).unwrap();
+    sock.set_recv_own_msgs(true).unwrap();
+    sock.set_recv_timestamp(true).unwrap();
+    sock.set_timestamping(
+        SOF_TIMESTAMPING_RX_SOFTWARE | SOF_TIMESTAMPING_SOFTWARE | SOF_TIMESTAMPING_OPT_CMSG,
+    )
+    .unwrap();
+
+    let id = StandardId::new(0x456).unwrap();
+    let frame = CanFrame::new(id, &[0x11, 0x22, 0x33]).unwrap();
+    sock.write_frame(&frame).unwrap();
+
+    let (_rx, ts) = sock.read_frame_with_timestamps().unwrap();
+    assert!(ts.socket.is_some(), "SO_TIMESTAMPNS not delivered");
+    assert!(ts.sw.is_some(), "RX_SOFTWARE not delivered");
+    // vcan has no hardware clock; ts.hw should be None.
+    assert!(ts.hw.is_none(), "vcan should not report a hw timestamp");
 }
 
 /*

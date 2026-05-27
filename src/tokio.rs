@@ -27,7 +27,8 @@
 //! }
 //! ```
 use crate::{
-    frame::AsPtr, CanAddr, CanAnyFrame, CanFrame, Error, IoResult, Result, Socket, SocketOptions,
+    frame::AsPtr, timestamp::CanTimestamps, CanAddr, CanAnyFrame, CanFrame, Error, IoResult,
+    Result, Socket, SocketOptions,
 };
 use futures::{prelude::*, ready, task::Context};
 use std::{
@@ -38,6 +39,7 @@ use std::{
     },
     pin::Pin,
     task::Poll,
+    time::{Duration, SystemTime},
 };
 use tokio::io::unix::AsyncFd;
 use tokio::io::Interest;
@@ -107,6 +109,45 @@ impl CanSocket {
     pub fn try_read_frame(&self) -> IoResult<CanFrame> {
         self.0.get_ref().read_frame()
     }
+  
+    /// Returns `true` if the bound interface supports hardware receive timestamps.
+    pub fn has_hw_timestamps(&self) -> bool {
+        self.0.get_ref().has_hw_timestamps()
+    }
+
+    /// Read a CAN frame and its socket-layer arrival timestamp asynchronously.
+    ///
+    /// Requires [`SocketOptions::set_recv_timestamp`] to be called first.
+    pub async fn read_frame_with_timestamp(&self) -> IoResult<(CanFrame, SystemTime)> {
+        self.0
+            .async_io(Interest::READABLE, |inner| {
+                inner.read_frame_with_timestamp()
+            })
+            .await
+    }
+
+    /// Read a CAN frame and all available timestamps asynchronously.
+    ///
+    /// Timestamp fields are `None` for modes not enabled on the socket.
+    pub async fn read_frame_with_timestamps(&self) -> IoResult<(CanFrame, CanTimestamps)> {
+        self.0
+            .async_io(Interest::READABLE, |inner| {
+                inner.read_frame_with_timestamps()
+            })
+            .await
+    }
+
+    /// Read a CAN frame and its raw hardware clock timestamp asynchronously.
+    ///
+    /// Requires [`SocketOptions::set_timestamping`] with
+    /// `SOF_TIMESTAMPING_RX_HARDWARE | SOF_TIMESTAMPING_OPT_CMSG` to be called first.
+    pub async fn read_frame_with_hw_timestamp(&self) -> IoResult<(CanFrame, Duration)> {
+        self.0
+            .async_io(Interest::READABLE, |inner| {
+                inner.read_frame_with_hw_timestamp()
+            })
+            .await
+    }
 }
 
 impl Stream for CanSocket {
@@ -135,14 +176,15 @@ impl Sink<CanFrame> for CanSocket {
         Poll::Ready(Ok(()))
     }
 
-    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
-        let mut ready_guard = ready!(self.0.poll_write_ready(cx))?;
-        ready_guard.clear_ready();
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<()>> {
+        // Nothing to flush; the underlying fd closes on drop.
         Poll::Ready(Ok(()))
     }
 
     fn start_send(self: Pin<&mut Self>, item: CanFrame) -> Result<()> {
-        self.0.get_ref().write_frame_insist(&item)?;
+        // `poll_ready` already cleared write-readiness, so a single
+        // non-blocking write is sufficient — no need to busy-retry.
+        self.0.get_ref().write_frame(&item)?;
         Ok(())
     }
 }
@@ -229,6 +271,45 @@ impl CanFdSocket {
     pub fn try_read_frame(&self) -> IoResult<CanAnyFrame> {
         self.0.get_ref().read_frame()
     }
+
+    /// Returns `true` if the bound interface supports hardware receive timestamps.
+    pub fn has_hw_timestamps(&self) -> bool {
+        self.0.get_ref().has_hw_timestamps()
+    }
+
+    /// Read a CAN frame and its socket-layer arrival timestamp asynchronously.
+    ///
+    /// Requires [`SocketOptions::set_recv_timestamp`] to be called first.
+    pub async fn read_frame_with_timestamp(&self) -> IoResult<(CanAnyFrame, SystemTime)> {
+        self.0
+            .async_io(Interest::READABLE, |inner| {
+                inner.read_frame_with_timestamp()
+            })
+            .await
+    }
+
+    /// Read a CAN frame and all available timestamps asynchronously.
+    ///
+    /// Timestamp fields are `None` for modes not enabled on the socket.
+    pub async fn read_frame_with_timestamps(&self) -> IoResult<(CanAnyFrame, CanTimestamps)> {
+        self.0
+            .async_io(Interest::READABLE, |inner| {
+                inner.read_frame_with_timestamps()
+            })
+            .await
+    }
+
+    /// Read a CAN frame and its raw hardware clock timestamp asynchronously.
+    ///
+    /// Requires [`SocketOptions::set_timestamping`] with
+    /// `SOF_TIMESTAMPING_RX_HARDWARE | SOF_TIMESTAMPING_OPT_CMSG` to be called first.
+    pub async fn read_frame_with_hw_timestamp(&self) -> IoResult<(CanAnyFrame, Duration)> {
+        self.0
+            .async_io(Interest::READABLE, |inner| {
+                inner.read_frame_with_hw_timestamp()
+            })
+            .await
+    }
 }
 
 impl Stream for CanFdSocket {
@@ -257,14 +338,15 @@ impl Sink<CanAnyFrame> for CanFdSocket {
         Poll::Ready(Ok(()))
     }
 
-    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
-        let mut ready_guard = ready!(self.0.poll_write_ready(cx))?;
-        ready_guard.clear_ready();
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<()>> {
+        // Nothing to flush; the underlying fd closes on drop.
         Poll::Ready(Ok(()))
     }
 
     fn start_send(self: Pin<&mut Self>, item: CanAnyFrame) -> Result<()> {
-        self.0.get_ref().write_frame_insist(&item)?;
+        // `poll_ready` already cleared write-readiness, so a single
+        // non-blocking write is sufficient — no need to busy-retry.
+        self.0.get_ref().write_frame(&item)?;
         Ok(())
     }
 }
@@ -355,7 +437,8 @@ mod tests {
     async fn recv_frame_with_async_read(mut socket: CanSocket) -> Result<CanSocket> {
         let mut frame = can_frame_default();
         select!(
-            frame = socket.read_exact(crate::as_bytes_mut(&mut frame)).fuse() => if let Ok(_bytes_read) = frame { Ok(socket) } else { panic!("unexpected") },
+            // SAFETY: `frame` is fully zero-initialised by `can_frame_default`.
+            frame = socket.read_exact(unsafe { crate::as_bytes_mut(&mut frame) }).fuse() => if let Ok(_bytes_read) = frame { Ok(socket) } else { panic!("unexpected") },
             _timeout = Delay::new(TIMEOUT).fuse() => Err(IoErrorKind::TimedOut.into()),
         )
     }
@@ -400,7 +483,8 @@ mod tests {
     async fn recv_frame_fd_with_async_read(mut socket: CanFdSocket) -> Result<CanFdSocket> {
         let mut frame = can_frame_default();
         select!(
-            frame = socket.read_exact(crate::as_bytes_mut(&mut frame)).fuse() => if let Ok(_bytes_read) = frame { Ok(socket) } else { panic!("unexpected") },
+            // SAFETY: `frame` is fully zero-initialised by `can_frame_default`.
+            frame = socket.read_exact(unsafe { crate::as_bytes_mut(&mut frame) }).fuse() => if let Ok(_bytes_read) = frame { Ok(socket) } else { panic!("unexpected") },
             _timeout = Delay::new(TIMEOUT).fuse() => Err(IoErrorKind::TimedOut.into()),
         )
     }

@@ -1,0 +1,10 @@
+# Spell-check configuration for use with the Rust 'typos' utility app.
+# ....because I really can't spell.
+#
+# See: https://crates.io/crates/typos
+#
+
+[default.extend-words]
+thr = "thr"
+typ = "typ"
+
