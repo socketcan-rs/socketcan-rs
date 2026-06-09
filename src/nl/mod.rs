@@ -15,7 +15,7 @@
 //! the socketcan crate.
 //!
 //! For SocketCAN, netlink is the primary way for a user-space application to
-//! query or set the paramaters of a CAN interface, such as the bitrate, the
+//! query or set the parameters of a CAN interface, such as the bitrate, the
 //! control mode bits, and so forth. It also allows the application to get
 //! statistics from the interface and send commands to it, including
 //! performing a bus restart.
@@ -30,7 +30,7 @@
 //!
 //! The CAN netlink header file for the Linux kernel has the definition of
 //! the constants and data structures that are sent back and forth to the
-//! kernel over nelink. It can be found in the Linux sources here:
+//! kernel over netlink. It can be found in the Linux sources here:
 //!
 //! <https://github.com/torvalds/linux/blob/master/include/uapi/linux/can/netlink.h?ts=4>
 //!
@@ -67,7 +67,7 @@ use neli::{
     types::{Buffer, RtBuffer},
     FromBytes, ToBytes,
 };
-use nix::{self, net::if_::if_nametoindex, unistd};
+use nix::{self, net::if_::if_nametoindex};
 use rt::IflaCan;
 use std::{
     ffi::CStr,
@@ -234,7 +234,6 @@ impl TryFrom<&InterfaceCanParams> for RtBuffer<Ifla, Buffer> {
         let mut rtattrs: RtBuffer<Ifla, Buffer> = RtBuffer::new();
         let mut data = Rtattr::new(None, IflaInfo::Data, Buffer::new())?;
 
-        // TODO: Set the rest of the writable params
         if let Some(bt) = params.bit_timing {
             data.add_nested_attribute(&Rtattr::new(None, IflaCan::BitTiming, bt)?)?;
         }
@@ -336,10 +335,13 @@ impl CanCtrlModes {
         self.0 = can_ctrlmode::default();
     }
 
-    /// Test if this CanCtrlModes has a specific `mode` turned on
+    /// Test if this CanCtrlModes has a specific `mode` turned on.
     ///
-    /// This can be useful for inspecting an [InterfaceCanParams] obtained from
-    /// [CanInterface::details].
+    /// This inspects the `flags` field — i.e. the kernel-reported current mode
+    /// state — and is intended for use on a [CanCtrlModes] obtained from
+    /// [CanInterface::details]. When used on a value being built up to *set*
+    /// modes, the result will only reflect bits already pushed into `flags`,
+    /// not pending changes recorded in `mask`.
     ///
     /// # Examples
     ///
@@ -469,16 +471,19 @@ impl CanInterface {
         }
     }
 
-    /// Opens a new netlink socket, bound to this process' PID.
+    /// Opens a new netlink socket with a kernel-assigned port ID.
+    ///
+    /// Passing `None` for the port ID lets the kernel pick a unique value,
+    /// which avoids `EADDRINUSE` when multiple netlink sockets are open
+    /// in the same process — for example, from concurrent calls on
+    /// different threads, or when a getter is invoked while a setter is
+    /// still in flight. Binding all sockets to `Pid::this()` would collide.
+    ///
     /// The function is generic to allow for usage in contexts where NlError
     /// has specific, non-default, generic parameters.
     fn open_route_socket<T, P>() -> Result<NlSocketHandle, NlError<T, P>> {
-        // retrieve PID
-        let pid = unistd::Pid::this().as_raw() as u32;
-
-        // open and bind socket
-        // groups is set to None(0), because we want no notifications
-        let sock = NlSocketHandle::connect(NlFamily::Route, Some(pid), &[])?;
+        // groups is empty because we want no multicast notifications
+        let sock = NlSocketHandle::connect(NlFamily::Route, None, &[])?;
         Ok(sock)
     }
 
@@ -557,7 +562,9 @@ impl CanInterface {
     where
         I: Into<Option<u32>>,
     {
-        if name.len() > libc::IFNAMSIZ {
+        // IFNAMSIZ includes the trailing NUL, so the usable name length is
+        // IFNAMSIZ - 1 (15 bytes on Linux).
+        if name.len() >= libc::IFNAMSIZ {
             return Err(NlError::Msg("Interface name too long".into()));
         }
         let index = index.into();
@@ -696,46 +703,7 @@ impl CanInterface {
     /// PRIVILEGED: This requires root privilege.
     ///
     pub fn set_can_params(&self, params: &InterfaceCanParams) -> NlResult<()> {
-        let info = self.info_msg(
-            //RtBuffer<Ifla, Buffer>::try_from(params)?);
-            RtBuffer::try_from(params)?,
-        );
-        /*
-            let mut rtattrs: RtBuffer<Ifla, Buffer> = RtBuffer::new();
-            let mut data = Rtattr::new(None, IflaInfo::Data, Buffer::new())?;
-
-            if let Some(bt) = params.bit_timing {
-                data.add_nested_attribute(&Rtattr::new(None, IflaCan::BitTiming, bt)?)?;
-            }
-            if let Some(r) = params.restart_ms {
-                data.add_nested_attribute(&Rtattr::new(
-                    None,
-                    IflaCan::RestartMs,
-                    &r.to_ne_bytes()[..],
-                )?)?;
-            }
-            if let Some(cm) = params.ctrl_mode {
-                data.add_nested_attribute(&Rtattr::new::<can_ctrlmode>(
-                    None,
-                    IflaCan::CtrlMode,
-                    cm.into(),
-                )?)?;
-            }
-            if let Some(dbt) = params.data_bit_timing {
-                data.add_nested_attribute(&Rtattr::new(None, IflaCan::DataBitTiming, dbt)?)?;
-            }
-            if let Some(t) = params.termination {
-                data.add_nested_attribute(&Rtattr::new(None, IflaCan::Termination, t)?)?;
-            }
-
-            let mut link_info = Rtattr::new(None, Ifla::Linkinfo, Buffer::new())?;
-            link_info.add_nested_attribute(&Rtattr::new(None, IflaInfo::Kind, "can")?)?;
-            link_info.add_nested_attribute(&data)?;
-
-            rtattrs.push(link_info);
-            rtattrs
-        });
-        */
+        let info = self.info_msg(RtBuffer::try_from(params)?);
         Self::send_info_msg(Rtm::Newlink, info, &[])
     }
 
@@ -966,6 +934,7 @@ impl CanInterface {
 
 /////////////////////////////////////////////////////////////////////////////
 
+/// Netlink tests for SocketCAN control
 #[cfg(feature = "netlink_tests")]
 #[cfg(test)]
 pub mod tests {
@@ -994,6 +963,7 @@ pub mod tests {
     }
 
     impl TemporaryInterface {
+        /// Creates a temporaty interface
         #[allow(unused)]
         pub fn new(name: &str) -> NlResult<Self> {
             Ok(Self {

@@ -1,8 +1,8 @@
 [package]
 name = "socketcan"
-version = "3.4.0"
+version = "3.6.0"
 edition = "2021"
-rust-version = "1.70"
+rust-version = "1.75"
 authors = [
     "Marc Brinkmann <git@marcbrinkmann.de>",
     "Frank Pagliughi <fpagliughi@mindspring.com>"
@@ -16,12 +16,23 @@ Linux SocketCAN library. Send and receive CAN frames via CANbus on Linux.
 
 # Features:
 #
-# "netlink" (default) - Whether to include CAN interface configuration 
-#       capabilities based on netlink kernel communications
-# "dump" (default) - Whether to include 'candump' output parsing 
-#	capabilities.
+# "netlink" (default) - Whether to include CAN interface configuration
+#     capabilities based on netlink kernel communications
+# "dump" (default) - Whether to include 'candump' log file parsing
+#     capabilities.
+# "enumerate" - Ability to enumerate the available CAN network interfaces
+#
 # "utils" - Build the command-line utilities
 #
+# "tokio" - Async/await support with tokio
+# "async-io" - Async/await support with async-io
+# "async-std" - Async/await support for async-std using async-io
+# "smol" - Async/await support for smol using async-io
+#
+# "vcan_tests" - Run unit tests that require a "vcan0" interface loaded in 
+#     the kernel. Use with 'cargo test'.
+# "netlink_tests" - Run unit tests for the netlink module. This may require
+#     root privileges. Use with 'cargo test'.
 
 [features]
 default = ["netlink", "dump"]
@@ -31,8 +42,9 @@ netlink_tests = ["netlink"]
 vcan_tests = ["netlink"]
 utils = ["clap", "anyhow"]
 tokio = ["dep:tokio", "mio", "futures"]
-async-std = ["dep:async-std", "dep:async-io"]
-async-io = ["dep:async-io"]
+async-std = ["dep:async-std", "dep:async-io", "futures"]
+async-io = ["dep:async-io", "futures"]
+smol = ["dep:smol", "futures"]
 enumerate = ["dep:libudev"]
 
 [dependencies]
@@ -41,7 +53,7 @@ nb = "1"
 log = "0.4"
 hex = "0.4"
 itertools = "0.13"
-libc = "0.2"
+libc = { version = "0.2", features = ["extra_traits"] }
 nix = { version="0.29", features = ["poll", "process", "net"] }
 bitflags = "2.6"
 thiserror = "2"
@@ -64,6 +76,7 @@ neli = { version = "0.6", optional = true }
 
 [dev-dependencies]
 anyhow = "1.0"
+clap = "3.2"
 ctrlc = "3.2.2"
 nb = "1.0"
 # TODO: Is it possible to only include these for async builds?
@@ -71,13 +84,26 @@ futures-timer = "0.3"
 futures-util = "0.3"
 serial_test = { version = "2.0", features = ["async"]}
 async-std = { version = "1.12", features = ["attributes"]}
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "io-util"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "io-util", "time"] }
 futures = "0.3"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+targets = ["x86_64-unknown-linux-gnu", "i686-unknown-linux-gnu"]
 
 
 [[bin]]
 name = "rcan"
 required-features = ["utils"]
+
+[[example]]
+name = "playlog"
+required-features = ["dump"]
+
+[[example]]
+name = "enumerate"
+required-features = ["enumerate"]
 
 [[example]]
 name = "tokio_send"
@@ -93,6 +119,10 @@ required-features = ["tokio"]
 
 [[example]]
 name = "tokio_average"
+required-features = ["tokio"]
+
+[[example]]
+name = "tokio_recvts"
 required-features = ["tokio"]
 
 [[example]]
@@ -118,7 +148,3 @@ required-features = ["async-std"]
 [[example]]
 name = "async_std_print_frames"
 required-features = ["async-std"]
-
-[[example]]
-name = "enumerate"
-required-features = ["enumerate"]

@@ -11,9 +11,15 @@
 
 //! SocketCAN interface enumeration.
 //!
-//! This module provides functionality to enumerate available SocketCAN network
-//! interfaces.
+//! This module provides functionality to enumerate available SocketCAN
+//! network interfaces. It uses the Linux `udev` facility to search for
+//! matching devices.
 //!
+//! # Availability
+//!
+//! This module requires the `enumerate` cargo feature flag.
+
+//! Requires the
 
 use crate::Result;
 
@@ -24,16 +30,17 @@ use libudev::{Context, Enumerator};
 /// list of them.
 pub fn available_interfaces() -> Result<Vec<String>> {
     let mut interfaces = Vec::new();
-    if let Ok(context) = Context::new() {
-        let mut enumerator = Enumerator::new(&context)?;
-        enumerator.match_subsystem("net")?;
-        enumerator.match_attribute("type", ARPHRD_CAN.to_string())?;
-        let devices = enumerator.scan_devices()?;
-        for d in devices {
-            if let Some(interface) = d.property_value("INTERFACE") {
-                if let Some(interface) = interface.to_str() {
-                    interfaces.push(String::from(interface));
-                }
+    let context = Context::new()?;
+
+    let mut enumerator = Enumerator::new(&context)?;
+    enumerator.match_subsystem("net")?;
+    enumerator.match_attribute("type", ARPHRD_CAN.to_string())?;
+
+    let devices = enumerator.scan_devices()?;
+    for d in devices {
+        if let Some(interface) = d.property_value("INTERFACE") {
+            if let Some(interface) = interface.to_str() {
+                interfaces.push(String::from(interface));
             }
         }
     }

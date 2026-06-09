@@ -22,6 +22,13 @@ pub use libc::{
     CAN_MAX_DLEN, CAN_RTR_FLAG, CAN_SFF_MASK,
 };
 
+/// Mark CAN FD for dual use of struct canfd_frame.
+///
+/// Mirrors `libc::CANFD_FDF` (added in libc 0.2.170); kept as a local
+/// constant for older libc consumers that may still build against this
+/// crate via a lower minor version.
+pub const CANFD_FDF: libc::c_int = 0x04;
+
 /// An error mask that will cause SocketCAN to report all errors
 pub const ERR_MASK_ALL: u32 = CAN_ERR_MASK;
 
@@ -49,6 +56,9 @@ bitflags! {
         const BRS = CANFD_BRS as u8;
         /// Error state indicator of the transmitting node
         const ESI = CANFD_ESI as u8;
+        /// Mark CAN FD for dual use of struct canfd_frame
+        /// Added in Linux kernel v5.14
+        const FDF = CANFD_FDF as u8;
     }
 }
 
@@ -77,7 +87,7 @@ pub fn id_is_extended(id: &Id) -> bool {
 /// Creates a CAN ID from a raw integer value.
 ///
 /// If the `id` is <= 0x7FF, it's assumed to be a standard ID, otherwise
-/// it is created as an Extened ID. If you require an Extended ID <= 0x7FF,
+/// it is created as an Extended ID. If you require an Extended ID <= 0x7FF,
 /// create it explicitly.
 pub fn id_from_raw(id: u32) -> Option<Id> {
     let id = match id {
@@ -194,7 +204,7 @@ impl From<CanId> for Id {
 /// Creates a CAN ID from a raw integer value.
 ///
 /// If the `id` is <= 0x7FF, it's assumed to be a standard ID, otherwise
-/// it is created as an Extened ID. If you require an Extended ID <= 0x7FF,
+/// it is created as an Extended ID. If you require an Extended ID <= 0x7FF,
 /// create it explicitly.
 impl TryFrom<u32> for CanId {
     type Error = Error;
@@ -213,13 +223,22 @@ impl TryFrom<u32> for CanId {
 impl ops::Add<u32> for CanId {
     type Output = Self;
 
+    /// Adds `val` to the ID modulo the ID's address space.
+    ///
+    /// Uses wrapping addition so debug builds don't panic on overflow;
+    /// the subsequent mask keeps the result inside the standard (11-bit)
+    /// or extended (29-bit) ID range.
     fn add(self, val: u32) -> Self::Output {
         use CanId::*;
         match self {
             Standard(id) => {
-                Self::standard((id.as_raw() + val as u16) & CAN_SFF_MASK as u16).unwrap()
+                let sum = (id.as_raw() as u32).wrapping_add(val);
+                Self::standard((sum & CAN_SFF_MASK) as u16).unwrap()
             }
-            Extended(id) => Self::extended((id.as_raw() + val) & CAN_EFF_MASK).unwrap(),
+            Extended(id) => {
+                let sum = id.as_raw().wrapping_add(val);
+                Self::extended(sum & CAN_EFF_MASK).unwrap()
+            }
         }
     }
 }

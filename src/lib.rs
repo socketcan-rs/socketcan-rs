@@ -100,7 +100,19 @@
 //!   with a submodule aliased for [smol](https://crates.io/crates/smol) and examples
 //!   for that runtime.
 //!
+//! ### Test Features
+//!
+//! Additional test can be built and run, but have requirements:
+//!
+//! * **vcan_tests** -
+//!   Requires a virtual CAN interface to be installed on the host. This can be done
+//!   by running the `vcan.sh` script included with the crate.
+//!
+//! * **netlink_tests** -
+//!   Requires superuser privileges to run/pass.
+//!
 
+#![cfg_attr(docsrs, feature(doc_cfg))]
 // clippy: do not warn about things like "SocketCAN" inside the docs
 #![allow(clippy::doc_markdown)]
 // Some lints
@@ -114,7 +126,7 @@
     unsafe_op_in_unsafe_fn
 )]
 
-use std::{io::ErrorKind, mem::size_of};
+use std::mem::size_of;
 
 // Re-export the embedded_can crate so that applications can rely on
 // finding the same version we use.
@@ -146,6 +158,13 @@ pub mod dump;
 
 pub mod socket;
 pub use socket::{CanFdSocket, CanFilter, CanSocket, ShouldRetry, Socket, SocketOptions};
+
+pub mod timestamp;
+pub use timestamp::{
+    CanTimestamps, SOF_TIMESTAMPING_OPT_CMSG, SOF_TIMESTAMPING_RAW_HARDWARE,
+    SOF_TIMESTAMPING_RX_HARDWARE, SOF_TIMESTAMPING_RX_SOFTWARE, SOF_TIMESTAMPING_SOFTWARE,
+    SOF_TIMESTAMPING_TX_HARDWARE, SOF_TIMESTAMPING_TX_SOFTWARE,
+};
 
 #[cfg(feature = "netlink")]
 pub mod nl;
@@ -180,81 +199,33 @@ pub use enumerate::available_interfaces;
 
 // ===== helper functions =====
 
-/// Gets a byte slice for any sized variable.
+/// Reinterprets a sized value as a byte slice.
 ///
-/// Note that this should normally be unsafe, but since we're only
-/// using it internally for types sent to the kernel, it's OK.
-pub(crate) fn as_bytes<T: Sized>(val: &T) -> &[u8] {
+/// # Safety
+///
+/// All `size_of::<T>()` bytes of `*val` — including any padding — must be
+/// initialised at the time of this call. Reading the returned slice is
+/// undefined behaviour otherwise. The simplest way to satisfy this is to
+/// initialise `*val` with `mem::zeroed()` (or a helper such as
+/// [`can_frame_default`]/[`canfd_frame_default`]) and write only through
+/// typed field accesses before calling this fn.
+///
+/// [`can_frame_default`]: crate::frame::can_frame_default
+/// [`canfd_frame_default`]: crate::frame::canfd_frame_default
+pub(crate) unsafe fn as_bytes<T: Sized>(val: &T) -> &[u8] {
     let sz = size_of::<T>();
     unsafe { std::slice::from_raw_parts::<'_, u8>(val as *const _ as *const u8, sz) }
 }
 
-/// Gets a mutable byte slice for any sized variable.
-pub(crate) fn as_bytes_mut<T: Sized>(val: &mut T) -> &mut [u8] {
+/// Reinterprets a sized value as a mutable byte slice.
+///
+/// # Safety
+///
+/// Either all `size_of::<T>()` bytes of `*val` must be initialised at the
+/// time of the call, OR the caller must overwrite the entire slice before
+/// reading from it. Constructing the slice itself is sound for any `T`,
+/// but reading uninitialised bytes through it is undefined behaviour.
+pub(crate) unsafe fn as_bytes_mut<T: Sized>(val: &mut T) -> &mut [u8] {
     let sz = size_of::<T>();
     unsafe { std::slice::from_raw_parts_mut(val as *mut _ as *mut u8, sz) }
-}
-
-// ===== embedded_can I/O traits =====
-
-impl embedded_can::blocking::Can for CanSocket {
-    type Frame = CanFrame;
-    type Error = Error;
-
-    /// Blocking call to receive the next frame from the bus.
-    ///
-    /// This block and wait for the next frame to be received from the bus.
-    /// If an error frame is received, it will be converted to a `CanError`
-    /// and returned as an error.
-    fn receive(&mut self) -> Result<Self::Frame> {
-        use CanFrame::*;
-        match self.read_frame() {
-            Ok(Error(frame)) => Err(frame.into_error().into()),
-            Ok(frame) => Ok(frame),
-            Err(e) => Err(e.into()),
-        }
-    }
-
-    /// Blocking transmit of a frame to the bus.
-    fn transmit(&mut self, frame: &Self::Frame) -> Result<()> {
-        self.write_frame_insist(frame).map_err(|err| err.into())
-    }
-}
-
-impl embedded_can::nb::Can for CanSocket {
-    type Frame = CanFrame;
-    type Error = Error;
-
-    /// Non-blocking call to receive the next frame from the bus.
-    ///
-    /// If an error frame is received, it will be converted to a `CanError`
-    /// and returned as an error.
-    /// If no frame is available, it returns a `WouldBlck` error.
-    fn receive(&mut self) -> nb::Result<Self::Frame, Self::Error> {
-        use CanFrame::*;
-        match self.read_frame() {
-            Ok(Data(frame)) => Ok(Data(frame)),
-            Ok(Remote(frame)) => Ok(Remote(frame)),
-            Ok(Error(frame)) => Err(crate::Error::from(frame.into_error()).into()),
-            Err(err) => Err(match err.kind() {
-                ErrorKind::WouldBlock => nb::Error::WouldBlock,
-                _ => crate::Error::from(err).into(),
-            }),
-        }
-    }
-
-    /// Non-blocking transmit of a frame to the bus.
-    fn transmit(&mut self, frame: &Self::Frame) -> nb::Result<Option<Self::Frame>, Self::Error> {
-        match self.write_frame(frame) {
-            Ok(_) => Ok(None),
-            Err(err) => {
-                match err.kind() {
-                    ErrorKind::WouldBlock => Err(nb::Error::WouldBlock),
-                    // TODO: How to indicate buffer is full?
-                    // ErrorKind::StorageFull => Ok(frame),
-                    _ => Err(Error::from(err).into()),
-                }
-            }
-        }
-    }
 }

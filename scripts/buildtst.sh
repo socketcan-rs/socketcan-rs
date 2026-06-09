@@ -4,13 +4,13 @@
 # CAN interface, vcan0. It should be installed in the kernel before
 # running this script. See 'vcan.sh' (run it with root permissions)
 #
-# Run this from the top-level crate irectory (i.e. the one with the 
+# Run this from the top-level crate directory (i.e. the one with the 
 # Cargo.toml file).
 #
 
-printf "Updating the crate...\n"
-cargo clean && cargo update
-[ "$?" -ne 0 ] && exit 1
+#printf "Updating the crate...\n"
+#cargo clean && cargo update
+#[ "$?" -ne 0 ] && exit 1
 
 printf "Format check...\n"
 cargo fmt --all --check

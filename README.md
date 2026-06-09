@@ -1,6 +1,6 @@
 # Rust SocketCAN
 
-This library implements Controller Area Network (CAN) communications on Linux using the SocketCAN subsystem. This provides a network socket interface to the CAN bus.
+This Rust library implements Controller Area Network (CAN) communications on Linux using the SocketCAN subsystem, which provides a network socket interface to the CAN bus.
 
 [Linux SocketCAN](https://docs.kernel.org/networking/can.html)
 
@@ -9,39 +9,23 @@ Please see the [documentation](https://docs.rs/socketcan) for details about the 
 
 ## Latest News
 
-### Version 3.x adds integrated async/await, improved Netlink coverage, and more!
+Version 3.6 **finally** gets us support for timestamps on incoming frames. This includes software and (where the driver supports it) hardware timestamps that can be delivered alongside each frame via a single `recvmsg()` call. See the "Timestamps" section below.
 
-Version 3.0 adds integrated support for async/await, with the most popular runtimes, _tokio, async-std_, and _smol_.  We have merged the [tokio-socketcan](https://github.com/oefd/tokio-socketcan) crate into this one and implemented `async-io`.
+### What's New in Version 3.6
 
-Unfortunaly this required a minor breaking change to the existing API, so we bumped the version to 3.0.
-
-The async support is optional, and can be enabled with a feature for the target runtime: `tokio`, `async-std`, or `smol`.
-
-Additional implementation of the netlink control of the CAN interface was added in v3.1 allowing an application to do things like set the bitrate on the interface, set control modes, restart the inteface, etc.
-
-v3.2 increased the interface configuration coverage with Netlink, allowing an application to set most interface CAN parameters and query them all back.
-
-### What's New in Version 3.4
-
-Version 3.4.0 was primarily a service release to publish a number of new feature and bug fixes that had accumulated in the repository over the previous months. Those included:
-
-- A new build feature, `enumerate` to provide code for enumerating CAN interfaces on the host.
-- Added a `CanId` type with better usability than `embedded_can::Id`
-- Fixes to the Flexible Data (CAN FD) implementation, including proper frame padding and DLC/length queries.
-- Made `CanState` public.
-- Improved and modernized the _tokio_ implementation.
-
-For a full list of updates, see the [v3.4.0 CHANGELOG](https://github.com/socketcan-rs/socketcan-rs/blob/v3.4.0/CHANGELOG.md)
-
-## Next Steps
-
-A number of items still did not make it into a release. These will be added in v3.x, coming soon.
-
-- Issue [#22](https://github.com/socketcan-rs/socketcan-rs/issues/22) Timestamps, including optional hardware timestamps
+- **Timestamps on Incoming Frames**
+    - Application can chose Software or Hardware timestamps
+        - Software timestamps provide system (wall clock) time at several places in the network stack.
+        - Hardware provides monotonic, nanosecond integer time. Good for precise differencing between frames.
+        - Application can request any combination of possible timestamps.
+- Did an in-depth review of bugs and memory safety issues, with fixes (See the CHANGELOG)
+- Bumped MSRV to v1.75
+    - The older v1.70 was becoming increasingly difficult to maintain.
+- The full list of updates and fixes is in [CHANGELOG.md](./CHANGELOG.md).
 
 ## Minimum Supported Rust Version (MSRV)
 
-The current version of the crate targets Rust Edition 2021 with an MSRV of Rust v1.70.
+The current version of the crate targets Rust Edition 2021 with an MSRV of Rust v1.75.
 
 Note that, the core library can likely compile with an earlier version if dependencies are carefully selected, but tests are being done with the latest stable compiler and the stated MSRV.
 
@@ -62,7 +46,6 @@ the example applications as
 ```rust
 use futures_util::StreamExt;
 use socketcan::{tokio::CanSocket, CanFrame, Result};
-use tokio;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -71,7 +54,7 @@ async fn main() -> Result<()> {
 
     while let Some(Ok(frame)) = sock_rx.next().await {
         if matches!(frame, CanFrame::Data(_)) {
-            sock_tx.write_frame(frame)?.await?;
+            sock_tx.write_frame(frame).await?;
         }
     }
 
@@ -110,13 +93,48 @@ async fn main() -> Result<()> {
 }
 ```
 
+## Timestamps
+
+Version 3.6 adds receive timestamps for CAN frames. Three sources are supported, each enabled independently via socket options:
+
+| Source     | Option                                                | What it reports                                |
+|------------|-------------------------------------------------------|------------------------------------------------|
+| `socket`   | `SO_TIMESTAMPNS` via `set_recv_timestamp(true)`       | Wall-clock arrival at the socket layer         |
+| `sw`       | `SO_TIMESTAMPING` with `RX_SOFTWARE \| SOFTWARE`      | Wall-clock arrival at the network stack        |
+| `hw`       | `SO_TIMESTAMPING` with `RX_HARDWARE \| RAW_HARDWARE`  | Raw hardware-clock value from the CAN adapter  |
+
+Note:
+- The `sw` option gets the timestamp a little earlier in the receive process and is slightly more accurate
+All read methods deliver the frame and any enabled timestamps atomically in one `recvmsg()` call. Hardware support can be queried with `has_hw_timestamps()` before enabling.
+
+```rust
+use socketcan::{
+    CanSocket, Socket, SocketOptions,
+    SOF_TIMESTAMPING_OPT_CMSG, SOF_TIMESTAMPING_RX_SOFTWARE,
+    SOF_TIMESTAMPING_SOFTWARE,
+};
+
+let sock = CanSocket::open("can0")?;
+sock.set_recv_timestamp(true)?;
+sock.set_timestamping(
+    SOF_TIMESTAMPING_RX_SOFTWARE
+        | SOF_TIMESTAMPING_SOFTWARE
+        | SOF_TIMESTAMPING_OPT_CMSG,
+)?;
+
+let (frame, ts) = sock.read_frame_with_timestamps()?;
+println!("socket: {:?}, sw: {:?}", ts.socket, ts.sw);
+```
+
+The full example is in [examples/can_recvts.rs](https://github.com/socketcan-rs/socketcan-rs/blob/master/examples/can_recvts.rs). Async equivalents are available on the `tokio::CanSocket` and `async_io::CanSocket` wrappers (and likewise for `CanFdSocket`).
+
 ## Testing
 
 Integrating the full suite of tests into a CI system is non-trivial as it relies on a `vcan0` virtual CAN device existing. Adding it to most Linux systems is pretty easy with root access, but attaching a vcan device to a container for CI seems difficult to implement.
 
 Therefore, tests requiring `vcan0` were placed behind an optional feature, `vcan_tests`.
 
-The steps to install and add a virtual interface to Linux are in the `scripts/vcan.sh` script. Run it with root proveleges, then run the tests:
+The steps to install and add a virtual interface to Linux are in the `scripts/vcan.sh` script. Run it with root privileges, then run the tests:
 
 ```sh
 $ sudo ./scripts/vcan.sh

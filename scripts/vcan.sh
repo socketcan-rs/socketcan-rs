@@ -5,7 +5,7 @@
 # This is required to pass the unit and integration tests.
 #
 
-# Must have root privleges to run this script
+# Must have root privileges to run this script
 
 if (( $EUID != 0 )); then
   echo "This script must be run as root"

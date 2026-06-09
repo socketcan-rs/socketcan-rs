@@ -43,12 +43,6 @@ fn iface_cmd(iface_name: &str, opts: &ArgMatches) -> Result<()> {
     } else if let Some(sub_opts) = opts.subcommand_matches("loopback") {
         let on = sub_opts.get_one::<String>("on").unwrap() == "on";
         iface.set_ctrlmode(CanCtrlMode::Loopback, on)?;
-    } else if let Some(sub_opts) = opts.subcommand_matches("loopback") {
-        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
-        iface.set_ctrlmode(CanCtrlMode::Loopback, on)?;
-    } else if let Some(sub_opts) = opts.subcommand_matches("loopback") {
-        let on = sub_opts.get_one::<String>("on").unwrap() == "on";
-        iface.set_ctrlmode(CanCtrlMode::Loopback, on)?;
     } else if let Some(sub_opts) = opts.subcommand_matches("listen-only") {
         let on = sub_opts.get_one::<String>("on").unwrap() == "on";
         iface.set_ctrlmode(CanCtrlMode::ListenOnly, on)?;
@@ -94,7 +88,7 @@ fn iface_cmd(iface_name: &str, opts: &ArgMatches) -> Result<()> {
 #[cfg(not(feature = "netlink"))]
 fn iface_cmd(_iface_name: &str, _opts: &ArgMatches) -> Result<()> {
     Err(anyhow!(
-        "The 'netlink' feature is required to configure an inteface."
+        "The 'netlink' feature is required to configure an interface."
     ))
 }
 

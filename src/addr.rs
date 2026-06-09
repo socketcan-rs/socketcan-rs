@@ -1,6 +1,6 @@
-// socketcan/src/lib.rs
+// socketcan/src/addr.rs
 //
-// The main lib file for the Rust SocketCAN library.
+// SocketCAN address types.
 //
 // This file is part of the Rust 'socketcan-rs' library.
 //
@@ -22,7 +22,7 @@ pub use libc::{AF_CAN, CAN_RAW, PF_CAN};
 
 /// CAN socket address.
 ///
-/// This is the address for use with CAN sockets. It is simply an addres to
+/// This is the address for use with CAN sockets. It is simply an address to
 /// the SocketCAN host interface. It can be created by looking up the name
 /// of the interface, like "can0", "vcan0", etc, or an interface index can
 /// be specified directly, if known. An index of zero can be used to read
@@ -31,6 +31,14 @@ pub use libc::{AF_CAN, CAN_RAW, PF_CAN};
 /// This is based on, and compatible with, the `sockaddr_can` struct from
 /// libc.
 /// [ref](https://docs.rs/libc/latest/libc/struct.sockaddr_can.html)
+///
+/// Equality and hashing consider only `can_family` and `can_ifindex`. The
+/// `can_addr` union (J1939 / ISO-TP fields) is not compared: there is no
+/// runtime discriminator for which union variant is active, so a byte-wise
+/// compare across the union plus its padding would be both
+/// undefined-behaviour-adjacent and incorrect for any non-raw socket
+/// flavour. Callers that need to compare J1939 or ISO-TP addresses should
+/// compare the relevant fields explicitly.
 #[derive(Clone, Copy)]
 pub struct CanAddr(sockaddr_can);
 
@@ -110,7 +118,10 @@ impl CanAddr {
 
     /// Gets the underlying address as a byte slice
     pub fn as_bytes(&self) -> &[u8] {
-        crate::as_bytes(&self.0)
+        // SAFETY: `CanAddr` is constructed only through `new`/`new_j1939`/
+        // `new_isotp`/`From<sockaddr_can>`, all of which initialise the
+        // entire `sockaddr_can` (via `mem::zeroed` plus typed field writes).
+        unsafe { crate::as_bytes(&self.0) }
     }
 
     /// Converts the address into a `sockaddr_storage` type.
@@ -121,7 +132,8 @@ impl CanAddr {
         let len = can_addr.len();
 
         let mut storage: sockaddr_storage = unsafe { mem::zeroed() };
-        let sock_addr = crate::as_bytes_mut(&mut storage);
+        // SAFETY: `storage` is fully zero-initialised on the line above.
+        let sock_addr = unsafe { crate::as_bytes_mut(&mut storage) };
 
         sock_addr[..len].copy_from_slice(can_addr);
         (storage, len as socklen_t)
@@ -143,16 +155,51 @@ impl Default for CanAddr {
 
 impl fmt::Debug for CanAddr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "CanAddr {{ can_family: {}, can_ifindex: {} }}",
-            self.0.can_family, self.0.can_ifindex
-        )
+        // Render the can_addr union as raw bytes — there is no discriminator
+        // for which union variant is active, so the bytes are the best we can
+        // safely show. Callers know the variant from their socket type.
+        // SAFETY: `CanAddr` is constructed only through `new`/`new_j1939`/
+        // `new_isotp`/`From<sockaddr_can>`, all of which fully initialise the
+        // structure (`mem::zeroed` plus typed field writes), so every byte of
+        // the union storage has been written before being read here.
+        let addr_bytes: &[u8] = unsafe {
+            std::slice::from_raw_parts(
+                (&self.0.can_addr as *const _) as *const u8,
+                size_of::<libc::__c_anonymous_sockaddr_can_can_addr>(),
+            )
+        };
+        f.debug_struct("CanAddr")
+            .field("can_family", &self.0.can_family)
+            .field("can_ifindex", &self.0.can_ifindex)
+            .field("can_addr", &format_args!("{:02X?}", addr_bytes))
+            .finish()
+    }
+}
+
+impl PartialEq for CanAddr {
+    /// Compares two `CanAddr` by `can_family` and `can_ifindex`.
+    /// See the type-level docs for why the `can_addr` union is excluded.
+    fn eq(&self, other: &Self) -> bool {
+        self.0.can_family == other.0.can_family && self.0.can_ifindex == other.0.can_ifindex
+    }
+}
+
+impl Eq for CanAddr {}
+
+impl std::hash::Hash for CanAddr {
+    /// Hashes `can_family` and `can_ifindex`; mirrors [`PartialEq`].
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.can_family.hash(state);
+        self.0.can_ifindex.hash(state);
     }
 }
 
 impl From<sockaddr_can> for CanAddr {
     fn from(addr: sockaddr_can) -> Self {
+        debug_assert_eq!(
+            addr.can_family, AF_CAN as sa_family_t,
+            "CanAddr: sockaddr_can must have can_family == AF_CAN",
+        );
         Self(addr)
     }
 }
@@ -193,6 +240,10 @@ mod tests {
         let (sock_addr, len) = addr.clone().into_storage();
 
         assert_eq!(CanAddr::len() as socklen_t, len);
-        assert_eq!(as_bytes(&addr), &as_bytes(&sock_addr)[0..len as usize]);
+        // SAFETY: both values are fully initialised — `addr` via `CanAddr::new`
+        // and `sock_addr` returned from `into_storage` which zero-initialises
+        // `sockaddr_storage` before copying.
+        let (lhs, rhs) = unsafe { (as_bytes(&addr), as_bytes(&sock_addr)) };
+        assert_eq!(lhs, &rhs[0..len as usize]);
     }
 }

@@ -51,7 +51,7 @@ use thiserror::Error;
 /// frames or from typical system I/O errors.
 #[derive(Error, Debug)]
 pub enum Error {
-    /// A CANbus error, usually from an error frmae
+    /// A CANbus error, usually from an error frame
     #[error(transparent)]
     Can(#[from] CanError),
     /// An I/O Error
@@ -76,19 +76,52 @@ impl From<CanErrorFrame> for Error {
 
 impl From<io::ErrorKind> for Error {
     /// Creates an Io error straight from an io::ErrorKind
-    fn from(ek: io::ErrorKind) -> Self {
-        Self::from(io::Error::from(ek))
+    fn from(kind: io::ErrorKind) -> Self {
+        Self::from(io::Error::from(kind))
     }
 }
 
 #[cfg(feature = "enumerate")]
 impl From<libudev::Error> for Error {
-    /// Creates an Io error straight from a libudev::Error
+    /// Creates an Io error from a libudev::Error, preserving the underlying
+    /// description as the `io::Error` message.
     fn from(e: libudev::Error) -> Error {
-        match e.kind() {
-            libudev::ErrorKind::NoMem => Self::from(io::ErrorKind::OutOfMemory),
-            libudev::ErrorKind::InvalidInput => Self::from(io::ErrorKind::InvalidInput),
-            libudev::ErrorKind::Io(ek) => Self::from(ek),
+        let kind = match e.kind() {
+            libudev::ErrorKind::NoMem => io::ErrorKind::OutOfMemory,
+            libudev::ErrorKind::InvalidInput => io::ErrorKind::InvalidInput,
+            libudev::ErrorKind::Io(kind) => kind,
+        };
+        Self::Io(io::Error::new(kind, e.to_string()))
+    }
+}
+
+#[cfg(feature = "netlink")]
+impl<T, P> From<neli::err::NlError<T, P>> for Error
+where
+    T: neli::consts::nl::NlType,
+    P: fmt::Debug,
+{
+    /// Wraps a netlink error as an [`io::Error`] of kind `Other`, preserving
+    /// the underlying description. Lets callers `?` netlink results across
+    /// module boundaries into the crate-level [`enum@Error`].
+    fn from(e: neli::err::NlError<T, P>) -> Error {
+        Self::Io(io::Error::other(e.to_string()))
+    }
+}
+
+#[cfg(feature = "dump")]
+impl From<crate::dump::ParseError> for Error {
+    /// Maps a [`ParseError`](crate::dump::ParseError) into an [`io::Error`]
+    /// of kind `InvalidData`, preserving the description. Lets callers `?`
+    /// dump-parsing results into the crate-level [`enum@Error`].
+    fn from(e: crate::dump::ParseError) -> Error {
+        use crate::dump::ParseError;
+        match e {
+            ParseError::Io(io_err) => Self::Io(io_err),
+            other => Self::Io(io::Error::new(
+                io::ErrorKind::InvalidData,
+                other.to_string(),
+            )),
         }
     }
 }
@@ -227,7 +260,7 @@ impl From<CanErrorFrame> for CanError {
 
 // ===== ControllerProblem =====
 
-/// Error status of the CAN conroller.
+/// Error status of the CAN controller.
 ///
 /// This is derived from `data[1]` of an error frame
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
@@ -360,7 +393,7 @@ impl TryFrom<u8> for ViolationType {
 /// The location of a CANbus protocol violation.
 ///
 /// This describes the position inside a received frame (as in the field
-/// or bit) at which an error occured.
+/// or bit) at which an error occurred.
 ///
 /// This is derived from `data[3]` of an error frame.
 #[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
@@ -557,7 +590,7 @@ pub enum CanErrorDecodingFailure {
     /// A location was specified for a ProtocolViolation, but the location
     /// was not valid.
     InvalidLocation,
-    /// The supplied transciever error was invalid.
+    /// The supplied transceiver error was invalid.
     InvalidTransceiverError,
 }
 
