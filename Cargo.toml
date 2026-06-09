@@ -1,6 +1,6 @@
 [package]
 name = "socketcan"
-version = "3.6.0-pre.0"
+version = "3.6.0"
 edition = "2021"
 rust-version = "1.75"
 authors = [
@@ -17,9 +17,9 @@ Linux SocketCAN library. Send and receive CAN frames via CANbus on Linux.
 # Features:
 #
 # "netlink" (default) - Whether to include CAN interface configuration
-#       capabilities based on netlink kernel communications
+#     capabilities based on netlink kernel communications
 # "dump" (default) - Whether to include 'candump' log file parsing
-#	capabilities.
+#     capabilities.
 # "enumerate" - Ability to enumerate the available CAN network interfaces
 #
 # "utils" - Build the command-line utilities
@@ -29,6 +29,10 @@ Linux SocketCAN library. Send and receive CAN frames via CANbus on Linux.
 # "async-std" - Async/await support for async-std using async-io
 # "smol" - Async/await support for smol using async-io
 #
+# "vcan_tests" - Run unit tests that require a "vcan0" interface loaded in 
+#     the kernel. Use with 'cargo test'.
+# "netlink_tests" - Run unit tests for the netlink module. This may require
+#     root privileges. Use with 'cargo test'.
 
 [features]
 default = ["netlink", "dump"]

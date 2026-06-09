@@ -51,7 +51,7 @@ use thiserror::Error;
 /// frames or from typical system I/O errors.
 #[derive(Error, Debug)]
 pub enum Error {
-    /// A CANbus error, usually from an error frmae
+    /// A CANbus error, usually from an error frame
     #[error(transparent)]
     Can(#[from] CanError),
     /// An I/O Error
@@ -76,8 +76,8 @@ impl From<CanErrorFrame> for Error {
 
 impl From<io::ErrorKind> for Error {
     /// Creates an Io error straight from an io::ErrorKind
-    fn from(ek: io::ErrorKind) -> Self {
-        Self::from(io::Error::from(ek))
+    fn from(kind: io::ErrorKind) -> Self {
+        Self::from(io::Error::from(kind))
     }
 }
 
@@ -89,7 +89,7 @@ impl From<libudev::Error> for Error {
         let kind = match e.kind() {
             libudev::ErrorKind::NoMem => io::ErrorKind::OutOfMemory,
             libudev::ErrorKind::InvalidInput => io::ErrorKind::InvalidInput,
-            libudev::ErrorKind::Io(ek) => ek,
+            libudev::ErrorKind::Io(kind) => kind,
         };
         Self::Io(io::Error::new(kind, e.to_string()))
     }

@@ -9,27 +9,7 @@ Please see the [documentation](https://docs.rs/socketcan) for details about the 
 
 ## Latest News
 
-We're currently preparing the v3.6.0 release.
-
-Version 3.6 **finally** gets us support for timestamps on incoming frames. This includes software and (where the driver supports it) hardware timestamps delivered alongside each frame via a single `recvmsg()` call. See the "Timestamps" section below.
-
-### Version 3.x adds integrated async/await, improved Netlink coverage, and more!
-
-Version 3.0 added integrated support for async/await, with the most popular runtimes, _tokio, async-std_, and _smol_.  We have merged the [tokio-socketcan](https://github.com/oefd/tokio-socketcan) crate into this one and implemented `async-io`.
-
-Unfortunately this required a minor breaking change to the existing API, so we bumped the version to 3.0.
-
-The async support is optional, and can be enabled with a feature for the target runtime: `tokio`, `async-std`, or `smol`.
-
-Additional implementation of the netlink control of the CAN interface was added in v3.1 allowing an application to do things like set the bitrate on the interface, set control modes, restart the interface, etc.
-
-v3.2 increased the interface configuration coverage with Netlink, allowing an application to set most interface CAN parameters and query them all back.
-
-v3.3 added CAN FD support for tokio.
-
-v3.4 introduced `CanRawFrame` for easier FFI integration, and raw frame reads. Also added support for enumerating interfaces.
-
-v3.5 updated the `dump` module and made easier frame and socket conversions.
+Version 3.6 **finally** gets us support for timestamps on incoming frames. This includes software and (where the driver supports it) hardware timestamps that can be delivered alongside each frame via a single `recvmsg()` call. See the "Timestamps" section below.
 
 ### What's New in Version 3.6
 
@@ -41,6 +21,7 @@ v3.5 updated the `dump` module and made easier frame and socket conversions.
 - Did an in-depth review of bugs and memory safety issues, with fixes (See the CHANGELOG)
 - Bumped MSRV to v1.75
     - The older v1.70 was becoming increasingly difficult to maintain.
+- The full list of updates and fixes is in [CHANGELOG.md](./CHANGELOG.md).
 
 ## Minimum Supported Rust Version (MSRV)
 

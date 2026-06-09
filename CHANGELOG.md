@@ -3,9 +3,9 @@
 The change log for the Rust [socketcan](https://crates.io/crates/socketcan) library.
 
 
-## [Version 3.6.0](https://github.com/socketcan-rs/socketcan-rs/compare/v3.5.0..v3.6.0)  (2026-05-31)
+## [Version 3.6.0](https://github.com/socketcan-rs/socketcan-rs/compare/v3.5.0..v3.6.0)  (2026-06-09)
 
-- Added received timestamp capabilities
+- Added ability to get timestamp for received frames
     - New `CanTimestamps` type carrying socket-layer, network-stack software, and hardware receive timestamps
     - `SocketOptions::set_recv_timestamp` (`SO_TIMESTAMPNS`) and `SocketOptions::set_timestamping` (`SO_TIMESTAMPING`) to enable delivery on the socket
     - `Socket::read_frame_with_timestamp`, `Socket::read_frame_with_timestamps`, and `Socket::read_frame_with_hw_timestamp` on the `Socket` trait (default implementations return `ENOSYS` to preserve semver for out-of-tree `Socket` implementors)
@@ -40,6 +40,7 @@ The change log for the Rust [socketcan](https://crates.io/crates/socketcan) libr
     - `CanAddr` gained hand-rolled `PartialEq`/`Eq`/`Hash` impls comparing `(can_family, can_ifindex)` only; deriving them would compare the `can_addr` union plus padding, which is unsound
     - `CanAddr::Debug` now renders the `can_addr` union bytes (J1939 / ISO-TP fields are no longer dropped)
     - `From<sockaddr_can> for CanAddr` now `debug_assert!`s `can_family == AF_CAN`
+    - `available_interfaces()` was silently ignoring udev errors and returning an empty list of interfaces. It now returns an error on udev failure.
     - Tokio `Sink::poll_close` no longer attempts a spurious `clear_ready()`; `Sink::start_send` issues a single non-blocking `write_frame()` instead of busy-retrying via `write_frame_insist`
     - Typo: "socke options" → "socket options" in `set_socket_option_mult` doc
     - `dump::Reader` caps each line at 64 KiB so a malformed or hostile log can't OOM the reader; over-long lines produce `InvalidCanFrame`
