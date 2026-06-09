@@ -37,7 +37,7 @@ dump = []
 netlink_tests = ["netlink"]
 vcan_tests = ["netlink"]
 utils = ["clap", "anyhow"]
-tokio = ["dep:tokio", "futures"]
+tokio = ["dep:tokio", "mio", "futures"]
 async-std = ["dep:async-std", "dep:async-io", "futures"]
 async-io = ["dep:async-io", "futures"]
 smol = ["dep:smol", "futures"]
@@ -57,6 +57,7 @@ socket2 = { version = "0.5", features = ["all"] }
 clap = { version = "3.2", optional = true }
 anyhow = { version = "1", optional = true }
 tokio = { version = "1", features = ["net"], optional = true }
+mio = { version = "1", features = ["os-ext"], optional = true }
 futures = { version = "0.3", optional = true }
 async-io = { version = "1.13", optional = true }
 smol = { version = "1.3", optional = true }
