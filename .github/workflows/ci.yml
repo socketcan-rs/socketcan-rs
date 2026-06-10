@@ -38,19 +38,13 @@ jobs:
       matrix:
         rust:
           - stable
-          - 1.75.0
+          - 1.94.0
     steps:
       - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: ${{ matrix.rust }}
-
-      - name: Resolve dependencies for MSRV
-        run: |
-          mkdir -p $HOME/.cargo
-          echo 'resolver.incompatible-rust-versions = "fallback"' > $HOME/.cargo/config.toml
-          cargo +stable update
 
       - name: Library default build check
         run: cargo +${{ matrix.rust }} check
@@ -75,14 +69,8 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: 1.75.0
+          toolchain: 1.94.0
           components: clippy
 
-      - name: Resolve dependencies for MSRV
-        run: |
-          mkdir -p $HOME/.cargo
-          echo 'resolver.incompatible-rust-versions = "fallback"' > $HOME/.cargo/config.toml
-          cargo +stable update
-
       - name: Run clippy
-        run: cargo +1.75.0 clippy -- -D warnings
+        run: cargo +1.94.0 clippy -- -D warnings
