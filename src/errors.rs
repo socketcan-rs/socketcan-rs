@@ -96,7 +96,7 @@ impl From<libudev::Error> for Error {
 }
 
 #[cfg(feature = "netlink")]
-impl<T, P> From<neli::err::NlError<T, P>> for Error
+impl<T, P> From<neli::err::RouterError<T, P>> for Error
 where
     T: neli::consts::nl::NlType,
     P: fmt::Debug,
@@ -104,7 +104,7 @@ where
     /// Wraps a netlink error as an [`io::Error`] of kind `Other`, preserving
     /// the underlying description. Lets callers `?` netlink results across
     /// module boundaries into the crate-level [`enum@Error`].
-    fn from(e: neli::err::NlError<T, P>) -> Error {
+    fn from(e: neli::err::RouterError<T, P>) -> Error {
         Self::Io(io::Error::other(e.to_string()))
     }
 }

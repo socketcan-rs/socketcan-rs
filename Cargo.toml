@@ -54,7 +54,7 @@ nix = { version="0.29", features = ["poll", "process", "net"] }
 bitflags = "2.6"
 thiserror = "2"
 socket2 = { version = "0.5", features = ["all"] }
-clap = { version = "3.2", optional = true }
+clap = { version = "4.6", optional = true }
 anyhow = { version = "1", optional = true }
 tokio = { version = "1", features = ["net"], optional = true }
 futures = { version = "0.3", optional = true }
@@ -65,11 +65,11 @@ libudev = { version = "0.3", optional = true }
 # avoids a ton of compile errors. Worthwhile together with the
 # build.rs script to error early when building for non-linux
 [target.'cfg(target_os = "linux")'.dependencies]
-neli = { version = "0.6", optional = true }
+neli = { version = "0.7", optional = true }
 
 [dev-dependencies]
 anyhow = "1.0"
-clap = "3.2"
+clap = "4.6"
 ctrlc = "3.2.2"
 nb = "1.0"
 futures-timer = "0.3"
