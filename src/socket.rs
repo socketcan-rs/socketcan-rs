@@ -542,7 +542,7 @@ pub trait SocketOptions: AsRawFd {
 /// Returns `false` on any error (unbound socket, unsupported ioctl,
 /// unknown interface, etc).
 fn hw_timestamps_supported(fd: RawFd) -> bool {
-    use crate::timestamp::{EthtoolTsInfo, ETHTOOL_GET_TS_INFO, SOF_TIMESTAMPING_RX_HARDWARE};
+    use crate::timestamp::{ETHTOOL_GET_TS_INFO, EthtoolTsInfo, SOF_TIMESTAMPING_RX_HARDWARE};
     // Ioctl is u64 in glibc and i32 in musl this ensures the correct type is used for both
     const SIOCETHTOOL: libc::Ioctl = libc::SIOCETHTOOL as libc::Ioctl;
 
