@@ -81,20 +81,6 @@ impl From<io::ErrorKind> for Error {
     }
 }
 
-#[cfg(feature = "enumerate")]
-impl From<libudev::Error> for Error {
-    /// Creates an Io error from a libudev::Error, preserving the underlying
-    /// description as the `io::Error` message.
-    fn from(e: libudev::Error) -> Error {
-        let kind = match e.kind() {
-            libudev::ErrorKind::NoMem => io::ErrorKind::OutOfMemory,
-            libudev::ErrorKind::InvalidInput => io::ErrorKind::InvalidInput,
-            libudev::ErrorKind::Io(kind) => kind,
-        };
-        Self::Io(io::Error::new(kind, e.to_string()))
-    }
-}
-
 #[cfg(feature = "netlink")]
 impl<T, P> From<neli::err::RouterError<T, P>> for Error
 where

@@ -9,6 +9,8 @@ The change log for the Rust [socketcan](https://crates.io/crates/socketcan) libr
 - Removed direct support for `async-std` which is no longer maintained.
 - [#88](https://github.com/socketcan-rs/socketcan-rs/pull/88) Updated _smol_ to v2.0
 - [#99](https://github.com/socketcan-rs/socketcan-rs/pull/99) Update `neli` and `clap`
+- Replaced the unmaintained `libudev` 0.3 dependency with `udev` 0.9 for interface enumeration (`enumerate` feature).
+    - `udev` reports errors as `io::Error`, so the bespoke `From<libudev::Error> for Error` conversion was removed
 
 
 ## [Version 3.6.1](https://github.com/socketcan-rs/socketcan-rs/compare/v3.6.0..v3.6.1)  (2026-06-10)

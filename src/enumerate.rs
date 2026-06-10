@@ -24,15 +24,14 @@
 use crate::Result;
 
 use libc::ARPHRD_CAN;
-use libudev::{Context, Enumerator};
+use udev::Enumerator;
 
 /// Scans the system for available SocketCAN network interfaces and returns a
 /// list of them.
 pub fn available_interfaces() -> Result<Vec<String>> {
     let mut interfaces = Vec::new();
-    let context = Context::new()?;
 
-    let mut enumerator = Enumerator::new(&context)?;
+    let mut enumerator = Enumerator::new()?;
     enumerator.match_subsystem("net")?;
     enumerator.match_attribute("type", ARPHRD_CAN.to_string())?;
 

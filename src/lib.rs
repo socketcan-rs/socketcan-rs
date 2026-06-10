@@ -75,7 +75,7 @@
 //! * **enumerate** -
 //!   Include the `enumerate` module which can be used to get a list of the CANbus
 //!   network interfaces attached to the host. This brings in the dependency for
-//!   [libudev](https://crates.io/crates/libudev)
+//!   [udev](https://crates.io/crates/udev)
 //!
 //! * **utils** -
 //!   Whether to build command-line utilities. This brings in additional
