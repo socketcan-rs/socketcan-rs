@@ -543,6 +543,8 @@ pub trait SocketOptions: AsRawFd {
 /// unknown interface, etc).
 fn hw_timestamps_supported(fd: RawFd) -> bool {
     use crate::timestamp::{EthtoolTsInfo, ETHTOOL_GET_TS_INFO, SOF_TIMESTAMPING_RX_HARDWARE};
+    // Ioctl is u64 in glibc and i32 in musl this ensures the correct type is used for both
+    const SIOCETHTOOL: libc::Ioctl = libc::SIOCETHTOOL as libc::Ioctl;
 
     // Retrieve the interface index from the bound socket address.
     let ifindex = unsafe {
@@ -571,11 +573,12 @@ fn hw_timestamps_supported(fd: RawFd) -> bool {
         rx_filters: 0,
         rx_reserved: [0; 3],
     };
+
     let ret = unsafe {
         let mut ifr: libc::ifreq = zeroed();
         ifr.ifr_name.copy_from_slice(&ifname);
         ifr.ifr_ifru.ifru_data = (&mut ts_info as *mut EthtoolTsInfo).cast();
-        libc::ioctl(fd, libc::SIOCETHTOOL, &mut ifr)
+        libc::ioctl(fd, SIOCETHTOOL, &mut ifr)
     };
 
     ret == 0 && ts_info.so_timestamping & SOF_TIMESTAMPING_RX_HARDWARE != 0
