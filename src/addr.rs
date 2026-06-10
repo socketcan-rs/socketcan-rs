@@ -15,7 +15,7 @@ use crate::id::id_to_canid_t;
 use embedded_can::Id;
 use libc::{sa_family_t, sockaddr, sockaddr_can, sockaddr_storage, socklen_t};
 use nix::net::if_::if_nametoindex;
-use socket2::SockAddr;
+use socket2::{SockAddr, SockAddrStorage};
 use std::{fmt, io, mem, mem::size_of, os::raw::c_int};
 
 pub use libc::{AF_CAN, CAN_RAW, PF_CAN};
@@ -207,7 +207,16 @@ impl From<sockaddr_can> for CanAddr {
 impl From<CanAddr> for SockAddr {
     fn from(addr: CanAddr) -> Self {
         let (storage, len) = addr.into_storage();
-        unsafe { SockAddr::new(storage, len) }
+        // socket2 0.6 takes its own `SockAddrStorage` (repr(transparent) over
+        // `sockaddr_storage`) rather than the libc type. Fill it via `view_as`,
+        // the conversion pattern documented on `SockAddrStorage`.
+        let mut s2_storage = SockAddrStorage::zeroed();
+        // SAFETY: `sockaddr_storage` is a valid `sockaddr_*` storage type for
+        // this platform, and `s2_storage` is at least as large.
+        unsafe {
+            *s2_storage.view_as::<sockaddr_storage>() = storage;
+            SockAddr::new(s2_storage, len)
+        }
     }
 }
 

@@ -11,6 +11,8 @@ The change log for the Rust [socketcan](https://crates.io/crates/socketcan) libr
 - [#99](https://github.com/socketcan-rs/socketcan-rs/pull/99) Update `neli` and `clap`
 - Replaced the unmaintained `libudev` 0.3 dependency with `udev` 0.9 for interface enumeration (`enumerate` feature).
     - `udev` reports errors as `io::Error`, so the bespoke `From<libudev::Error> for Error` conversion was removed
+- Updated `socket2` to v0.6 and trimmed its feature set
+    - The `From<CanAddr> for SockAddr` now fills socket2's new `SockAddrStorage` wrapper type
 
 
 ## [Version 3.6.1](https://github.com/socketcan-rs/socketcan-rs/compare/v3.6.0..v3.6.1)  (2026-06-10)
