@@ -575,7 +575,13 @@ fn hw_timestamps_supported(fd: RawFd) -> bool {
         let mut ifr: libc::ifreq = zeroed();
         ifr.ifr_name.copy_from_slice(&ifname);
         ifr.ifr_ifru.ifru_data = (&mut ts_info as *mut EthtoolTsInfo).cast();
-        libc::ioctl(fd, libc::SIOCETHTOOL, &mut ifr)
+        libc::ioctl(
+            fd,
+            libc::SIOCETHTOOL.try_into().expect(
+                "MUSL targets expect a signed value here, on non-MUSL targets this will be a no-op",
+            ),
+            &mut ifr,
+        )
     };
 
     ret == 0 && ts_info.so_timestamping & SOF_TIMESTAMPING_RX_HARDWARE != 0
