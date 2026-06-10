@@ -38,10 +38,10 @@ pub fn available_interfaces() -> Result<Vec<String>> {
 
     let devices = enumerator.scan_devices()?;
     for d in devices {
-        if let Some(interface) = d.property_value("INTERFACE") {
-            if let Some(interface) = interface.to_str() {
-                interfaces.push(String::from(interface));
-            }
+        if let Some(interface) = d.property_value("INTERFACE")
+            && let Some(interface) = interface.to_str()
+        {
+            interfaces.push(String::from(interface));
         }
     }
     Ok(interfaces)

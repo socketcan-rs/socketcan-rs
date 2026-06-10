@@ -380,9 +380,9 @@ mod test {
 
         if let CanAnyFrame::Normal(frame) = rec1.frame {
             assert_eq!(frame.raw_id(), 0x080080);
-            assert_eq!(frame.is_remote_frame(), false);
-            assert_eq!(frame.is_error_frame(), false);
-            assert_eq!(frame.is_extended(), true);
+            assert!(!frame.is_remote_frame());
+            assert!(!frame.is_error_frame());
+            assert!(frame.is_extended());
             assert_eq!(frame.data(), &[]);
         } else {
             panic!("Expected Normal frame, got FD");
@@ -394,9 +394,9 @@ mod test {
 
         if let CanAnyFrame::Normal(frame) = rec2.frame {
             assert_eq!(frame.raw_id(), 0x053701);
-            assert_eq!(frame.is_remote_frame(), false);
-            assert_eq!(frame.is_error_frame(), false);
-            assert_eq!(frame.is_extended(), true);
+            assert!(!frame.is_remote_frame());
+            assert!(!frame.is_error_frame());
+            assert!(frame.is_extended());
             assert_eq!(frame.data(), &[0x7F]);
         } else {
             panic!("Expected Normal frame, got FD");

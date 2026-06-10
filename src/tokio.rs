@@ -491,7 +491,7 @@ mod tests {
     /// Write a test frame to the CanSocket using the `tokio::io::AsyncWrite` trait
     async fn write_frame_with_async_write(socket: &mut CanSocket) -> Result<()> {
         let test_frame = CanFrame::new(StandardId::new(0x1).unwrap(), &[0]).unwrap();
-        socket.write(test_frame.as_bytes()).await?;
+        socket.write_all(test_frame.as_bytes()).await?;
         Ok(())
     }
 
@@ -546,7 +546,7 @@ mod tests {
     /// Write a test frame to the CanSocket using the `tokio::io::AsyncWrite` trait
     async fn write_frame_fd_with_async_write(socket: &mut CanFdSocket) -> Result<()> {
         let test_frame = CanFdFrame::new(StandardId::new(0x1).unwrap(), &[0]).unwrap();
-        socket.write(test_frame.as_bytes()).await?;
+        socket.write_all(test_frame.as_bytes()).await?;
         Ok(())
     }
 
@@ -749,9 +749,9 @@ mod tests {
             .fold(0u8, |acc, _frame| async move { acc + 1 });
 
         let send_frames = async {
-            let _frame_1 = sink.send(frame_id_1).await?;
-            let _frame_2 = sink.send(frame_id_2).await?;
-            let _frame_3 = sink.send(frame_id_3).await?;
+            sink.send(frame_id_1).await?;
+            sink.send(frame_id_2).await?;
+            sink.send(frame_id_3).await?;
             println!("Sent 3 frames");
             Ok::<(), Error>(())
         };
@@ -789,9 +789,9 @@ mod tests {
             .fold(0u8, |acc, _frame| async move { acc + 1 });
 
         let send_frames = async {
-            let _frame_1 = sink.send(frame_id_1.into()).await?;
-            let _frame_2 = sink.send(frame_id_2.into()).await?;
-            let _frame_3 = sink.send(frame_id_3.into()).await?;
+            sink.send(frame_id_1.into()).await?;
+            sink.send(frame_id_2.into()).await?;
+            sink.send(frame_id_3.into()).await?;
             println!("Sent 3 frames");
             Ok::<(), Error>(())
         };
@@ -829,9 +829,9 @@ mod tests {
             .fold(0u8, |acc, _frame| async move { acc + 1 });
 
         let send_frames = async {
-            let _frame_1 = sink.send(frame_id_1.into()).await?;
-            let _frame_2 = sink.send(frame_id_2.into()).await?;
-            let _frame_3 = sink.send(frame_id_3.into()).await?;
+            sink.send(frame_id_1.into()).await?;
+            sink.send(frame_id_2.into()).await?;
+            sink.send(frame_id_3.into()).await?;
             println!("Sent 3 frames");
             Ok::<(), Error>(())
         };

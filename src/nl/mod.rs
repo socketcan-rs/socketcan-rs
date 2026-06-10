@@ -52,6 +52,13 @@
 //! <https://github.com/lalten/libsocketcan>
 //!
 
+// TODO: The neli `RouterError<Rtm, Ifinfomsg>` (aliased here as `RouterInfoError`)
+// is 128+ bytes, so every `Result<_, RouterInfoError>` in this module trips
+// `clippy::result_large_err`. Boxing the error would shrink the `Result` but
+// requires reworking the error plumbing throughout the module (`?` conversions
+// rely on neli's `From<…> for RouterError` impls).
+#![allow(clippy::result_large_err)]
+
 use neli::{
     FromBytes, FromBytesWithInput, Size, ToBytes,
     attr::Attribute,
@@ -69,11 +76,7 @@ use neli::{
 };
 use nix::{self, net::if_::if_nametoindex};
 use rt::IflaCan;
-use std::{
-    ffi::CStr,
-    fmt::Debug,
-    os::raw::c_uint,
-};
+use std::{ffi::CStr, fmt::Debug, os::raw::c_uint};
 
 /// Low-level Netlink CAN struct bindings.
 mod rt;
@@ -82,7 +85,10 @@ pub use rt::CanState;
 use rt::can_ctrlmode;
 
 /// A router error from an info query
-type RouterInfoError = RouterError<Rtm, Ifinfomsg>;
+pub type RouterInfoError = RouterError<Rtm, Ifinfomsg>;
+
+/// The result from a router info query
+pub type RouterInfoResult<T> = Result<T, RouterInfoError>;
 
 /// CAN bit-timing parameters
 pub type CanBitTiming = rt::can_bittiming;
@@ -468,8 +474,8 @@ impl CanInterface {
         msg_type: Rtm,
         info: Ifinfomsg,
         additional_flags: NlmF,
-    ) -> Result<(), RouterInfoError> {
-        let mut nl = Self::open_route_socket::<Rtm, Ifinfomsg>()?;
+    ) -> RouterInfoResult<()> {
+        let mut nl = Self::open_route_socket()?;
 
         // prepare message
         let hdr = NlmsghdrBuilder::default()
@@ -516,10 +522,7 @@ impl CanInterface {
     /// in the same process — for example, from concurrent calls on
     /// different threads, or when a getter is invoked while a setter is
     /// still in flight. Binding all sockets to `Pid::this()` would collide.
-    ///
-    /// The function is generic to allow for usage in contexts where NlError
-    /// has specific, non-default, generic parameters.
-    fn open_route_socket<T, P>() -> Result<NlSocketHandle, SocketError> {
+    fn open_route_socket() -> Result<NlSocketHandle, SocketError> {
         // groups is empty because we want no multicast notifications
         let sock = NlSocketHandle::connect(NlFamily::Route, None, Groups::empty())?;
         Ok(sock)
@@ -528,7 +531,7 @@ impl CanInterface {
     /// Sends a query to the kernel and returns the response info message
     /// to the caller.
     fn query_details(&self) -> Result<Option<Nlmsghdr<Rtm, Ifinfomsg>>, SocketError> {
-        let sock = Self::open_route_socket::<Rtm, Ifinfomsg>()?;
+        let sock = Self::open_route_socket()?;
 
         let info = self.info_msg({
             let mut buffer = RtBuffer::new();
@@ -558,7 +561,7 @@ impl CanInterface {
     /// Bring down this interface.
     ///
     /// Use a netlink control socket to set the interface status to "down".
-    pub fn bring_down(&self) -> Result<(), RouterInfoError> {
+    pub fn bring_down(&self) -> RouterInfoResult<()> {
         // Specific iface down info
         let info = IfinfomsgBuilder::default()
             .down()
@@ -574,7 +577,7 @@ impl CanInterface {
     /// Bring up this interface
     ///
     /// Brings the interface up by settings its "up" flag enabled via netlink.
-    pub fn bring_up(&self) -> Result<(), RouterInfoError> {
+    pub fn bring_up(&self) -> RouterInfoResult<()> {
         // Specific iface up info
         let info = IfinfomsgBuilder::default()
             .up()
@@ -595,7 +598,7 @@ impl CanInterface {
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn create_vcan(name: &str, index: Option<u32>) -> Result<Self, RouterInfoError> {
+    pub fn create_vcan(name: &str, index: Option<u32>) -> RouterInfoResult<Self> {
         Self::create(name, index, "vcan")
     }
 
@@ -605,12 +608,11 @@ impl CanInterface {
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn create<I>(name: &str, index: I, kind: &str) -> Result<Self, RouterInfoError>
+    pub fn create<I>(name: &str, index: I, kind: &str) -> RouterInfoResult<Self>
     where
         I: Into<Option<u32>>,
     {
-        // IFNAMSIZ includes the trailing NUL, so the usable name length is
-        // IFNAMSIZ - 1 (15 bytes on Linux).
+        // Remember: IFNAMSIZ (15 bytes on Linux) includes the trailing NUL.
         if name.len() >= libc::IFNAMSIZ {
             return Err(RouterInfoError::Msg(MsgError::new(
                 "Interface name too long",
@@ -675,7 +677,7 @@ impl CanInterface {
     }
 
     /// Attempt to query detailed information on the interface.
-    pub fn details(&self) -> Result<InterfaceDetails, RouterInfoError> {
+    pub fn details(&self) -> RouterInfoResult<InterfaceDetails> {
         match self.query_details()? {
             Some(msg_hdr) => {
                 let mut info = InterfaceDetails::new(self.if_index);
@@ -715,7 +717,7 @@ impl CanInterface {
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn set_mtu(&self, mtu: Mtu) -> Result<(), RouterInfoError> {
+    pub fn set_mtu(&self, mtu: Mtu) -> RouterInfoResult<()> {
         let mtu = mtu as u32;
         let info = self.info_msg({
             let mut buffer = RtBuffer::new();
@@ -737,7 +739,7 @@ impl CanInterface {
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn set_can_param<P>(&self, param_type: IflaCan, param: P) -> Result<(), RouterInfoError>
+    pub fn set_can_param<P>(&self, param_type: IflaCan, param: P) -> RouterInfoResult<()>
     where
         P: ToBytes + Size,
     {
@@ -787,13 +789,13 @@ impl CanInterface {
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn set_can_params(&self, params: &InterfaceCanParams) -> Result<(), RouterInfoError> {
+    pub fn set_can_params(&self, params: &InterfaceCanParams) -> RouterInfoResult<()> {
         let info = self.info_msg(RtBuffer::try_from(params)?);
         Self::send_info_msg(Rtm::Newlink, info, NlmF::empty())
     }
 
     /// Attempt to query an individual CAN parameter on the interface.
-    pub fn can_param<P>(&self, param: IflaCan) -> Result<Option<P>, RouterInfoError>
+    pub fn can_param<P>(&self, param: IflaCan) -> RouterInfoResult<Option<P>>
     where
         P: FromBytes + Clone,
     {
@@ -820,7 +822,7 @@ impl CanInterface {
     }
 
     /// Gets the current bit rate for the interface.
-    pub fn bit_rate(&self) -> Result<Option<u32>, RouterInfoError> {
+    pub fn bit_rate(&self) -> RouterInfoResult<Option<u32>> {
         Ok(self.bit_timing()?.map(|timing| timing.bitrate))
     }
 
@@ -832,7 +834,7 @@ impl CanInterface {
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn set_bitrate<P>(&self, bitrate: u32, sample_point: P) -> Result<(), RouterInfoError>
+    pub fn set_bitrate<P>(&self, bitrate: u32, sample_point: P) -> RouterInfoResult<()>
     where
         P: Into<Option<u32>>,
     {
@@ -857,7 +859,7 @@ impl CanInterface {
     }
 
     /// Gets the bit timing params for the interface
-    pub fn bit_timing(&self) -> Result<Option<CanBitTiming>, RouterInfoError> {
+    pub fn bit_timing(&self) -> RouterInfoResult<Option<CanBitTiming>> {
         self.can_param::<CanBitTiming>(IflaCan::BitTiming)
     }
 
@@ -865,24 +867,24 @@ impl CanInterface {
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn set_bit_timing(&self, timing: CanBitTiming) -> Result<(), RouterInfoError> {
+    pub fn set_bit_timing(&self, timing: CanBitTiming) -> RouterInfoResult<()> {
         self.set_can_param(IflaCan::BitTiming, timing)
     }
 
     /// Gets the bit timing const data for the interface
-    pub fn bit_timing_const(&self) -> Result<Option<CanBitTimingConst>, RouterInfoError> {
+    pub fn bit_timing_const(&self) -> RouterInfoResult<Option<CanBitTimingConst>> {
         self.can_param::<CanBitTimingConst>(IflaCan::BitTimingConst)
     }
 
     /// Gets the clock frequency for the interface
-    pub fn clock(&self) -> Result<Option<u32>, RouterInfoError> {
+    pub fn clock(&self) -> RouterInfoResult<Option<u32>> {
         Ok(self
             .can_param::<CanClock>(IflaCan::Clock)?
             .map(|clk| clk.freq))
     }
 
     /// Gets the state of the interface
-    pub fn state(&self) -> Result<Option<CanState>, RouterInfoError> {
+    pub fn state(&self) -> RouterInfoResult<Option<CanState>> {
         Ok(self
             .can_param::<u32>(IflaCan::State)?
             .and_then(|st| CanState::try_from(st).ok()))
@@ -893,7 +895,7 @@ impl CanInterface {
     /// PRIVILEGED: This requires root privilege.
     ///
     #[deprecated(since = "3.2.0", note = "Use `set_ctrlmodes` instead")]
-    pub fn set_full_ctrlmode(&self, ctrlmode: can_ctrlmode) -> Result<(), RouterInfoError> {
+    pub fn set_full_ctrlmode(&self, ctrlmode: can_ctrlmode) -> RouterInfoResult<()> {
         self.set_can_param(IflaCan::CtrlMode, ctrlmode)
     }
 
@@ -901,7 +903,7 @@ impl CanInterface {
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn set_ctrlmodes<M>(&self, ctrlmode: M) -> Result<(), RouterInfoError>
+    pub fn set_ctrlmodes<M>(&self, ctrlmode: M) -> RouterInfoResult<()>
     where
         M: Into<CanCtrlModes>,
     {
@@ -914,12 +916,12 @@ impl CanInterface {
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn set_ctrlmode(&self, mode: CanCtrlMode, on: bool) -> Result<(), RouterInfoError> {
+    pub fn set_ctrlmode(&self, mode: CanCtrlMode, on: bool) -> RouterInfoResult<()> {
         self.set_ctrlmodes(CanCtrlModes::from_mode(mode, on))
     }
 
     /// Gets the automatic CANbus restart time for the interface, in milliseconds.
-    pub fn restart_ms(&self) -> Result<Option<u32>, RouterInfoError> {
+    pub fn restart_ms(&self) -> RouterInfoResult<Option<u32>> {
         self.can_param::<u32>(IflaCan::RestartMs)
     }
 
@@ -927,7 +929,7 @@ impl CanInterface {
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn set_restart_ms(&self, restart_ms: u32) -> Result<(), RouterInfoError> {
+    pub fn set_restart_ms(&self, restart_ms: u32) -> RouterInfoResult<()> {
         self.set_can_param(IflaCan::RestartMs, &restart_ms.to_ne_bytes()[..])
     }
 
@@ -943,7 +945,7 @@ impl CanInterface {
     ///     EINVAL - The interface is down or automatic restarts are enabled
     ///     EBUSY - The interface is not in a bus-off state
     ///
-    pub fn restart(&self) -> Result<(), RouterInfoError> {
+    pub fn restart(&self) -> RouterInfoResult<()> {
         // Note: The linux code shows the data type to be u32, but never
         // appears to access the value sent. iproute2 sends a 1, so we do
         // too!
@@ -953,12 +955,12 @@ impl CanInterface {
     }
 
     /// Gets the bus error counter from the interface
-    pub fn berr_counter(&self) -> Result<Option<CanBerrCounter>, RouterInfoError> {
+    pub fn berr_counter(&self) -> RouterInfoResult<Option<CanBerrCounter>> {
         self.can_param::<CanBerrCounter>(IflaCan::BerrCounter)
     }
 
     /// Gets the data bit timing params for the interface
-    pub fn data_bit_timing(&self) -> Result<Option<CanBitTiming>, RouterInfoError> {
+    pub fn data_bit_timing(&self) -> RouterInfoResult<Option<CanBitTiming>> {
         self.can_param::<CanBitTiming>(IflaCan::DataBitTiming)
     }
 
@@ -966,7 +968,7 @@ impl CanInterface {
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn set_data_bit_timing(&self, timing: CanBitTiming) -> Result<(), RouterInfoError> {
+    pub fn set_data_bit_timing(&self, timing: CanBitTiming) -> RouterInfoResult<()> {
         self.set_can_param(IflaCan::DataBitTiming, timing)
     }
 
@@ -981,7 +983,7 @@ impl CanInterface {
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn set_data_bitrate<P>(&self, bitrate: u32, sample_point: P) -> Result<(), RouterInfoError>
+    pub fn set_data_bitrate<P>(&self, bitrate: u32, sample_point: P) -> RouterInfoResult<()>
     where
         P: Into<Option<u32>>,
     {
@@ -995,7 +997,7 @@ impl CanInterface {
     }
 
     /// Gets the data bit timing const params for the interface
-    pub fn data_bit_timing_const(&self) -> Result<Option<CanBitTimingConst>, RouterInfoError> {
+    pub fn data_bit_timing_const(&self) -> RouterInfoResult<Option<CanBitTimingConst>> {
         self.can_param::<CanBitTimingConst>(IflaCan::DataBitTimingConst)
     }
 
@@ -1007,12 +1009,12 @@ impl CanInterface {
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn set_termination(&self, termination: u16) -> Result<(), RouterInfoError> {
+    pub fn set_termination(&self, termination: u16) -> RouterInfoResult<()> {
         self.set_can_param(IflaCan::Termination, termination)
     }
 
     /// Gets the CANbus termination for the interface
-    pub fn termination(&self) -> Result<Option<u16>, RouterInfoError> {
+    pub fn termination(&self) -> RouterInfoResult<Option<u16>> {
         self.can_param::<u16>(IflaCan::Termination)
     }
 }
@@ -1032,12 +1034,9 @@ pub mod tests {
     /// (although a restart would also remove it).
     ///
     /// Intended for use (ONLY) in tests as follows:
-    /// ```
-    /// #[test]
-    /// fn my_test() {
-    ///     let interface = TemporaryInterface::new("my_test").unwrap();
-    ///     // use the interface..
-    /// }
+    /// ```ignore
+    /// let interface = TemporaryInterface::new("my_test").unwrap();
+    /// // use the interface..
     /// ```
     /// Please note that there is a limit to the length of interface names,
     /// namely 16 characters on Linux.
@@ -1050,7 +1049,7 @@ pub mod tests {
     impl TemporaryInterface {
         /// Creates a temporaty interface
         #[allow(unused)]
-        pub fn new(name: &str) -> NlResult<Self> {
+        pub fn new(name: &str) -> RouterInfoResult<Self> {
             Ok(Self {
                 interface: CanInterface::create_vcan(name, None)?,
             })

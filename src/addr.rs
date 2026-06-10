@@ -237,7 +237,7 @@ mod tests {
     fn test_addr_to_sock_addr() {
         let addr = CanAddr::new(IDX);
 
-        let (sock_addr, len) = addr.clone().into_storage();
+        let (sock_addr, len) = addr.into_storage();
 
         assert_eq!(CanAddr::len() as socklen_t, len);
         // SAFETY: both values are fully initialised — `addr` via `CanAddr::new`
