@@ -11,6 +11,12 @@ The change log for the Rust [socketcan](https://crates.io/crates/socketcan) libr
 - [#99](https://github.com/socketcan-rs/socketcan-rs/pull/99) Update `neli` and `clap`
 
 
+## [Version 3.6.1](https://github.com/socketcan-rs/socketcan-rs/compare/v3.6.0..v3.6.1)  (2026-06-10)
+
+- [#101](https://github.com/socketcan-rs/socketcan-rs/pull/101) Add libc::ioctl fix for musl targets
+    Fixed broken build in v3.6.0 for musl targets
+
+
 ## [Version 3.6.0](https://github.com/socketcan-rs/socketcan-rs/compare/v3.5.0..v3.6.0)  (2026-06-09)
 
 - Added ability to get timestamp for received frames
