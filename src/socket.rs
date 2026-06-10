@@ -577,6 +577,7 @@ fn hw_timestamps_supported(fd: RawFd) -> bool {
         ifr.ifr_ifru.ifru_data = (&mut ts_info as *mut EthtoolTsInfo).cast();
         libc::ioctl(
             fd,
+            #[allow(clippy::useless_conversion)]
             libc::SIOCETHTOOL.try_into().expect(
                 "MUSL targets expect a signed value here, on non-MUSL targets this will be a no-op",
             ),
