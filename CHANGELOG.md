@@ -4,7 +4,7 @@ The change log for the Rust [socketcan](https://crates.io/crates/socketcan) libr
 
 ## Version 4.0.0  (Unreleased)
 
-- Bumped MSRV to v1.94
+- Bumped MSRV to v1.89.0
 - Bumped Rust Edition to 2024
 - Removed direct support for `async-std` which is no longer maintained.
 

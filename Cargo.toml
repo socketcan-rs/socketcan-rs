@@ -2,7 +2,7 @@
 name = "socketcan"
 version = "4.0.0-pre.0"
 edition = "2024"
-rust-version = "1.92"
+rust-version = "1.89"
 authors = [
     "Marc Brinkmann <git@marcbrinkmann.de>",
     "Frank Pagliughi <fpagliughi@mindspring.com>"

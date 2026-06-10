@@ -25,7 +25,7 @@ Version 3.6 **finally** gets us support for timestamps on incoming frames. This 
 
 ## Minimum Supported Rust Version (MSRV)
 
-The current version of the crate targets Rust Edition 2021 with an MSRV of Rust v1.75.
+The current version of the crate targets Rust Edition 2024 with an MSRV of Rust v1.89.
 
 Note that, the core library can likely compile with an earlier version if dependencies are carefully selected, but tests are being done with the latest stable compiler and the stated MSRV.
 
