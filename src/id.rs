@@ -18,8 +18,8 @@ use libc::canid_t;
 use std::{io, ops};
 
 pub use libc::{
-    CANFD_BRS, CANFD_ESI, CANFD_MAX_DLEN, CAN_EFF_FLAG, CAN_EFF_MASK, CAN_ERR_FLAG, CAN_ERR_MASK,
-    CAN_MAX_DLEN, CAN_RTR_FLAG, CAN_SFF_MASK,
+    CAN_EFF_FLAG, CAN_EFF_MASK, CAN_ERR_FLAG, CAN_ERR_MASK, CAN_MAX_DLEN, CAN_RTR_FLAG,
+    CAN_SFF_MASK, CANFD_BRS, CANFD_ESI, CANFD_MAX_DLEN,
 };
 
 /// Mark CAN FD for dual use of struct canfd_frame.

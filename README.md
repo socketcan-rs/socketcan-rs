@@ -62,34 +62,37 @@ async fn main() -> Result<()> {
 }
 ```
 
-### async-io  (_async-std_ & _smol_)
+### _smol_
 
-New support was added for the [async-io](https://crates.io/crates/async-io) runtime, supporting the [async-std](https://crates.io/crates/async-std) and [smol](https://crates.io/crates/smol) runtimes.
+New support was added for the [async-io](https://crates.io/crates/async-io) runtime, supporting [smol](https://crates.io/crates/smol)
 
-This is enabled with the optional feature, `async-io`. It can also be enabled with either feature, `async-std` or `smol`. Either of those specific runtime flags will simply build the `async-io` support but then also alias the `async-io` submodule with the specific feature/runtime name. This is simply for convenience.
+This is enabled with the optional feature, `smol`.
+Additionally, when building examples, the specific examples for the runtime will be built if specifying the `smol` feature.
 
-Additionally, when building examples, the specific examples for the runtime will be built if specifying the `async-std` or `smol` feature(s).
-
-#### Example bridge with _async-std_
+#### Example bridge with _smol_
 
 This is a simple example of sending data frames from one CAN interface to another. It is included in
 the example applications as
-[async_std_bridge.rs](https://github.com/socketcan-rs/socketcan-rs/blob/master/examples/async_std_bridge.rs).
+[smol_bridge.rs](./examples/smol_bridge.rs).
 
 ```rust
-use socketcan::{async_std::CanSocket, CanFrame, Result};
+use socketcan::{smol::CanSocket, CanFrame, Error, Result};
 
-#[async_std::main]
-async fn main() -> Result<()> {
-    let sock_rx = CanSocket::open("vcan0")?;
-    let sock_tx = CanSocket::open("can0")?;
+fn main() -> Result<()> {
+    smol::block_on(async {
+        let sock_rx = CanSocket::open("vcan0")?;
+        let sock_tx = CanSocket::open("can0")?;
 
-    loop {
-        let frame = sock_rx.read_frame().await?;
-        if matches!(frame, CanFrame::Data(_)) {
-            sock_tx.write_frame(&frame).await?;
+        loop {
+            let frame = sock_rx.read_frame().await?;
+            if matches!(frame, CanFrame::Data(_)) {
+                sock_tx.write_frame(&frame).await?;
+            }
         }
-    }
+
+        #[allow(unreachable_code)]
+        Ok::<(), Error>(())
+    })
 }
 ```
 

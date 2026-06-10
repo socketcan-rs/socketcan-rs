@@ -4,3 +4,4 @@ Cargo.lock
 /.hgignore
 /.vscode
 /socketcan.v*
+/fmp-doc/

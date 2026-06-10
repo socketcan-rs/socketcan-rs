@@ -53,6 +53,7 @@
 //!
 
 use neli::{
+    FromBytes, ToBytes,
     attr::Attribute,
     consts::{
         nl::{NlType, NlmF, NlmFFlags},
@@ -65,7 +66,6 @@ use neli::{
     rtnl::{Ifinfomsg, Rtattr},
     socket::NlSocketHandle,
     types::{Buffer, RtBuffer},
-    FromBytes, ToBytes,
 };
 use nix::{self, net::if_::if_nametoindex};
 use rt::IflaCan;
@@ -78,8 +78,8 @@ use std::{
 /// Low-level Netlink CAN struct bindings.
 mod rt;
 
-use rt::can_ctrlmode;
 pub use rt::CanState;
+use rt::can_ctrlmode;
 
 /// A result for Netlink errors.
 type NlResult<T> = Result<T, NlError>;
@@ -974,9 +974,11 @@ pub mod tests {
 
     impl Drop for TemporaryInterface {
         fn drop(&mut self) {
-            assert!(CanInterface::open_iface(self.interface.if_index)
-                .delete()
-                .is_ok());
+            assert!(
+                CanInterface::open_iface(self.interface.if_index)
+                    .delete()
+                    .is_ok()
+            );
         }
     }
 

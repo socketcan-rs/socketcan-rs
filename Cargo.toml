@@ -1,8 +1,8 @@
 [package]
 name = "socketcan"
-version = "3.6.0"
-edition = "2021"
-rust-version = "1.75"
+version = "4.0.0-pre.0"
+edition = "2024"
+rust-version = "1.92"
 authors = [
     "Marc Brinkmann <git@marcbrinkmann.de>",
     "Frank Pagliughi <fpagliughi@mindspring.com>"
@@ -25,8 +25,6 @@ Linux SocketCAN library. Send and receive CAN frames via CANbus on Linux.
 # "utils" - Build the command-line utilities
 #
 # "tokio" - Async/await support with tokio
-# "async-io" - Async/await support with async-io
-# "async-std" - Async/await support for async-std using async-io
 # "smol" - Async/await support for smol using async-io
 #
 # "vcan_tests" - Run unit tests that require a "vcan0" interface loaded in 
@@ -41,9 +39,7 @@ dump = []
 netlink_tests = ["netlink"]
 vcan_tests = ["netlink"]
 utils = ["clap", "anyhow"]
-tokio = ["dep:tokio", "mio", "futures"]
-async-std = ["dep:async-std", "dep:async-io", "futures"]
-async-io = ["dep:async-io", "futures"]
+tokio = ["dep:tokio", "futures"]
 smol = ["dep:smol", "futures"]
 enumerate = ["dep:libudev"]
 
@@ -61,11 +57,8 @@ socket2 = { version = "0.5", features = ["all"] }
 clap = { version = "3.2", optional = true }
 anyhow = { version = "1", optional = true }
 tokio = { version = "1", features = ["net"], optional = true }
-mio = { version = "1", features = ["os-ext"], optional = true }
 futures = { version = "0.3", optional = true }
-async-io = { version = "1.13", optional = true }
-smol = { version = "1.3", optional = true }
-async-std = { version = "1.12", optional = true }
+smol = { version = "2.0", optional = true }
 libudev = { version = "0.3", optional = true }
 
 # This hack avoids building neli on non-linux platforms, which
@@ -79,11 +72,9 @@ anyhow = "1.0"
 clap = "3.2"
 ctrlc = "3.2.2"
 nb = "1.0"
-# TODO: Is it possible to only include these for async builds?
 futures-timer = "0.3"
 futures-util = "0.3"
 serial_test = { version = "2.0", features = ["async"]}
-async-std = { version = "1.12", features = ["attributes"]}
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "io-util", "time"] }
 futures = "0.3"
 
@@ -96,6 +87,11 @@ targets = ["x86_64-unknown-linux-gnu", "i686-unknown-linux-gnu"]
 [[bin]]
 name = "rcan"
 required-features = ["utils"]
+
+[[test]]
+name = "cansocket-smol"
+path = "tests/cansocket-smol.rs"
+required-features = ["smol"]
 
 [[example]]
 name = "playlog"
@@ -137,14 +133,3 @@ required-features = ["smol"]
 name = "smol_print_frames"
 required-features = ["smol"]
 
-[[example]]
-name = "async_std_send"
-required-features = ["async-std"]
-
-[[example]]
-name = "async_std_bridge"
-required-features = ["async-std"]
-
-[[example]]
-name = "async_std_print_frames"
-required-features = ["async-std"]

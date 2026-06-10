@@ -24,7 +24,7 @@
 //!
 
 use anyhow::Context;
-use embedded_can::{blocking::Can, Frame as EmbeddedFrame};
+use embedded_can::{Frame as EmbeddedFrame, blocking::Can};
 use socketcan::{CanFrame, CanSocket, Frame, Socket};
 use std::{
     env,

@@ -16,7 +16,7 @@
 //!
 
 use futures_util::StreamExt;
-use socketcan::{tokio::CanSocket, CanFrame};
+use socketcan::{CanFrame, tokio::CanSocket};
 use std::env;
 
 #[tokio::main]

@@ -1,6 +1,7 @@
-// socketcan/src/socket/async_io.rs
+// socketcan/src/socket/smol.rs
 //
-// Implements sockets for CANbus 2.0 and FD for SocketCAN on Linux.
+// Implements sockets for CANbus 2.0 and FD for SocketCAN on Linux for the
+// `smol` async runtime.
 //
 // This file is part of the Rust 'socketcan-rs' library.
 //
@@ -9,11 +10,11 @@
 // This file may not be copied, modified, or distributed except according
 // to those terms.
 
-//! Bindings to async-io for CANbus 2.0 and FD sockets using SocketCAN on Linux.
+//! Bindings to `smol` for CANbus 2.0 and FD sockets using SocketCAN on Linux.
 
 use crate::{
-    frame::AsPtr, timestamp::CanTimestamps, CanAddr, CanAnyFrame, CanFrame, Error, Socket,
-    SocketOptions,
+    CanAddr, CanAnyFrame, CanFrame, Error, Socket, SocketOptions, frame::AsPtr,
+    timestamp::CanTimestamps,
 };
 use futures::{ready, sink::Sink, stream::Stream};
 use std::{
@@ -24,18 +25,12 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-#[cfg(any(feature = "async-io", feature = "async-std"))]
-use async_io::Async;
-
-#[cfg(all(
-    feature = "smol",
-    not(any(feature = "async-io", feature = "async-std"))
-))]
+//use async_io::Async;
 use smol::Async;
 
 /////////////////////////////////////////////////////////////////////////////
 
-/// An asynchronous CAN socket for use with `async-io`.
+/// An asynchronous CAN socket for use with `smol`.
 #[derive(Debug)]
 pub struct CanSocket(Async<crate::CanSocket>);
 
@@ -72,11 +67,11 @@ impl CanSocket {
     ///
     /// Returns `WouldBlock` if the send buffer is full.
     ///
-    /// Bypasses the async-io readiness reactor: this call goes straight to
-    /// the underlying non-blocking fd, so no reactor readiness event is
-    /// consumed. Mixing with [`write_frame`](Self::write_frame) on the same
-    /// socket is safe — the async path will simply re-check OS-level
-    /// readiness on its next poll and may briefly round-trip through
+    /// Bypasses the `smol`/`async-io` readiness reactor: this call goes
+    /// straight to the underlying non-blocking fd, so no reactor readiness
+    /// event is consumed. Mixing with [`write_frame`](Self::write_frame) on
+    /// the same socket is safe — the async path will simply re-check
+    /// OS-level readiness on its next poll and may briefly round-trip through
     /// `WouldBlock` before re-arming.
     pub fn try_write_frame<F>(&self, frame: &F) -> io::Result<()>
     where
@@ -94,11 +89,11 @@ impl CanSocket {
     ///
     /// Returns `WouldBlock` if no frame is immediately available.
     ///
-    /// Bypasses the async-io readiness reactor: this call goes straight to
-    /// the underlying non-blocking fd, so no reactor readiness event is
-    /// consumed. Mixing with [`read_frame`](Self::read_frame) on the same
-    /// socket is safe — the async path will simply re-check OS-level
-    /// readiness on its next poll and may briefly round-trip through
+    /// Bypasses the `smol`/`async-io` readiness reactor: this call goes
+    /// straight to the underlying non-blocking fd, so no reactor readiness
+    /// event is consumed. Mixing with [`read_frame`](Self::read_frame) on
+    /// the same socket is safe — the async path will simply re-check
+    /// OS-level readiness on its next poll and may briefly round-trip through
     /// `WouldBlock` before re-arming.
     pub fn try_read_frame(&self) -> io::Result<CanFrame> {
         self.0.get_ref().read_frame()
@@ -196,7 +191,7 @@ impl Sink<CanFrame> for CanSocket {
 
 /////////////////////////////////////////////////////////////////////////////
 
-/// An asynchronous CAN socket for use with `async-io`.
+/// An asynchronous CAN socket for use with `smol`.
 #[derive(Debug)]
 pub struct CanFdSocket(Async<crate::CanFdSocket>);
 
@@ -233,11 +228,11 @@ impl CanFdSocket {
     ///
     /// Returns `WouldBlock` if the send buffer is full.
     ///
-    /// Bypasses the async-io readiness reactor: this call goes straight to
-    /// the underlying non-blocking fd, so no reactor readiness event is
-    /// consumed. Mixing with [`write_frame`](Self::write_frame) on the same
-    /// socket is safe — the async path will simply re-check OS-level
-    /// readiness on its next poll and may briefly round-trip through
+    /// Bypasses the `smol`/`async-io` readiness reactor: this call goes
+    /// straight to the underlying non-blocking fd, so no reactor readiness
+    /// event is consumed. Mixing with [`write_frame`](Self::write_frame) on
+    /// the same socket is safe — the async path will simply re-check
+    /// OS-level readiness on its next poll and may briefly round-trip through
     /// `WouldBlock` before re-arming.
     pub fn try_write_frame<F>(&self, frame: &F) -> io::Result<()>
     where
@@ -255,11 +250,11 @@ impl CanFdSocket {
     ///
     /// Returns `WouldBlock` if no frame is immediately available.
     ///
-    /// Bypasses the async-io readiness reactor: this call goes straight to
-    /// the underlying non-blocking fd, so no reactor readiness event is
-    /// consumed. Mixing with [`read_frame`](Self::read_frame) on the same
-    /// socket is safe — the async path will simply re-check OS-level
-    /// readiness on its next poll and may briefly round-trip through
+    /// Bypasses the `smol`/`async-io` readiness reactor: this call goes
+    /// straight to the underlying non-blocking fd, so no reactor readiness
+    /// event is consumed. Mixing with [`read_frame`](Self::read_frame) on
+    /// the same socket is safe — the async path will simply re-check
+    /// OS-level readiness on its next poll and may briefly round-trip through
     /// `WouldBlock` before re-arming.
     pub fn try_read_frame(&self) -> io::Result<CanAnyFrame> {
         self.0.get_ref().read_frame()

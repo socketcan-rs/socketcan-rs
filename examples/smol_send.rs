@@ -17,7 +17,7 @@
 
 use embedded_can::{Frame, StandardId};
 use futures_timer::Delay;
-use socketcan::{smol::CanSocket, CanFrame, Error, Result};
+use socketcan::{CanFrame, Error, Result, smol::CanSocket};
 use std::{env, time::Duration};
 
 fn main() -> Result<()> {

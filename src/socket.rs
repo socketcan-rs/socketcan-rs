@@ -12,17 +12,17 @@
 //! Implementation of sockets for CANbus 2.0 and FD for SocketCAN on Linux.
 
 use crate::{
+    CanAnyFrame, CanFdFrame, CanFrame, CanRawFrame, Error, IoError, IoErrorKind, IoResult, Result,
     as_bytes, as_bytes_mut,
-    frame::{can_frame_default, canfd_frame_default, AsPtr},
+    frame::{AsPtr, can_frame_default, canfd_frame_default},
     id::CAN_ERR_MASK,
     timestamp::CanTimestamps,
-    CanAnyFrame, CanFdFrame, CanFrame, CanRawFrame, Error, IoError, IoErrorKind, IoResult, Result,
 };
 pub use embedded_can::{
-    self, blocking::Can as BlockingCan, nb::Can as NonBlockingCan, ExtendedId,
-    Frame as EmbeddedFrame, Id, StandardId,
+    self, ExtendedId, Frame as EmbeddedFrame, Id, StandardId, blocking::Can as BlockingCan,
+    nb::Can as NonBlockingCan,
 };
-use libc::{canid_t, socklen_t, AF_CAN, EINPROGRESS, SOL_SOCKET};
+use libc::{AF_CAN, EINPROGRESS, SOL_SOCKET, canid_t, socklen_t};
 use socket2::SockAddr;
 use std::{
     fmt,
@@ -37,8 +37,8 @@ use std::{
 };
 
 pub use libc::{
-    CANFD_MTU, CAN_MTU, CAN_RAW, CAN_RAW_ERR_FILTER, CAN_RAW_FD_FRAMES, CAN_RAW_FILTER,
-    CAN_RAW_JOIN_FILTERS, CAN_RAW_LOOPBACK, CAN_RAW_RECV_OWN_MSGS, SOL_CAN_BASE, SOL_CAN_RAW,
+    CAN_MTU, CAN_RAW, CAN_RAW_ERR_FILTER, CAN_RAW_FD_FRAMES, CAN_RAW_FILTER, CAN_RAW_JOIN_FILTERS,
+    CAN_RAW_LOOPBACK, CAN_RAW_RECV_OWN_MSGS, CANFD_MTU, SOL_CAN_BASE, SOL_CAN_RAW,
 };
 
 // TODO: This can be removed on the next major version update
@@ -264,7 +264,7 @@ pub trait Socket: AsRawFd {
 
     /// Blocking read a single can frame with timeout.
     fn read_frame_timeout(&self, timeout: Duration) -> IoResult<Self::FrameType> {
-        use nix::poll::{poll, PollFd, PollFlags, PollTimeout};
+        use nix::poll::{PollFd, PollFlags, PollTimeout, poll};
         let pollfd = PollFd::new(
             unsafe { BorrowedFd::borrow_raw(self.as_raw_fd()) },
             PollFlags::POLLIN,
@@ -542,7 +542,7 @@ pub trait SocketOptions: AsRawFd {
 /// Returns `false` on any error (unbound socket, unsupported ioctl,
 /// unknown interface, etc).
 fn hw_timestamps_supported(fd: RawFd) -> bool {
-    use crate::timestamp::{EthtoolTsInfo, ETHTOOL_GET_TS_INFO, SOF_TIMESTAMPING_RX_HARDWARE};
+    use crate::timestamp::{ETHTOOL_GET_TS_INFO, EthtoolTsInfo, SOF_TIMESTAMPING_RX_HARDWARE};
 
     // Retrieve the interface index from the bound socket address.
     let ifindex = unsafe {

@@ -3,8 +3,8 @@
 //! Simple CLI tool to run basic CAN bus functionality from the Linux
 //! command line, similar to 'can-utils'.
 
-use anyhow::{anyhow, Result};
-use clap::{arg, value_parser, ArgAction, ArgMatches, Command};
+use anyhow::{Result, anyhow};
+use clap::{ArgAction, ArgMatches, Command, arg, value_parser};
 use socketcan::{CanCtrlMode, CanInterface};
 use std::process;
 

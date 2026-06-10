@@ -17,7 +17,7 @@
 
 use embedded_can::{Frame, StandardId};
 use futures_timer::Delay;
-use socketcan::{tokio::CanSocket, CanFrame, Result};
+use socketcan::{CanFrame, Result, tokio::CanSocket};
 use std::{env, time::Duration};
 
 #[tokio::main]

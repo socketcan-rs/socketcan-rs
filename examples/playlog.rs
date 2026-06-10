@@ -16,8 +16,8 @@
 //!
 
 use anyhow::{Context, Result};
-use clap::{arg, ArgAction, Command};
-use socketcan::{dump::Reader, CanAnyFrame, CanFdSocket, Socket};
+use clap::{ArgAction, Command, arg};
+use socketcan::{CanAnyFrame, CanFdSocket, Socket, dump::Reader};
 use std::process;
 
 // Make the app version the same as the package.

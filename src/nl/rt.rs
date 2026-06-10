@@ -21,9 +21,10 @@
 use crate::{as_bytes, as_bytes_mut};
 use libc::{c_char, c_uint};
 use neli::{
+    FromBytes, Size, ToBytes,
     consts::rtnl::{RtaType, RtaTypeWrapper},
     err::{DeError, SerError},
-    impl_trait, neli_enum, FromBytes, Size, ToBytes,
+    impl_trait, neli_enum,
 };
 use std::{
     io::{self, Cursor, Read, Write},

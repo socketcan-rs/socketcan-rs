@@ -11,9 +11,9 @@
 
 #[cfg(feature = "vcan_tests")]
 use socketcan::{
+    CanFrame, CanSocket, EmbeddedFrame, SOF_TIMESTAMPING_OPT_CMSG, SOF_TIMESTAMPING_RX_SOFTWARE,
+    SOF_TIMESTAMPING_SOFTWARE, ShouldRetry, Socket, SocketOptions, StandardId,
     id::{ERR_MASK_ALL, ERR_MASK_NONE},
-    CanFrame, CanSocket, EmbeddedFrame, ShouldRetry, Socket, SocketOptions, StandardId,
-    SOF_TIMESTAMPING_OPT_CMSG, SOF_TIMESTAMPING_RX_SOFTWARE, SOF_TIMESTAMPING_SOFTWARE,
 };
 
 #[cfg(feature = "vcan_tests")]

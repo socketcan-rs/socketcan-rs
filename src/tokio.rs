@@ -27,8 +27,8 @@
 //! }
 //! ```
 use crate::{
-    frame::AsPtr, timestamp::CanTimestamps, CanAddr, CanAnyFrame, CanFrame, Error, IoResult,
-    Result, Socket, SocketOptions,
+    CanAddr, CanAnyFrame, CanFrame, Error, IoResult, Result, Socket, SocketOptions, frame::AsPtr,
+    timestamp::CanTimestamps,
 };
 use futures::{prelude::*, ready, task::Context};
 use std::{
@@ -41,8 +41,8 @@ use std::{
     task::Poll,
     time::{Duration, SystemTime},
 };
-use tokio::io::unix::AsyncFd;
 use tokio::io::Interest;
+use tokio::io::unix::AsyncFd;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 /// An asynchronous I/O wrapped CanSocket
@@ -437,8 +437,8 @@ impl AsyncWrite for CanFdSocket {
 mod tests {
     use super::*;
     use crate::{
-        frame::{can_frame_default, AsPtr},
         CanFdFrame, CanFrame, Frame, IoErrorKind, StandardId,
+        frame::{AsPtr, can_frame_default},
     };
     use embedded_can::Frame as EmbeddedFrame;
     use futures::{select, try_join};

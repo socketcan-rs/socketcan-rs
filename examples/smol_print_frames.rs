@@ -13,7 +13,7 @@
 //! This receives CAN frames and prints them to the console.
 //!
 
-use socketcan::{smol::CanSocket, CanFrame, Error, Result};
+use socketcan::{CanFrame, Error, Result, smol::CanSocket};
 use std::env;
 
 fn main() -> Result<()> {

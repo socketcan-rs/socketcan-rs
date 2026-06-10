@@ -30,9 +30,9 @@
 //! [csv](https://crates.io/crates/csv) crate.
 
 use crate::{
-    frame::Frame,
-    id::{id_from_raw, FdFlags},
     CanAnyFrame, CanDataFrame, CanFdFrame, CanFrame, CanRemoteFrame, ConstructionError,
+    frame::Frame,
+    id::{FdFlags, id_from_raw},
 };
 use embedded_can::Frame as EmbeddedFrame;
 use hex::FromHex;
@@ -464,7 +464,9 @@ mod test {
         assert_eq!(frame.data().len(), 12);
         assert_eq!(
             frame.data(),
-            &[0x0, 0x011, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB]
+            &[
+                0x0, 0x011, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB
+            ]
         );
     }
 

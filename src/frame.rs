@@ -30,7 +30,7 @@
 //!   [Error](https://doc.rust-lang.org/std/error/trait.Error.html) types.
 //!
 
-use crate::{id::CanId, CanError, ConstructionError};
+use crate::{CanError, ConstructionError, id::CanId};
 use embedded_can::{ExtendedId, Frame as EmbeddedFrame, Id, StandardId};
 use libc::{can_frame, canfd_frame, canid_t};
 use std::{
@@ -41,9 +41,9 @@ use std::{
 
 // TODO: Remove these on the next major ver update.
 pub use crate::id::{
-    id_from_raw, id_is_extended, id_to_canid_t, FdFlags, IdFlags, CANFD_BRS, CANFD_ESI, CANFD_FDF,
-    CANFD_MAX_DLEN, CAN_EFF_FLAG, CAN_EFF_MASK, CAN_ERR_FLAG, CAN_ERR_MASK, CAN_MAX_DLEN,
-    CAN_RTR_FLAG, CAN_SFF_MASK, ERR_MASK_ALL, ERR_MASK_NONE,
+    CAN_EFF_FLAG, CAN_EFF_MASK, CAN_ERR_FLAG, CAN_ERR_MASK, CAN_MAX_DLEN, CAN_RTR_FLAG,
+    CAN_SFF_MASK, CANFD_BRS, CANFD_ESI, CANFD_FDF, CANFD_MAX_DLEN, ERR_MASK_ALL, ERR_MASK_NONE,
+    FdFlags, IdFlags, id_from_raw, id_is_extended, id_to_canid_t,
 };
 
 // ===== can_frame =====
