@@ -7,6 +7,9 @@ The change log for the Rust [socketcan](https://crates.io/crates/socketcan) libr
 - Bumped MSRV to v1.89.0
 - Bumped Rust Edition to 2024
 - Removed direct support for `async-std` which is no longer maintained.
+- [#88](https://github.com/socketcan-rs/socketcan-rs/pull/88) Updated _smol_ to v2.0
+- [#99](https://github.com/socketcan-rs/socketcan-rs/pull/99) Update `neli` and `clap`
+
 
 ## [Version 3.6.0](https://github.com/socketcan-rs/socketcan-rs/compare/v3.5.0..v3.6.0)  (2026-06-09)
 
