@@ -491,7 +491,8 @@ mod tests {
     /// Write a test frame to the CanSocket using the `tokio::io::AsyncWrite` trait
     async fn write_frame_with_async_write(socket: &mut CanSocket) -> Result<()> {
         let test_frame = CanFrame::new(StandardId::new(0x1).unwrap(), &[0]).unwrap();
-        socket.write_all(test_frame.as_bytes()).await?;
+        // SAFETY: `test_frame` is zero-initialised by its constructor, so all bytes are initialised.
+        socket.write_all(unsafe { test_frame.as_bytes() }).await?;
         Ok(())
     }
 
@@ -546,7 +547,8 @@ mod tests {
     /// Write a test frame to the CanSocket using the `tokio::io::AsyncWrite` trait
     async fn write_frame_fd_with_async_write(socket: &mut CanFdSocket) -> Result<()> {
         let test_frame = CanFdFrame::new(StandardId::new(0x1).unwrap(), &[0]).unwrap();
-        socket.write_all(test_frame.as_bytes()).await?;
+        // SAFETY: `test_frame` is zero-initialised by its constructor, so all bytes are initialised.
+        socket.write_all(unsafe { test_frame.as_bytes() }).await?;
         Ok(())
     }
 

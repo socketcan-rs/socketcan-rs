@@ -742,7 +742,11 @@ impl Socket for CanSocket {
     where
         F: Into<CanFrame> + AsPtr,
     {
-        self.as_raw_socket().write_all(frame.as_bytes())
+        // SAFETY: the frame's inner `can_frame`/`canfd_frame` is fully
+        // initialised — constructors zero the struct via `*_default()`
+        // (`mem::zeroed`) before writing fields — so reading every byte
+        // (including padding) is sound.
+        self.as_raw_socket().write_all(unsafe { frame.as_bytes() })
     }
 
     /// Reads a normal CAN 2.0 frame from the socket.
@@ -997,7 +1001,11 @@ impl Socket for CanFdSocket {
     where
         F: Into<Self::FrameType> + AsPtr,
     {
-        self.as_raw_socket().write_all(frame.as_bytes())
+        // SAFETY: the frame's inner `can_frame`/`canfd_frame` is fully
+        // initialised — constructors zero the struct via `*_default()`
+        // (`mem::zeroed`) before writing fields — so reading every byte
+        // (including padding) is sound.
+        self.as_raw_socket().write_all(unsafe { frame.as_bytes() })
     }
 
     /// Reads either type of CAN frame from the socket.

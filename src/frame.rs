@@ -81,7 +81,15 @@ pub trait AsPtr {
     }
 
     /// Gets a byte slice to the inner type
-    fn as_bytes(&self) -> &[u8] {
+    ///
+    /// # Safety
+    ///
+    /// All `self.size()` bytes of the inner value — including any padding —
+    /// must be initialised at the time of this call. Reading the returned
+    /// slice is undefined behaviour otherwise. Note that `set_data` does not
+    /// zero the unused trailing bytes of `can_frame::data`, so a frame built
+    /// through typed accessors may still contain uninitialised padding.
+    unsafe fn as_bytes(&self) -> &[u8] {
         unsafe {
             std::slice::from_raw_parts::<'_, u8>(
                 self.as_ptr() as *const _ as *const u8,
@@ -91,7 +99,14 @@ pub trait AsPtr {
     }
 
     /// Gets a mutable byte slice to the inner type
-    fn as_bytes_mut(&mut self) -> &mut [u8] {
+    ///
+    /// # Safety
+    ///
+    /// Either all `self.size()` bytes of the inner value must be initialised
+    /// at the time of the call, OR the caller must overwrite the entire slice
+    /// before reading from it. Constructing the slice is sound, but reading
+    /// uninitialised bytes through it is undefined behaviour.
+    unsafe fn as_bytes_mut(&mut self) -> &mut [u8] {
         unsafe { std::slice::from_raw_parts_mut(self.as_mut_ptr() as *mut u8, self.size()) }
     }
 }

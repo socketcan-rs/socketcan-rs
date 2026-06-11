@@ -17,6 +17,7 @@ The change log for the Rust [socketcan](https://crates.io/crates/socketcan) libr
 - Updated `itertools` to v0.14 (no API changes required)
 - Updated the `serial_test` dev-dependency to v3.5 (no API changes required)
 - Updated the `futures-timer` dev-dependency to v3.0. Its `Delay` future now yields `()` instead of `io::Result<()>`, so the `.await?` in the `tokio_send`/`smol_send` examples became `.await`
+- **Breaking:** the `AsPtr::as_bytes` and `AsPtr::as_bytes_mut` trait methods are now `unsafe fn` with a documented `# Safety` contract (reading uninitialised padding through the returned byte slice is UB). This completes the soundness fix begun in 3.6.0 (which marked the free `as_bytes`/`as_bytes_mut` helpers `unsafe`). Callers of these trait methods must wrap calls in `unsafe`
 
 
 ## [Version 3.6.1](https://github.com/socketcan-rs/socketcan-rs/compare/v3.6.0..v3.6.1)  (2026-06-10)
