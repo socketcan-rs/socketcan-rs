@@ -17,6 +17,9 @@ use socketcan::{
 };
 
 #[cfg(feature = "vcan_tests")]
+use serial_test::serial;
+
+#[cfg(feature = "vcan_tests")]
 use std::time::{self, SystemTime};
 
 // The virtual CAN interface to use for tests.
@@ -31,6 +34,7 @@ fn test_nonexistent_device() {
 
 #[test]
 #[cfg(feature = "vcan_tests")]
+#[serial]
 fn vcan_timeout() {
     let sock = CanSocket::open(VCAN).unwrap();
     // Filter out _any_ traffic
@@ -43,6 +47,7 @@ fn vcan_timeout() {
 
 #[test]
 #[cfg(feature = "vcan_tests")]
+#[serial]
 fn vcan_set_error_mask() {
     let sock = CanSocket::open(VCAN).unwrap();
     sock.set_error_mask(ERR_MASK_ALL).unwrap();
@@ -51,6 +56,7 @@ fn vcan_set_error_mask() {
 
 #[test]
 #[cfg(feature = "vcan_tests")]
+#[serial]
 fn vcan_enable_own_loopback() {
     let sock = CanSocket::open(VCAN).unwrap();
     sock.set_loopback(true).unwrap();
@@ -71,6 +77,7 @@ fn vcan_enable_own_loopback() {
 
 #[test]
 #[cfg(feature = "vcan_tests")]
+#[serial]
 fn vcan_test_nonblocking() {
     let sock = CanSocket::open(VCAN).unwrap();
     // Filter out _any_ traffic
@@ -83,6 +90,7 @@ fn vcan_test_nonblocking() {
 
 #[test]
 #[cfg(feature = "vcan_tests")]
+#[serial]
 fn vcan_has_hw_timestamps_returns_false() {
     // vcan is a software-only driver, so it must never claim HW timestamp
     // support — and the query must not panic on an unbound/SW interface.
@@ -92,6 +100,7 @@ fn vcan_has_hw_timestamps_returns_false() {
 
 #[test]
 #[cfg(feature = "vcan_tests")]
+#[serial]
 fn vcan_read_frame_with_timestamp() {
     let sock = CanSocket::open(VCAN).unwrap();
     sock.set_loopback(true).unwrap();
@@ -119,6 +128,7 @@ fn vcan_read_frame_with_timestamp() {
 
 #[test]
 #[cfg(feature = "vcan_tests")]
+#[serial]
 fn vcan_read_frame_with_timestamps_populates_sw() {
     let sock = CanSocket::open(VCAN).unwrap();
     sock.set_loopback(true).unwrap();

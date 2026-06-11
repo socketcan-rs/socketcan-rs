@@ -15,6 +15,8 @@ The change log for the Rust [socketcan](https://crates.io/crates/socketcan) libr
     - The `From<CanAddr> for SockAddr` now fills socket2's new `SockAddrStorage` wrapper type
 - Updated `nix` to v0.31 (no API changes required) and dropped the unused `process` feature (only `poll` and `net` are used)
 - Updated `itertools` to v0.14 (no API changes required)
+- Updated the `serial_test` dev-dependency to v3.5 (no API changes required)
+- Updated the `futures-timer` dev-dependency to v3.0. Its `Delay` future now yields `()` instead of `io::Result<()>`, so the `.await?` in the `tokio_send`/`smol_send` examples became `.await`
 
 
 ## [Version 3.6.1](https://github.com/socketcan-rs/socketcan-rs/compare/v3.6.0..v3.6.1)  (2026-06-10)

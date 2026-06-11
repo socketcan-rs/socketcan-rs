@@ -33,7 +33,7 @@ fn main() -> Result<()> {
             sock.write_frame(&frame).await?;
 
             println!("Waiting 3 seconds");
-            Delay::new(Duration::from_secs(3)).await?;
+            Delay::new(Duration::from_secs(3)).await;
         }
 
         #[allow(unreachable_code)]

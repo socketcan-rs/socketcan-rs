@@ -72,9 +72,9 @@ anyhow = "1.0"
 clap = "4.6"
 ctrlc = "3.2.2"
 nb = "1.0"
-futures-timer = "0.3"
+futures-timer = "3.0"
 futures-util = "0.3"
-serial_test = { version = "2.0", features = ["async"]}
+serial_test = { version = "3.5", features = ["async"]}
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "io-util", "time"] }
 futures = "0.3"
 

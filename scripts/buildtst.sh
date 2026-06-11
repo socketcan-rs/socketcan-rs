@@ -72,8 +72,8 @@ for VER in stable ${MSRV} ; do
     [ "$?" -ne 0 ] && exit 1
 
     for FEATURE in "tokio" "smol" "enumerate"; do
-        printf "\n\nBuilding with feature [%s]...\n" "${FEATURE}" "${VER}"
         FEATURES="${FEATURE},utils,vcan_tests"
+        printf "\n\nBuilding with features [%s] for %s...\n" "${FEATURES}" "${VER}"
         cargo clean && \
             cargo +"${VER}" check --no-default-features --features="${FEATURES}" --all-targets && \
             cargo +"${VER}" test --no-default-features --features="${FEATURES}"
