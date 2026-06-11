@@ -48,7 +48,7 @@ embedded-can = "0.4"
 nb = "1"
 log = "0.4"
 hex = "0.4"
-itertools = "0.13"
+itertools = "0.14"
 libc = { version = "0.2", features = ["extra_traits"] }
 nix = { version="0.31", features = ["poll", "net"] }
 bitflags = "2.6"
