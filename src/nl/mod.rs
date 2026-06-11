@@ -920,6 +920,18 @@ impl CanInterface {
         self.set_ctrlmodes(CanCtrlModes::from_mode(mode, on))
     }
 
+    /// Gets the control mode (bit) collection for the interface.
+    ///
+    /// The returned [`CanCtrlModes`] carries the kernel-reported `flags`
+    /// (current state) alongside the `mask`; use [`CanCtrlModes::has_mode`]
+    /// to test individual modes. Returns `None` if the interface reports no
+    /// control-mode attribute.
+    pub fn ctrlmodes(&self) -> RouterInfoResult<Option<CanCtrlModes>> {
+        Ok(self
+            .can_param::<can_ctrlmode>(IflaCan::CtrlMode)?
+            .map(CanCtrlModes))
+    }
+
     /// Gets the automatic CANbus restart time for the interface, in milliseconds.
     pub fn restart_ms(&self) -> RouterInfoResult<Option<u32>> {
         self.can_param::<u32>(IflaCan::RestartMs)
@@ -988,6 +1000,21 @@ impl CanInterface {
         P: Into<Option<u32>>,
     {
         let sample_point: u32 = sample_point.into().unwrap_or(0);
+
+        // The FD data phase runs faster than the classical 1 Mbit/s nominal
+        // limit (commonly 2..8 Mbit/s), so the upper sanity bound is higher
+        // than `set_bitrate`'s. This is a debug-only sanity check to catch
+        // gross programmer errors; the kernel still validates the real value.
+        debug_assert!(
+            0 < bitrate && bitrate <= 8000000,
+            "Data bitrate must be within 1..=8000000, received {}.",
+            bitrate
+        );
+        debug_assert!(
+            sample_point < 1000,
+            "Sample point must be within 0..1000, received {}.",
+            sample_point
+        );
 
         self.set_data_bit_timing(CanBitTiming {
             bitrate,
