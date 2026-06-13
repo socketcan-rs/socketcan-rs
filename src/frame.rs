@@ -30,7 +30,7 @@
 //!   [Error](https://doc.rust-lang.org/std/error/trait.Error.html) types.
 //!
 
-use crate::{id::CanId, CanError, ConstructionError};
+use crate::{errors::CanErrorFlags, id::CanId, CanError, ConstructionError};
 use embedded_can::{ExtendedId, Frame as EmbeddedFrame, Id, StandardId};
 use libc::{can_frame, canfd_frame, canid_t};
 use std::{
@@ -1054,6 +1054,15 @@ impl AsRef<can_frame> for CanRemoteFrame {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CanErrorFrame(can_frame);
 
+impl PartialEq for CanErrorFrame {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.can_id == other.0.can_id
+            && self.0.can_dlc == other.0.can_dlc
+            && self.0.len8_dlc == other.0.len8_dlc
+            && self.0.data[..] == other.0.data[..]
+    }
+}
+
 impl CanErrorFrame {
     /// Creates a CAN error frame from raw parts.
     ///
@@ -1218,33 +1227,47 @@ impl TryFrom<can_frame> for CanErrorFrame {
 
 impl From<CanError> for CanErrorFrame {
     fn from(err: CanError) -> Self {
-        use CanError::*;
 
         let mut data = [0u8; CAN_MAX_DLEN];
-        let id: canid_t = match err {
-            TransmitTimeout => 0x0001,
-            LostArbitration(bit) => {
-                data[0] = bit;
-                0x0002
-            }
-            ControllerProblem(prob) => {
-                data[1] = prob as u8;
-                0x0004
-            }
-            ProtocolViolation { vtype, location } => {
-                data[2] = vtype as u8;
-                data[3] = location as u8;
-                0x0008
-            }
-            TransceiverError => 0x0010,
-            NoAck => 0x0020,
-            BusOff => 0x0040,
-            BusError => 0x0080,
-            Restarted => 0x0100,
-            DecodingFailure(_failure) => 0,
-            Unknown(e) => e,
-        };
-        Self::new_error(id, &data).unwrap()
+        let mut can_id: canid_t = CAN_ERR_FLAG;
+
+        if err.transmit_timeout {
+            can_id |= CanErrorFlags::TxTimeout as u32;
+        }
+        if let Some(lost_arbitration) = err.lost_arbitration {
+            can_id |= CanErrorFlags::LostArbitration as u32;
+            data[0] = lost_arbitration.bit;
+        }
+        for controller_problem in err.controller_problems {
+            can_id |= CanErrorFlags::ControllerProblems as u32;
+            data[1] |= controller_problem as u8;
+        }
+        for protocol_violation in err.protocol_violations {
+            can_id |= CanErrorFlags::ProtocolViolations as u32;
+            data[2] = protocol_violation as u8;
+        }
+        if let Some(location) = err.location {
+            data[3] = location as u8;
+        }
+        if let Some(transceiver_error) = err.transceiver_error {
+            can_id |= CanErrorFlags::TransceiverStatus as u32;
+            data[4] = transceiver_error as u8;
+        }
+        if err.no_ack {
+            can_id |= CanErrorFlags::NoAck as u32;
+        }
+        if err.bus_off {
+            can_id |= CanErrorFlags::BusOff as u32;
+        }
+        if err.bus_error {
+            can_id |= CanErrorFlags::BusError as u32;
+        }
+        if err.restarted {
+            can_id |= CanErrorFlags::Restarted as u32;
+        }
+        // ignore parsing errors for CanErrorFrame -> CanError
+
+        Self::new_error(can_id, &data).unwrap()
     }
 }
 
@@ -1535,7 +1558,7 @@ impl AsRef<canfd_frame> for CanFdFrame {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::errors;
+    use crate::errors::{self, TransceiverError};
 
     const STD_ID: Id = Id::Standard(StandardId::MAX);
     const EXT_ID: Id = Id::Extended(ExtendedId::MAX);
@@ -1732,7 +1755,7 @@ mod tests {
         frame.can_id = CAN_ERR_FLAG | 0x0010;
 
         let err = CanError::from(CanErrorFrame(frame));
-        assert!(matches!(err, CanError::TransceiverError));
+        assert!(matches!(err.transceiver_error, Some(TransceiverError::Unspecified)));
 
         let id = StandardId::new(0x0010).unwrap();
         let frame = CanErrorFrame::new(id, &[]).unwrap();
@@ -1741,7 +1764,7 @@ mod tests {
         assert!(frame.is_error_frame());
 
         let err = CanError::from(frame);
-        assert!(matches!(err, CanError::TransceiverError));
+        assert!(matches!(err.transceiver_error, Some(TransceiverError::Unspecified)));
 
         let id = ExtendedId::new(0x0020).unwrap();
         let frame = CanErrorFrame::new(id, &[]).unwrap();
@@ -1750,34 +1773,34 @@ mod tests {
         assert!(frame.is_error_frame());
 
         let err = CanError::from(frame);
-        assert!(matches!(err, CanError::NoAck));
+        assert!(err.no_ack);
 
         // From CanErrors
 
-        let frame = CanErrorFrame::from(CanError::TransmitTimeout);
-        assert!(!frame.is_data_frame());
-        assert!(!frame.is_remote_frame());
-        assert!(frame.is_error_frame());
-
-        let err = frame.into_error();
-        assert!(matches!(err, CanError::TransmitTimeout));
-
-        let err = CanError::ProtocolViolation {
-            vtype: errors::ViolationType::BitStuffingError,
-            location: errors::Location::Id0400,
+        let err_in = CanError {
+            transmit_timeout: true,
+            ..Default::default()
         };
-        let frame = CanErrorFrame::from(err);
+        let frame = CanErrorFrame::from(err_in.clone());
         assert!(!frame.is_data_frame());
         assert!(!frame.is_remote_frame());
         assert!(frame.is_error_frame());
 
-        match frame.into_error() {
-            CanError::ProtocolViolation { vtype, location } => {
-                assert_eq!(vtype, errors::ViolationType::BitStuffingError);
-                assert_eq!(location, errors::Location::Id0400);
-            }
-            _ => assert!(false),
-        }
+        let err_out = frame.into_error();
+        assert_eq!(err_in, err_out);
+
+        let err_in = CanError {
+            protocol_violations: vec![errors::ViolationType::BitStuffingError],
+            location: Some(errors::Location::Id0400),
+            ..Default::default()
+        };
+        let frame = CanErrorFrame::from(err_in.clone());
+        assert!(!frame.is_data_frame());
+        assert!(!frame.is_remote_frame());
+        assert!(frame.is_error_frame());
+
+        let err_out = frame.into_error();
+        assert_eq!(err_in, err_out);
     }
 
     #[test]
