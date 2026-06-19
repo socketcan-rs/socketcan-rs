@@ -88,7 +88,12 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "io-ut
 futures = "0.3"
 
 [package.metadata.docs.rs]
-all-features = true
+# Building the documentation with one of the `async-io`/`async-std`/`smol` features enabled
+# fails with recent nightly compilers, like the one used by docs.rs: https://github.com/socketcan-rs/socketcan-rs/issues/102
+# This enables all features except for those listed above.
+#
+# TODO: Switch back to `all-features = true` once that is resolved in 4.0.
+features = ["netlink", "dump", "enumerate", "utils", "tokio"]
 rustdoc-args = ["--cfg", "docsrs"]
 targets = ["x86_64-unknown-linux-gnu", "i686-unknown-linux-gnu"]
 

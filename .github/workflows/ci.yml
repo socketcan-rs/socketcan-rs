@@ -2,7 +2,7 @@
 #
 # It does the following:
 # - Format check of the sources using nightly
-# - Build check using the current stable compiler and the MSRV version.
+# - Build check using the current stable, nightly and MSRV compiler versions.
 #   - Check library, utils, examples, and tests
 # - Clippy check using the MSRV compiler
 #
@@ -39,12 +39,16 @@ jobs:
         rust:
           - stable
           - 1.75.0
+          - nightly
     steps:
       - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: ${{ matrix.rust }}
+
+      - name: Install system dependencies
+        run: sudo apt-get install -y libudev-dev
 
       - name: Resolve dependencies for MSRV
         run: |
@@ -59,10 +63,18 @@ jobs:
         run: cargo +${{ matrix.rust }} check --all-targets --features=tokio,utils
 
       - name: smol build check
+        # Building with one of the `async-io`/`async-std`/`smol` features enabled
+        # fails with recent nightly compilers: https://github.com/socketcan-rs/socketcan-rs/issues/98
+        #
+        # TODO: Remove this check once the issue is fixed in 4.0.
+        if: matrix.rust != 'nightly'
         run: cargo +${{ matrix.rust }} check --all-targets --features=smol,utils
 
       - name: Doc generation
-        run: cargo +${{ matrix.rust }} doc --no-deps
+        # Same issue as above.
+        #
+        # TODO: Remove this check once the issue is fixed in 4.0.
+        run: cargo +${{ matrix.rust }} doc --no-deps ${{ case(matrix.rust == 'nightly', '--features netlink,dump,enumerate,utils,tokio', '--all-features') }}
 
       - name: Run tests
         run: cargo +${{ matrix.rust }} test
