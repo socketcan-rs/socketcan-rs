@@ -2,6 +2,10 @@
 
 The change log for the Rust [socketcan](https://crates.io/crates/socketcan) library.
 
+## [Version 3.6.2](https://github.com/socketcan-rs/socketcan-rs/compare/v3.6.1..v3.6.2)  (2026-06-19)
+
+- [#103](https://github.com/socketcan-rs/socketcan-rs/pull/103) Disable async-io/async-std/smol features for docs.rs
+
 
 ## [Version 3.6.1](https://github.com/socketcan-rs/socketcan-rs/compare/v3.6.0..v3.6.1)  (2026-06-10)
 
