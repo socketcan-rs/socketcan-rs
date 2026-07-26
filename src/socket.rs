@@ -543,7 +543,9 @@ pub trait SocketOptions: AsRawFd {
 /// unknown interface, etc).
 fn hw_timestamps_supported(fd: RawFd) -> bool {
     use crate::timestamp::{ETHTOOL_GET_TS_INFO, EthtoolTsInfo, SOF_TIMESTAMPING_RX_HARDWARE};
-    // Ioctl is u64 in glibc and i32 in musl this ensures the correct type is used for both
+
+    // Ioctl is u64 in glibc and i32 in musl.
+    // This ensures the correct type is used for both.
     const SIOCETHTOOL: libc::Ioctl = libc::SIOCETHTOOL as libc::Ioctl;
 
     // Retrieve the interface index from the bound socket address.
@@ -825,7 +827,7 @@ impl embedded_can::nb::Can for CanSocket {
     ///
     /// If an error frame is received, it will be converted to a `CanError`
     /// and returned as an error.
-    /// If no frame is available, it returns a `WouldBlck` error.
+    /// If no frame is available, it returns a `WouldBlock` error.
     fn receive(&mut self) -> nb::Result<Self::Frame, Self::Error> {
         match self.read_frame() {
             Ok(CanFrame::Error(frame)) => Err(Error::from(frame.into_errors()).into()),

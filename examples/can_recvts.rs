@@ -1,6 +1,7 @@
 // socketcan/examples/can_recvts.rs
 //
-// Example: receive CAN frames and print their timestamps.
+// Example: receive CAN frames and print their timestamps. Error frames are
+// accepted too, and reported as decoded errors rather than as raw bytes.
 // Mirrors canbusrecvts.cpp from the sockpp C++ library.
 //
 // This file is part of the Rust 'socketcan-rs' library.
@@ -14,9 +15,9 @@
 //   can_recvts [interface]     (default interface: can0)
 
 use socketcan::{
-    CanSocket, Frame, SOF_TIMESTAMPING_OPT_CMSG, SOF_TIMESTAMPING_RAW_HARDWARE,
+    CanFrame, CanSocket, Frame, SOF_TIMESTAMPING_OPT_CMSG, SOF_TIMESTAMPING_RAW_HARDWARE,
     SOF_TIMESTAMPING_RX_HARDWARE, SOF_TIMESTAMPING_RX_SOFTWARE, SOF_TIMESTAMPING_SOFTWARE, Socket,
-    SocketOptions,
+    SocketOptions, id::ERR_MASK_ALL,
 };
 use std::{env, time::UNIX_EPOCH};
 
@@ -29,9 +30,25 @@ fn frame_info<F: Frame>(frame: &F) -> String {
     format!("{id:08X}  [{}]{data}", frame.dlc())
 }
 
+/// Renders a received frame for display, timestamped by the caller.
+///
+/// An error frame is not bus traffic — it is the driver reporting a problem —
+/// so it is shown as the decoded error text rather than as raw bytes. A
+/// single error frame can report several conditions at once, and `CanErrors`
+/// renders all of them on one line.
+fn frame_str(frame: &CanFrame) -> String {
+    match frame {
+        CanFrame::Error(frame) => format!("ERROR: {}", frame.into_errors()),
+        _ => frame_info(frame),
+    }
+}
+
 fn main() -> std::io::Result<()> {
     let iface = env::args().nth(1).unwrap_or_else(|| "can0".to_string());
     let sock = CanSocket::open(&iface)?;
+
+    // Error frames are not delivered unless asked for.
+    sock.set_error_mask(ERR_MASK_ALL)?;
 
     if sock.has_hw_timestamps() {
         println!("HW timestamps supported on {iface}");
@@ -58,7 +75,7 @@ fn main() -> std::io::Result<()> {
                 .hw
                 .map(|d| d.as_nanos().to_string())
                 .unwrap_or_else(|| "-".into());
-            println!("{sw}  ({hw_ns})  {}", frame_info(&frame));
+            println!("{sw}  ({hw_ns})  {}", frame_str(&frame));
         }
     } else {
         println!("HW timestamps not supported on {iface}; using software timestamps");
@@ -69,7 +86,7 @@ fn main() -> std::io::Result<()> {
                 .duration_since(UNIX_EPOCH)
                 .map(|d| format!("{:.6}", d.as_secs_f64()))
                 .unwrap_or_else(|_| "-".into());
-            println!("{sw}  {}", frame_info(&frame));
+            println!("{sw}  {}", frame_str(&frame));
         }
     }
 }

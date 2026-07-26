@@ -143,3 +143,65 @@ The steps to install and add a virtual interface to Linux are in the `scripts/vc
 $ sudo ./scripts/vcan.sh
 $ cargo test --features=vcan_tests
 ```
+
+Note that a few tests in the `nl` module are behind a separate `netlink_tests` feature. Those create and destroy temporary CAN interfaces, so they require root privileges and will fail with a netlink `NoAck` error when run as a normal user.
+
+### Testing Error Frames
+
+Error frames can be injected by hand with `cansend` from [can-utils](https://github.com/linux-can/can-utils), which is useful for exercising the error decoding without needing a misbehaving bus.
+
+An error frame is sent by using **eight hex digits** for the ID with the `CAN_ERR_FLAG` bit (`0x20000000`) set. The can-utils parser only adds `CAN_EFF_FLAG` when that bit is *absent*, so an ID of the form `2000xxxx` is transmitted verbatim as an error frame rather than as an extended-ID data frame.
+
+The ID carries the error class bits, and the eight data bytes carry the detail for each class:
+
+| ID bit  | Class               | Detail bytes                                        |
+|---------|---------------------|-----------------------------------------------------|
+| `0x001` | TX timeout          | —                                                   |
+| `0x002` | Lost arbitration    | `data[0]` bit number (0 = unspecified)              |
+| `0x004` | Controller problem  | `data[1]` **bitfield**                              |
+| `0x008` | Protocol violation  | `data[2]` **bitfield** (type), `data[3]` (location) |
+| `0x010` | Transceiver status  | `data[4]` two nibbles, CAN Low \| CAN High          |
+| `0x020` | No ACK              | —                                                   |
+| `0x040` | Bus off             | —                                                   |
+| `0x080` | Bus error           | —                                                   |
+| `0x100` | Restarted           | —                                                   |
+| `0x200` | Error counters      | `data[6]` TX count, `data[7]` RX count              |
+
+`data[5]` is reserved by the kernel and is never decoded. Several class bits are commonly set at once, and `data[1]`, `data[2]` and `data[4]` each describe more than one condition at a time, so one frame usually decodes to several errors.
+
+Some frames worth testing, each taken from the behavior of a real in-tree driver:
+
+```sh
+# Controller state change: CRTL|CNT with both TX and RX warning bits set in
+# data[1]. This is what the kernel's shared can_change_state() helper emits
+# whenever the two states match. Decodes to 3 errors.
+$ cansend vcan0 '20000204#000C000000007060'
+
+# Bus error: PROT|BUSERROR|ACK with five violation bits in data[2] and a
+# location in data[3], as mcp251xfd_handle_ivmif() builds it. Decodes to 7.
+$ cansend vcan0 '200000A8#00009E0800000000'
+
+# Transceiver fault on both lines: TRX with data[4] = 0x44, as the
+# etas_es58x driver reports a lost connection. Decodes to 2 errors.
+$ cansend vcan0 '20000010#0000000044000000'
+
+# Bus off on its own. Decodes to 1 error.
+$ cansend vcan0 '20000040#0000000000000000'
+```
+
+Error frames are **not delivered to a socket by default** — the receiving side must opt in by setting an error mask, otherwise the frames above are silently dropped. In this library that is `set_error_mask(ERR_MASK_ALL)`; with `candump` it is the `#<error_mask>` filter term:
+
+```sh
+# -e decodes error frames, 0:0 keeps ordinary data frames visible,
+# and #FFFFFFFF enables every error class.
+$ candump -e vcan0,0:0,#FFFFFFFF
+```
+
+To see them decoded by this library instead, use the frame-printing examples, which enable the error mask and print every condition a frame reports:
+
+```sh
+$ cargo run --features tokio --example tokio_print_frames vcan0
+$ cargo run --features smol --example smol_print_frames vcan0
+```
+
+A caveat when cross-checking against `candump`: releases of can-utils from 2023 and earlier predate the kernel's `CAN_ERR_CNT` class (added in Linux 5.19), and reject any frame that sets it with `Error class 0x204 is invalid`, printing the raw bytes without decoding them. Since `CAN_ERR_CNT` accompanies most controller state changes, use the examples above for those frames or build can-utils from git. Note also that `candump` does not decode `data[4]` at all, reporting only `transceiver-status`, whereas this library resolves both nibbles into their individual CAN High and CAN Low faults.
