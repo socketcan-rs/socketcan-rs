@@ -11,8 +11,13 @@
 
 //! candump format parsing
 //!
-//! Parses the text log format emitted by the `candump` utility, which is
-//! part of [can-utils](https://github.com/linux-can/can-utils).
+//! Parses the text log format emitted by `candump -L`, which is part of
+//! [can-utils](https://github.com/linux-can/can-utils).
+//!
+//! Can be parsed by a [`Reader`] object. The API is inspired by the
+//! [csv](https://crates.io/crates/csv) crate. [`CanDumpRecord`] implements
+//! `Display`, emitting the same format, so records read from a log
+//! round-trip back to identical text.
 //!
 //! Example:
 //!
@@ -24,15 +29,64 @@
 //! (1735279041.257318) can1 104#R
 //! (1735279048.349278) can1 110#R4
 //! (1469439874.299654) can1 104#
+//! (1785099856.242430) can1 20000004#000C000000000000
 //! ```
 //!
-//! Can be parsed by a `Reader` object. The API is inspired by the
-//! [csv](https://crates.io/crates/csv) crate.
+//! # Grammar
+//!
+//! The authoritative definition is the `parse_canframe()` doc comment in
+//! can-utils `lib.h`, with the sending side implemented in `lib.c`. A fuller
+//! treatment, including worked examples and the exact set of deliberate
+//! deviations this parser makes, is in `doc/CanDumpLogFormat.md` in the
+//! crate repository.
+//!
+//! ```text
+//! record    = "(" sec "." usec ")" SP iface SP frame
+//! usec      = 6DIGIT           ; exactly six digits
+//! frame     = can_id ( classical / canfd )
+//! can_id    = 3HEXDIG          ; SFF — standard 11-bit identifier
+//!           | 8HEXDIG          ; EFF — extended 29-bit identifier,
+//!                              ;       OR an error frame (see below)
+//! classical = "#" ( rtr / data ) [ "_" dlc8 ]
+//! canfd     = "##" flags data
+//! rtr       = "R" [ HEXDIG ]   ; remote frame; optional DLC nibble 0..F
+//! data      = *(2HEXDIG)       ; 0..8 bytes classical, 0..64 bytes FD
+//! flags     = HEXDIG           ; canfd_frame.flags: BRS=0x1 ESI=0x2 FDF=0x4
+//! dlc8      = HEXDIG           ; "len8 DLC" escape; see the caveat below
+//! ```
+//!
+//! # The eight-digit identifier is ambiguous
+//!
+//! An eight-digit identifier is **either** an extended (29-bit) data or
+//! remote frame **or** an error frame. There is no syntactic difference
+//! between the two; they are distinguished solely by the `CAN_ERR_FLAG` bit
+//! (`0x2000_0000`) in the parsed numeric value:
+//!
+//! ```text
+//! 1FFFFFFF#0102               extended data frame, ID 0x1FFFFFFF
+//! 20000004#000C000000000000   error frame, error class CAN_ERR_CRTL
+//! ```
+//!
+//! An error frame's payload is the eight error-class bytes rather than bus
+//! data; see the [errors module](crate::errors) for their layout. Decode
+//! them with [`CanErrorFrame::into_errors()`], remembering that one frame
+//! usually reports several conditions at once. Error frames are always
+//! classical, so neither the FD nor the remote form applies to them.
+//!
+//! # Unsupported: the `_dlc` suffix
+//!
+//! Classical CAN can carry a raw DLC above 8 while still holding only eight
+//! data bytes, which candump writes as a `_` and one hex nibble after the
+//! payload — `123#1122334455667788_E`. **This parser does not yet accept
+//! that form**; such a line is rejected with
+//! [`ParseError::InvalidCanFrame`]. Supporting it needs somewhere to put
+//! the raw DLC, which [`CanDataFrame`] does not currently have.
 
 use crate::{
-    CanAnyFrame, CanDataFrame, CanFdFrame, CanFrame, CanRemoteFrame, ConstructionError,
+    CanAnyFrame, CanDataFrame, CanErrorFrame, CanFdFrame, CanFrame, CanRemoteFrame,
+    ConstructionError,
     frame::Frame,
-    id::{FdFlags, id_from_raw},
+    id::{CAN_ERR_FLAG, CAN_ERR_MASK, FdFlags, id_from_raw},
 };
 use embedded_can::Frame as EmbeddedFrame;
 use hex::FromHex;
@@ -98,7 +152,11 @@ impl fmt::Display for CanDumpRecord {
                 write!(f, "#R{:X}", frame.dlc())
             }
             Error(frame) => {
-                write!(f, "{:08X}#", frame.error_bits())?;
+                // candump logs error frames with CAN_ERR_FLAG *included*, so
+                // the eight-digit field reads e.g. `20000004#…` and feeds
+                // straight back through the parser. Emitting the bare class
+                // bits instead would re-parse as a standard data frame.
+                write!(f, "{:08X}#", frame.error_bits() | CAN_ERR_FLAG)?;
                 let mut parts = frame.data().iter().map(|v| format!("{:02X}", v));
                 write!(f, "{}", parts.join(""))
             }
@@ -236,46 +294,65 @@ impl<R: BufRead> Reader<R> {
             _ => return Err(ParseError::InvalidCanFrame),
         };
 
-        // Parse the CAN ID
-        let can_id = canid_t::from_str_radix(can_id_str, 16)
-            .ok()
-            .and_then(id_from_raw)
-            .ok_or(ParseError::InvalidCanFrame)?;
+        // Parse the raw ID word.
+        //
+        // An eight-digit ID field is ambiguous on its face: it is an error
+        // frame if CAN_ERR_FLAG is set and an extended data frame otherwise.
+        // Resolve that before anything else, mirroring how can-utils'
+        // `parse_canframe()` decides (it only adds CAN_EFF_FLAG when
+        // CAN_ERR_FLAG is absent). The error-class bits live above
+        // CAN_EFF_MASK, so `id_from_raw` would reject them outright.
+        let raw_id =
+            canid_t::from_str_radix(can_id_str, 16).map_err(|_| ParseError::InvalidCanFrame)?;
 
-        // Determine frame type (FD or classical) and skip separator(s)
+        // Determine frame type (error, FD or classical) and skip separator(s)
         // Remember...
+        //   Error:  "<canid|CAN_ERR_FLAG>#<8 class bytes>"
         //   CAN FD: "<canid>##<flags>[data]"
         //   Remote: "<canid>#R[len]"
         //   Data;   "<canid>#[data]"
 
-        let frame: CanAnyFrame = if can_data.starts_with('#') {
-            let fd_flags = can_data
-                .get(1..2)
-                .and_then(|s| u8::from_str_radix(s, 16).ok())
-                .map(FdFlags::from_bits_truncate)
-                .ok_or(ParseError::InvalidCanFrame)?;
-            Vec::from_hex(&can_data[2..])
-                .ok()
-                .and_then(|data| CanFdFrame::with_flags(can_id, &data, fd_flags))
-                .map(CanAnyFrame::Fd)
-        } else if can_data.starts_with('R') {
-            can_data = &can_data[1..];
-            // Spec: the DLC after `R` is a single hex nibble (0..=F).
-            // An empty tail is allowed and means DLC = 0.
-            let rlen = if can_data.is_empty() {
-                0
-            } else {
-                usize::from_str_radix(can_data, 16).map_err(|_| ParseError::InvalidCanFrame)?
-            };
-            CanRemoteFrame::new_remote(can_id, rlen)
-                .map(CanFrame::Remote)
-                .map(CanAnyFrame::from)
-        } else {
+        let frame: CanAnyFrame = if raw_id & CAN_ERR_FLAG != 0 {
+            // The payload is the error-class data bytes. Error frames are
+            // always classical, so neither the FD nor the RTR form applies,
+            // and `new_error` zero-pads a short payload out to the full
+            // eight bytes the kernel always delivers.
             Vec::from_hex(can_data)
                 .ok()
-                .and_then(|data| CanDataFrame::new(can_id, &data))
-                .map(CanFrame::Data)
-                .map(CanAnyFrame::from)
+                .and_then(|data| CanErrorFrame::new_error(raw_id & CAN_ERR_MASK, &data).ok())
+                .map(CanAnyFrame::Error)
+        } else {
+            let can_id = id_from_raw(raw_id).ok_or(ParseError::InvalidCanFrame)?;
+
+            if can_data.starts_with('#') {
+                let fd_flags = can_data
+                    .get(1..2)
+                    .and_then(|s| u8::from_str_radix(s, 16).ok())
+                    .map(FdFlags::from_bits_truncate)
+                    .ok_or(ParseError::InvalidCanFrame)?;
+                Vec::from_hex(&can_data[2..])
+                    .ok()
+                    .and_then(|data| CanFdFrame::with_flags(can_id, &data, fd_flags))
+                    .map(CanAnyFrame::Fd)
+            } else if can_data.starts_with('R') {
+                can_data = &can_data[1..];
+                // Spec: the DLC after `R` is a single hex nibble (0..=F).
+                // An empty tail is allowed and means DLC = 0.
+                let rlen = if can_data.is_empty() {
+                    0
+                } else {
+                    usize::from_str_radix(can_data, 16).map_err(|_| ParseError::InvalidCanFrame)?
+                };
+                CanRemoteFrame::new_remote(can_id, rlen)
+                    .map(CanFrame::Remote)
+                    .map(CanAnyFrame::from)
+            } else {
+                Vec::from_hex(can_data)
+                    .ok()
+                    .and_then(|data| CanDataFrame::new(can_id, &data))
+                    .map(CanFrame::Data)
+                    .map(CanAnyFrame::from)
+            }
         }
         .ok_or(ParseError::InvalidCanFrame)?;
 
@@ -468,6 +545,115 @@ mod test {
                 0x0, 0x011, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB
             ]
         );
+    }
+
+    /// Error-frame lines, captured verbatim from
+    /// `candump -L vcan0,0:0,#FFFFFFFF` with frames injected by `cansend`.
+    ///
+    /// Note the ID field carries `CAN_ERR_FLAG` (`0x2000_0000`), which is
+    /// what distinguishes these from the eight-digit *extended* IDs in
+    /// `test_extended_example` — the field width alone is ambiguous.
+    #[test]
+    fn test_error_frames() {
+        let input: &[u8] = b"(1785099856.242430) vcan0 20000004#000C000000000000\n\
+                             (1785099856.243595) vcan0 200000A8#00009E0800000000";
+
+        let mut reader = Reader::from_reader(input);
+
+        // CAN_ERR_CRTL with both warning bits set in data[1] — what the
+        // kernel's can_change_state() emits on a symmetric transition.
+        let rec1 = reader.next_record().unwrap().unwrap();
+        assert_eq!(rec1.t_us, 1785099856242430);
+        assert_eq!(rec1.device, "vcan0");
+
+        if let CanAnyFrame::Error(frame) = rec1.frame {
+            assert!(frame.is_error_frame());
+            assert!(!frame.is_data_frame());
+            assert!(!frame.is_remote_frame());
+            assert_eq!(frame.error_bits(), 0x004);
+            assert_eq!(frame.data(), &[0, 0x0C, 0, 0, 0, 0, 0, 0]);
+            // ... and it decodes through the v4 errors path.
+            let errs = frame.into_errors();
+            assert_eq!(errs.len(), 2);
+        } else {
+            panic!("Expected Error frame, got {:?}", rec1.frame);
+        }
+
+        // CAN_ERR_PROT | CAN_ERR_BUSERROR | CAN_ERR_ACK, five violation bits.
+        let rec2 = reader.next_record().unwrap().unwrap();
+        assert_eq!(rec2.t_us, 1785099856243595);
+
+        if let CanAnyFrame::Error(frame) = rec2.frame {
+            assert_eq!(frame.error_bits(), 0x0A8);
+            assert_eq!(frame.data(), &[0, 0, 0x9E, 0x08, 0, 0, 0, 0]);
+            assert_eq!(frame.into_errors().len(), 7);
+        } else {
+            panic!("Expected Error frame, got {:?}", rec2.frame);
+        }
+
+        assert!(reader.next_record().unwrap().is_none());
+    }
+
+    /// An error-frame line must survive parse → `Display` → parse unchanged.
+    ///
+    /// Before the grammar-parity fix neither direction worked: the parser
+    /// rejected the line outright (the class bits sit above `CAN_EFF_MASK`,
+    /// so `id_from_raw` refused them), and `Display` stripped
+    /// `CAN_ERR_FLAG`, so its own output re-parsed as a *standard data
+    /// frame* rather than an error frame.
+    #[test]
+    fn test_error_frame_round_trip() {
+        const LINES: &[&str] = &[
+            "(1785099856.242430) vcan0 20000004#000C000000000000",
+            "(1785099856.243595) vcan0 200000A8#00009E0800000000",
+            // Transceiver status, both nibbles set (etas_es58x).
+            "(1785099856.244721) vcan0 20000010#0000000044000000",
+            // Bus off, no detail bytes.
+            "(1785099856.245800) vcan0 20000040#0000000000000000",
+            // Every class bit this crate knows, including CAN_ERR_CNT.
+            "(1785099856.246900) vcan0 200003FF#070C9E08440A7060",
+        ];
+
+        for line in LINES {
+            let mut reader = Reader::from_reader(line.as_bytes());
+            let rec = reader.next_record().unwrap().unwrap();
+            assert!(matches!(rec.frame, CanAnyFrame::Error(_)), "{line}");
+            assert_eq!(rec.to_string(), *line, "round-trip changed the line");
+        }
+    }
+
+    /// An eight-digit ID *without* `CAN_ERR_FLAG` is still an extended data
+    /// frame. Guards against the error branch swallowing extended IDs.
+    #[test]
+    fn test_extended_id_is_not_mistaken_for_error() {
+        let input: &[u8] = b"(1785099856.241425) vcan0 1FFFFFFF#0102";
+
+        let mut reader = Reader::from_reader(input);
+        let rec = reader.next_record().unwrap().unwrap();
+
+        if let CanAnyFrame::Normal(frame) = rec.frame {
+            assert!(frame.is_extended());
+            assert!(!frame.is_error_frame());
+            assert_eq!(frame.raw_id(), 0x1FFFFFFF);
+            assert_eq!(frame.data(), &[0x01, 0x02]);
+        } else {
+            panic!("Expected Normal frame, got {:?}", rec.frame);
+        }
+        assert_eq!(rec.to_string(), "(1785099856.241425) vcan0 1FFFFFFF#0102");
+    }
+
+    /// Pins the documented limitation that the `_len8_dlc` suffix is not
+    /// supported. If this starts failing because the form was implemented,
+    /// update the module docs and `doc/CanDumpLogFormat.md` to match.
+    #[test]
+    fn test_len8_dlc_suffix_is_rejected() {
+        let input: &[u8] = b"(1469439874.299591) can1 123#1122334455667788_E";
+
+        let mut reader = Reader::from_reader(input);
+        assert!(matches!(
+            reader.next_record(),
+            Err(ParseError::InvalidCanFrame)
+        ));
     }
 
     #[test]

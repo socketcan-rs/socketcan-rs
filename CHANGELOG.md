@@ -18,6 +18,12 @@ The change log for the Rust [socketcan](https://crates.io/crates/socketcan) libr
 - Updated the `serial_test` dev-dependency to v3.5 (no API changes required)
 - Updated the `futures-timer` dev-dependency to v3.0. Its `Delay` future now yields `()` instead of `io::Result<()>`, so the `.await?` in the `tokio_send`/`smol_send` examples became `.await`
 - **Breaking:** the `AsPtr::as_bytes` and `AsPtr::as_bytes_mut` trait methods are now `unsafe fn` with a documented `# Safety` contract (reading uninitialised padding through the returned byte slice is UB). This completes the soundness fix begun in 3.6.0 (which marked the free `as_bytes`/`as_bytes_mut` helpers `unsafe`). Callers of these trait methods must wrap calls in `unsafe`
+- **candump log format:** error frames are now handled in both directions by the `dump` module. Previously neither worked — the parser rejected an error line outright (the error-class bits sit above `CAN_EFF_MASK`, so decoding the ID failed), while `Display` wrote the ID with `CAN_ERR_FLAG` stripped, so its own output re-parsed as a *standard data frame*
+    - The parser branches on `CAN_ERR_FLAG` before decoding the identifier. An eight-digit ID field is ambiguous — extended data frame or error frame — and that bit is the only thing distinguishing them, which is how can-utils resolves it too
+    - `Display` now emits the ID with `CAN_ERR_FLAG` included, so a line round-trips exactly. Confirmed against real `candump -L` output
+    - Parsed error frames flow through the new `CanErrors` decoding, so a multi-condition error line decodes fully
+    - The `dump` module docs now state the full grammar, cite the can-utils `parse_canframe()` comment as the source of truth, and cross-reference `doc/CanDumpLogFormat.md`
+    - Not yet supported: the `_len8_dlc` suffix (`123#1122334455667788_E`), which is still rejected with `ParseError::InvalidCanFrame`
 - **Breaking:** an error frame now decodes into *all* the error conditions it describes, not just one. A single SocketCAN error frame routinely reports several conditions at once, and the old decoder discarded almost all of them
     - New `CanErrors` type: a non-empty collection of `CanError`, with `first()`, `last()`, `len()`, `is_single()`, `iter()`, `contains_kind()`, both `IntoIterator` impls, `Display` and `embedded_can::Error`
     - `Error::Can` now carries `CanErrors` instead of `CanError`. `From<CanError> for Error` still works and wraps the single error
