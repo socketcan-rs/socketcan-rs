@@ -802,7 +802,7 @@ impl embedded_can::blocking::Can for CanSocket {
     /// and returned as an error.
     fn receive(&mut self) -> Result<Self::Frame> {
         match self.read_frame() {
-            Ok(CanFrame::Error(frame)) => Err(frame.into_error().into()),
+            Ok(CanFrame::Error(frame)) => Err(frame.into_errors().into()),
             Ok(frame) => Ok(frame),
             Err(e) => Err(e.into()),
         }
@@ -828,7 +828,7 @@ impl embedded_can::nb::Can for CanSocket {
     /// If no frame is available, it returns a `WouldBlck` error.
     fn receive(&mut self) -> nb::Result<Self::Frame, Self::Error> {
         match self.read_frame() {
-            Ok(CanFrame::Error(frame)) => Err(Error::from(frame.into_error()).into()),
+            Ok(CanFrame::Error(frame)) => Err(Error::from(frame.into_errors()).into()),
             Ok(frame) => Ok(frame),
             Err(err) if err.should_retry() => Err(nb::Error::WouldBlock),
             Err(err) => Err(Error::from(err).into()),
@@ -1064,7 +1064,7 @@ impl embedded_can::blocking::Can for CanFdSocket {
     /// and returned as an error.
     fn receive(&mut self) -> Result<Self::Frame> {
         match self.read_frame() {
-            Ok(CanAnyFrame::Error(frame)) => Err(frame.into_error().into()),
+            Ok(CanAnyFrame::Error(frame)) => Err(frame.into_errors().into()),
             Ok(frame) => Ok(frame),
             Err(e) => Err(e.into()),
         }
@@ -1088,7 +1088,7 @@ impl embedded_can::nb::Can for CanFdSocket {
     /// If no frame is available, it returns a `WouldBlck` error.
     fn receive(&mut self) -> nb::Result<Self::Frame, Self::Error> {
         match self.read_frame() {
-            Ok(CanAnyFrame::Error(frame)) => Err(Error::from(frame.into_error()).into()),
+            Ok(CanAnyFrame::Error(frame)) => Err(Error::from(frame.into_errors()).into()),
             Ok(frame) => Ok(frame),
             Err(err) if err.should_retry() => Err(nb::Error::WouldBlock),
             Err(err) => Err(Error::from(err).into()),
