@@ -92,6 +92,8 @@ use embedded_can::Frame as EmbeddedFrame;
 use hex::FromHex;
 use itertools::Itertools;
 use libc::canid_t;
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 use std::{
     fmt,
     fs::File,
@@ -102,6 +104,7 @@ use thiserror::Error;
 
 /// candump line parse error
 #[derive(Error, Debug)]
+#[cfg_attr(feature = "serde", derive(Deserialize), serde(from = "ParseErrorRepr"))]
 pub enum ParseError {
     /// I/O Error
     #[error(transparent)]
@@ -123,9 +126,80 @@ pub enum ParseError {
     ConstructionError(#[from] ConstructionError),
 }
 
+/// Serialized form of a [`ParseError`].
+///
+/// Mirrors the treatment of the crate-level [`Error`](crate::Error): the
+/// `Io` variant cannot round-trip faithfully because `io::Error` implements
+/// neither serde trait, so it is reduced to a kind name and a message. Every
+/// other variant round-trips exactly.
+#[cfg(feature = "serde")]
+#[derive(Debug, Serialize, Deserialize)]
+pub enum ParseErrorRepr {
+    /// An I/O error, reduced to a kind name and a message.
+    ///
+    /// Lossy in the same ways as [`crate::errors::ErrorRepr::Io`]:
+    /// `raw_os_error()` is `None` afterwards and an unrecognised kind name
+    /// becomes `io::ErrorKind::Other`.
+    Io {
+        /// The [`io::ErrorKind`], by name
+        kind: String,
+        /// The original error's `Display` text
+        message: String,
+    },
+    /// Unexpected end of line
+    UnexpectedEndOfLine,
+    /// Invalid time stamp
+    InvalidTimestamp,
+    /// Invalid device name
+    InvalidDeviceName,
+    /// Invalid CAN frame
+    InvalidCanFrame,
+    /// Error creating the frame
+    ConstructionError(ConstructionError),
+}
+
+/// Hand-written because `serde(into = ...)` requires `Clone`, which
+/// [`ParseError`] cannot have: `io::Error` is not `Clone`.
+#[cfg(feature = "serde")]
+impl Serialize for ParseError {
+    fn serialize<S: serde::Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+        use crate::errors::io_kind_name;
+        let repr = match self {
+            Self::Io(e) => ParseErrorRepr::Io {
+                kind: io_kind_name(e.kind()).to_string(),
+                message: e.to_string(),
+            },
+            Self::UnexpectedEndOfLine => ParseErrorRepr::UnexpectedEndOfLine,
+            Self::InvalidTimestamp => ParseErrorRepr::InvalidTimestamp,
+            Self::InvalidDeviceName => ParseErrorRepr::InvalidDeviceName,
+            Self::InvalidCanFrame => ParseErrorRepr::InvalidCanFrame,
+            Self::ConstructionError(e) => ParseErrorRepr::ConstructionError(*e),
+        };
+        repr.serialize(ser)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl From<ParseErrorRepr> for ParseError {
+    fn from(repr: ParseErrorRepr) -> Self {
+        use crate::errors::io_kind_from_name;
+        match repr {
+            ParseErrorRepr::Io { kind, message } => {
+                Self::Io(io::Error::new(io_kind_from_name(&kind), message))
+            }
+            ParseErrorRepr::UnexpectedEndOfLine => Self::UnexpectedEndOfLine,
+            ParseErrorRepr::InvalidTimestamp => Self::InvalidTimestamp,
+            ParseErrorRepr::InvalidDeviceName => Self::InvalidDeviceName,
+            ParseErrorRepr::InvalidCanFrame => Self::InvalidCanFrame,
+            ParseErrorRepr::ConstructionError(e) => Self::ConstructionError(e),
+        }
+    }
+}
+
 /// Recorded CAN frame.
 /// This corresponds to the information in a line from the candump log.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct CanDumpRecord {
     /// The timestamp
     pub t_us: u64,

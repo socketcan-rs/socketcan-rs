@@ -24,6 +24,9 @@ Linux SocketCAN library. Send and receive CAN frames via CANbus on Linux.
 #
 # "utils" - Build the command-line utilities
 #
+# "serde" - Serialization support for frames, errors, and interface
+#     configuration via serde
+#
 # "tokio" - Async/await support with tokio
 # "smol" - Async/await support for smol using async-io
 #
@@ -42,6 +45,7 @@ utils = ["clap", "anyhow"]
 tokio = ["dep:tokio", "futures"]
 smol = ["dep:smol", "futures"]
 enumerate = ["dep:udev"]
+serde = ["dep:serde", "bitflags/serde"]
 
 [dependencies]
 embedded-can = "0.4"
@@ -60,6 +64,7 @@ tokio = { version = "1", features = ["net"], optional = true }
 futures = { version = "0.3", optional = true }
 smol = { version = "2.0", optional = true }
 udev = { version = "0.9", optional = true }
+serde = { version = "1.0", features = ["derive"], optional = true }
 
 # This hack avoids building neli on non-linux platforms, which
 # avoids a ton of compile errors. Worthwhile together with the
@@ -69,6 +74,10 @@ neli = { version = "0.7", optional = true }
 
 [dev-dependencies]
 anyhow = "1.0"
+serde_json = "1"
+# MessagePack, used only to prove the payload encoding reaches a binary
+# format's native byte-string type rather than a sequence of integers.
+rmp-serde = "1"
 clap = "4.6"
 ctrlc = "3.2.2"
 nb = "1.0"
@@ -87,6 +96,11 @@ targets = ["x86_64-unknown-linux-gnu", "i686-unknown-linux-gnu"]
 [[bin]]
 name = "rcan"
 required-features = ["utils"]
+
+[[test]]
+name = "serde"
+path = "tests/serde.rs"
+required-features = ["serde"]
 
 [[test]]
 name = "cansocket-smol"

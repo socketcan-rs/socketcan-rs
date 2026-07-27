@@ -129,7 +129,83 @@ let (frame, ts) = sock.read_frame_with_timestamps()?;
 println!("socket: {:?}, sw: {:?}", ts.socket, ts.sw);
 ```
 
-The full example is in [examples/can_recvts.rs](https://github.com/socketcan-rs/socketcan-rs/blob/master/examples/can_recvts.rs). Async equivalents are available on the `tokio::CanSocket` and `async_io::CanSocket` wrappers (and likewise for `CanFdSocket`).
+The full example is in [examples/can_recvts.rs](https://github.com/socketcan-rs/socketcan-rs/blob/master/examples/can_recvts.rs). Async equivalents are available on the `tokio::CanSocket` and `smol::CanSocket` wrappers (and likewise for `CanFdSocket`).
+
+## Serialization
+
+Version 4.0 adds an optional `serde` feature for serializing frames, errors, and interface configuration. It is **not** enabled by default:
+
+```toml
+[dependencies]
+socketcan = { version = "4.0", features = ["serde"] }
+```
+
+This covers the frame types (`CanFrame`, `CanAnyFrame`, and the individual data / remote / error / FD frames), `CanId`, the `IdFlags` and `FdFlags` bit flags, `CanFilter`, `CanTimestamps`, `dump::CanDumpRecord`, every error type, and the netlink configuration types.
+
+The format is left entirely to the caller — nothing in the implementation presumes a text format. Frame payloads are serialized through serde's `serialize_bytes`, so formats with a native byte-string type (MessagePack, CBOR, bincode) use it rather than expanding the payload into a sequence of integers. JSON, which has no byte-string type, renders a byte array:
+
+```rust
+use socketcan::{CanFrame, EmbeddedFrame, StandardId};
+
+let frame = CanFrame::new(StandardId::new(0x123).unwrap(), &[0xDE, 0xAD, 0xBE, 0xEF]).unwrap();
+println!("{}", serde_json::to_string(&frame)?);
+// {"Data":{"id":{"Standard":291},"data":[222,173,190,239]}}
+```
+
+For that frame, JSON takes 57 bytes and MessagePack 26.
+
+Note that a standard and an extended identifier stay distinct even when their numeric values match, and the FD flags serialize by name rather than as an opaque integer:
+
+```text
+{"id":{"Standard":1793},"flags":"BRS | FDF","data":[127]}
+```
+
+Deserialization goes back through the normal constructors, so an out-of-range identifier or an over-long payload is rejected rather than producing a malformed frame.
+
+### Interface configuration
+
+Probably the most useful application: keeping an interface's bit timing and control modes in a file rather than hard-coding them.
+
+```rust
+use socketcan::nl::{CanInterface, InterfaceCanParams};
+
+let params: InterfaceCanParams = serde_json::from_str(&std::fs::read_to_string("can0.json")?)?;
+let iface = CanInterface::open("can0")?;
+if let Some(bt) = params.bit_timing {
+    iface.set_bit_timing(bt)?;
+}
+```
+
+```json
+{
+  "bit_timing": { "bitrate": 500000, "sample_point": 875,
+                  "tq": 0, "prop_seg": 0, "phase_seg1": 0,
+                  "phase_seg2": 0, "sjw": 0, "brp": 0 },
+  "restart_ms": 100
+}
+```
+
+Unset parameters are omitted rather than written as nulls, and a config file only needs the parameters you actually care about — `{"restart_ms": 50}` on its own is valid input.
+
+### Errors
+
+A decoded error frame serializes as a flat array, since one frame commonly reports several conditions at once:
+
+```text
+[{"ControllerProblem":"ReceiveErrorWarning"},
+ {"ControllerProblem":"TransmitErrorWarning"},
+ {"Counters":{"tx":112,"rx":96}}]
+```
+
+`CanErrors` is non-empty by construction, and that holds across serde: deserializing an empty array is an error rather than a way to build an invalid value.
+
+The one deliberately lossy conversion is the `Io` variant of the top-level `Error`. `std::io::Error` implements neither serde trait and may carry an OS errno or a boxed source, so it is reduced to a kind name and a message:
+
+```text
+{"Io":{"kind":"NetworkDown","message":"Network is down (os error 100)"}}
+```
+
+After a round trip the kind and message survive, but `raw_os_error()` returns `None`, any `source()` chain is gone, and a kind with no stable name — or one introduced by a newer version of the crate — arrives as `ErrorKind::Other`. The `Can` variant round-trips exactly.
 
 ## Testing
 

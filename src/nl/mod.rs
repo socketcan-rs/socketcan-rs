@@ -76,6 +76,8 @@ use neli::{
 };
 use nix::{self, net::if_::if_nametoindex};
 use rt::IflaCan;
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 use std::{ffi::CStr, fmt::Debug, os::raw::c_uint};
 
 /// Low-level Netlink CAN struct bindings.
@@ -103,14 +105,17 @@ pub type CanBerrCounter = rt::can_berr_counter;
 /// `CanInterface::details()` function.
 #[allow(missing_copy_implementations)]
 #[derive(Debug, Default, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct InterfaceDetails {
     /// The name of the interface
+    #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
     pub name: Option<String>,
     /// The index of the interface
     pub index: c_uint,
     /// Whether the interface is currently up
     pub is_up: bool,
     /// The MTU size of the interface (Standard or FD frames support)
+    #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
     pub mtu: Option<Mtu>,
     /// The CAN-specific parameters for the interface
     pub can: InterfaceCanParams,
@@ -130,6 +135,7 @@ impl InterfaceDetails {
 ///
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Mtu {
     /// Standard CAN frame, 8-byte data (16-byte total)
     Standard = 16,
@@ -152,27 +158,38 @@ impl TryFrom<u32> for Mtu {
 /// The CAN-specific parameters for the interface.
 #[allow(missing_copy_implementations)]
 #[derive(Debug, Default, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct InterfaceCanParams {
     /// The CAN bit timing parameters
+    #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
     pub bit_timing: Option<CanBitTiming>,
     /// The bit timing const parameters
+    #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
     pub bit_timing_const: Option<CanBitTimingConst>,
     /// The CAN clock parameters (read only)
+    #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
     pub clock: Option<CanClock>,
     /// The CAN bus state (read-only)
+    #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
     pub state: Option<CanState>,
     /// The automatic restart time (in millisec)
     /// Zero means auto-restart is disabled.
+    #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
     pub restart_ms: Option<u32>,
     /// The bit error counter (read-only)
+    #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
     pub berr_counter: Option<CanBerrCounter>,
     /// The control mode bits
+    #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
     pub ctrl_mode: Option<CanCtrlModes>,
     /// The FD data bit timing
+    #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
     pub data_bit_timing: Option<CanBitTiming>,
     /// The FD data bit timing const parameters
+    #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
     pub data_bit_timing_const: Option<CanBitTimingConst>,
     /// The CANbus termination resistance
+    #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
     pub termination: Option<u16>,
 }
 
@@ -319,6 +336,7 @@ impl TryFrom<&InterfaceCanParams> for RtBuffer<Ifla, Buffer> {
 /// Note that these correspond to the bit _numbers_ for the control mode bits.
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum CanCtrlMode {
     /// Loopback mode
     Loopback,
@@ -349,6 +367,7 @@ impl CanCtrlMode {
 
 /// The collection of control modes
 #[derive(Debug, Default, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct CanCtrlModes(can_ctrlmode);
 
 impl CanCtrlModes {

@@ -23,6 +23,8 @@ pub use embedded_can::{
     nb::Can as NonBlockingCan,
 };
 use libc::{AF_CAN, EINPROGRESS, SOL_SOCKET, canid_t, socklen_t};
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 use socket2::SockAddr;
 use std::{
     fmt,
@@ -1169,7 +1171,44 @@ impl Write for CanFdSocket {
 /// A socket can be given multiple filters, and each one can be inverted
 /// ([ref](https://docs.kernel.org/networking/can.html#raw-protocol-sockets-with-can-filters-sock-raw))
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(into = "CanFilterRepr", from = "CanFilterRepr")
+)]
 pub struct CanFilter(libc::can_filter);
+
+/// Serialized form of a [`CanFilter`].
+///
+/// [`CanFilter`] wraps the C `can_filter`, which has no serde impls, so the
+/// conversion goes through this. Both directions are infallible: any pair of
+/// 32-bit words is a well-formed filter, with the inverted-match flag carried
+/// in the high bit of `id` exactly as the kernel expects.
+#[cfg(feature = "serde")]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+pub struct CanFilterRepr {
+    /// The identifier to match, including any `CAN_INV_FILTER` bit
+    pub id: canid_t,
+    /// The mask selecting which identifier bits must match
+    pub mask: canid_t,
+}
+
+#[cfg(feature = "serde")]
+impl From<CanFilter> for CanFilterRepr {
+    fn from(filter: CanFilter) -> Self {
+        Self {
+            id: filter.0.can_id,
+            mask: filter.0.can_mask,
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl From<CanFilterRepr> for CanFilter {
+    fn from(repr: CanFilterRepr) -> Self {
+        Self::new(repr.id, repr.mask)
+    }
+}
 
 impl CanFilter {
     /// Construct a new CAN filter.

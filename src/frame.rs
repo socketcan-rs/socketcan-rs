@@ -33,6 +33,8 @@
 use crate::{CanError, CanErrors, ConstructionError, id::CanId};
 use embedded_can::{ExtendedId, Frame as EmbeddedFrame, Id, StandardId};
 use libc::{can_frame, canfd_frame, canid_t};
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 use std::{
     ffi::c_void,
     mem::size_of,
@@ -214,6 +216,7 @@ impl From<canfd_frame> for CanRawFrame {
 
 /// Any frame type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum CanAnyFrame {
     /// A classic CAN 2.0 frame, with up to 8-bytes of data
     Normal(CanDataFrame),
@@ -481,6 +484,7 @@ impl TryFrom<CanAnyFrame> for CanFdFrame {
 
 /// The classic CAN 2.0 frame with up to 8-bytes of data.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum CanFrame {
     /// A data frame
     Data(CanDataFrame),
@@ -720,6 +724,11 @@ impl TryFrom<CanFdFrame> for CanFrame {
 /// This is highly compatible with the `can_frame` from libc.
 /// ([ref](https://docs.rs/libc/latest/libc/struct.can_frame.html))
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(into = "CanDataFrameRepr", try_from = "CanDataFrameRepr")
+)]
 pub struct CanDataFrame(can_frame);
 
 impl CanDataFrame {
@@ -893,6 +902,11 @@ impl AsRef<can_frame> for CanDataFrame {
 /// This is highly compatible with the `can_frame` from libc.
 /// ([ref](https://docs.rs/libc/latest/libc/struct.can_frame.html))
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(into = "CanRemoteFrameRepr", try_from = "CanRemoteFrameRepr")
+)]
 pub struct CanRemoteFrame(can_frame);
 
 impl CanRemoteFrame {
@@ -1067,6 +1081,11 @@ impl AsRef<can_frame> for CanRemoteFrame {
 /// This is highly compatible with the `can_frame` from libc.
 /// ([ref](https://docs.rs/libc/latest/libc/struct.can_frame.html))
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(into = "CanErrorFrameRepr", try_from = "CanErrorFrameRepr")
+)]
 pub struct CanErrorFrame(can_frame);
 
 impl CanErrorFrame {
@@ -1329,6 +1348,11 @@ const VALID_EXT_DLENGTHS: [usize; 7] = [12, 16, 20, 24, 32, 48, 64];
 /// Note:
 ///   - The FDF flag is forced on when created.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(into = "CanFdFrameRepr", try_from = "CanFdFrameRepr")
+)]
 pub struct CanFdFrame(canfd_frame);
 
 impl CanFdFrame {
@@ -1585,6 +1609,196 @@ impl From<canfd_frame> for CanFdFrame {
 impl AsRef<canfd_frame> for CanFdFrame {
     fn as_ref(&self) -> &canfd_frame {
         &self.0
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////
+// serde support
+//
+// The frame types are newtypes over the C `can_frame` / `canfd_frame`, neither
+// of which implements serde, so a plain derive is not possible. Each type
+// converts through a logical repr instead, which also gets validation on
+// deserialize for free by routing back through the normal constructors.
+//
+// Note that the raw C structs are deliberately *not* serialized: they contain
+// padding and potentially-uninitialised bytes (the same reason `as_bytes` is
+// `unsafe`), and their layout is not portable.
+
+/// `serialize_with` / `deserialize_with` for frame payload fields.
+///
+/// Goes through `serialize_bytes` so formats with a native byte-string type
+/// (MessagePack `bin`, CBOR byte strings, bincode) use it rather than encoding
+/// a sequence of integers. Text formats such as JSON have no byte-string type
+/// and fall back to a sequence, which is why the visitor accepts both.
+#[cfg(feature = "serde")]
+mod payload {
+    use serde::{
+        Deserializer, Serializer,
+        de::{Error, SeqAccess, Visitor},
+    };
+    use std::fmt;
+
+    pub fn serialize<S: Serializer>(data: &[u8], ser: S) -> Result<S::Ok, S::Error> {
+        ser.serialize_bytes(data)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(de: D) -> Result<Vec<u8>, D::Error> {
+        struct V;
+
+        impl<'de> Visitor<'de> for V {
+            type Value = Vec<u8>;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a byte string or a sequence of bytes")
+            }
+
+            fn visit_bytes<E: Error>(self, v: &[u8]) -> Result<Self::Value, E> {
+                Ok(v.to_vec())
+            }
+
+            fn visit_byte_buf<E: Error>(self, v: Vec<u8>) -> Result<Self::Value, E> {
+                Ok(v)
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                let mut out = Vec::with_capacity(seq.size_hint().unwrap_or(0));
+                while let Some(b) = seq.next_element()? {
+                    out.push(b);
+                }
+                Ok(out)
+            }
+        }
+
+        de.deserialize_bytes(V)
+    }
+}
+
+/// Serialized form of a [`CanDataFrame`].
+#[cfg(feature = "serde")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CanDataFrameRepr {
+    /// The frame identifier
+    pub id: CanId,
+    /// The payload, 0..=8 bytes
+    #[serde(default, with = "payload", skip_serializing_if = "Vec::is_empty")]
+    pub data: Vec<u8>,
+}
+
+#[cfg(feature = "serde")]
+impl From<CanDataFrame> for CanDataFrameRepr {
+    fn from(frame: CanDataFrame) -> Self {
+        Self {
+            id: frame.can_id(),
+            data: frame.data().to_vec(),
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl TryFrom<CanDataFrameRepr> for CanDataFrame {
+    type Error = ConstructionError;
+
+    fn try_from(repr: CanDataFrameRepr) -> Result<Self, Self::Error> {
+        Self::new(repr.id, &repr.data).ok_or(ConstructionError::TooMuchData)
+    }
+}
+
+/// Serialized form of a [`CanRemoteFrame`].
+///
+/// A remote frame carries no payload; only the requested length is meaningful.
+#[cfg(feature = "serde")]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct CanRemoteFrameRepr {
+    /// The frame identifier
+    pub id: CanId,
+    /// The requested data length code
+    #[serde(default)]
+    pub dlc: usize,
+}
+
+#[cfg(feature = "serde")]
+impl From<CanRemoteFrame> for CanRemoteFrameRepr {
+    fn from(frame: CanRemoteFrame) -> Self {
+        Self {
+            id: frame.can_id(),
+            dlc: frame.dlc(),
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl TryFrom<CanRemoteFrameRepr> for CanRemoteFrame {
+    type Error = ConstructionError;
+
+    fn try_from(repr: CanRemoteFrameRepr) -> Result<Self, Self::Error> {
+        Self::new_remote(repr.id, repr.dlc).ok_or(ConstructionError::TooMuchData)
+    }
+}
+
+/// Serialized form of a [`CanErrorFrame`].
+///
+/// The identifier of an error frame is a set of error-class bits rather than a
+/// bus address, and the payload is always the full eight class-detail bytes.
+/// See the [errors module](crate::errors) for their meaning.
+#[cfg(feature = "serde")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CanErrorFrameRepr {
+    /// The error class bits, without `CAN_ERR_FLAG`
+    pub error_bits: u32,
+    /// The eight error-detail bytes
+    #[serde(default, with = "payload", skip_serializing_if = "Vec::is_empty")]
+    pub data: Vec<u8>,
+}
+
+#[cfg(feature = "serde")]
+impl From<CanErrorFrame> for CanErrorFrameRepr {
+    fn from(frame: CanErrorFrame) -> Self {
+        Self {
+            error_bits: frame.error_bits(),
+            data: frame.data().to_vec(),
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl TryFrom<CanErrorFrameRepr> for CanErrorFrame {
+    type Error = ConstructionError;
+
+    fn try_from(repr: CanErrorFrameRepr) -> Result<Self, Self::Error> {
+        Self::new_error(repr.error_bits, &repr.data)
+    }
+}
+
+/// Serialized form of a [`CanFdFrame`].
+#[cfg(feature = "serde")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CanFdFrameRepr {
+    /// The frame identifier
+    pub id: CanId,
+    /// The FD flags (BRS / ESI / FDF)
+    pub flags: FdFlags,
+    /// The payload, 0..=64 bytes
+    #[serde(default, with = "payload", skip_serializing_if = "Vec::is_empty")]
+    pub data: Vec<u8>,
+}
+
+#[cfg(feature = "serde")]
+impl From<CanFdFrame> for CanFdFrameRepr {
+    fn from(frame: CanFdFrame) -> Self {
+        Self {
+            id: frame.can_id(),
+            flags: frame.flags(),
+            data: frame.data().to_vec(),
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl TryFrom<CanFdFrameRepr> for CanFdFrame {
+    type Error = ConstructionError;
+
+    fn try_from(repr: CanFdFrameRepr) -> Result<Self, Self::Error> {
+        Self::with_flags(repr.id, &repr.data, repr.flags).ok_or(ConstructionError::TooMuchData)
     }
 }
 

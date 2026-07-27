@@ -68,6 +68,8 @@
 //!
 
 use crate::{CanErrorFrame, EmbeddedFrame, Frame};
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 use std::{convert::TryFrom, error, fmt, io};
 use thiserror::Error;
 
@@ -113,6 +115,7 @@ const KNOWN_ERR_CLASSES: u32 = CAN_ERR_TX_TIMEOUT
 /// error sources are either CAN errors coming in through received error
 /// frames or from typical system I/O errors.
 #[derive(Error, Debug)]
+#[cfg_attr(feature = "serde", derive(Deserialize), serde(from = "ErrorRepr"))]
 pub enum Error {
     /// One or more CANbus errors, usually from an error frame
     #[error(transparent)]
@@ -228,6 +231,11 @@ pub type IoResult<T> = io::Result<T>;
 /// This is slightly optimized for the single error case: No allocation is
 /// done if there is only one error.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(into = "Vec<CanError>", try_from = "Vec<CanError>")
+)]
 pub struct CanErrors {
     first: CanError,
     rest: Vec<CanError>,
@@ -561,6 +569,181 @@ fn push_trx(errs: &mut Vec<CanError>, byte: u8) {
     }
 }
 
+/////////////////////////////////////////////////////////////////////////////
+// serde support for the composite error and the error collection
+
+/// Serialized form of [`enum@Error`].
+///
+/// The `Can` half round-trips exactly. The `Io` half cannot: `io::Error`
+/// implements neither serde trait and may carry an OS errno or a boxed source,
+/// so it is reduced to its kind and message. See [`ErrorRepr::Io`].
+#[cfg(feature = "serde")]
+#[derive(Debug, Serialize, Deserialize)]
+pub enum ErrorRepr {
+    /// One or more CAN errors
+    Can(CanErrors),
+    /// An I/O error, reduced to a kind name and a message.
+    ///
+    /// This conversion is **lossy**: after a round trip
+    /// [`io::Error::raw_os_error()`] returns `None`, any `source()` chain is
+    /// gone, and a `kind` name that the reading version does not recognise
+    /// degrades to [`io::ErrorKind::Other`].
+    Io {
+        /// The [`io::ErrorKind`], by name
+        kind: String,
+        /// The original error's `Display` text
+        message: String,
+    },
+}
+
+/// Maps an [`io::ErrorKind`] to a stable name.
+///
+/// `io::ErrorKind` is `#[non_exhaustive]` and has no stable string form of its
+/// own, so this covers the kinds this crate can plausibly produce and falls
+/// back to `"Other"`. Round-tripping through [`io_kind_from_name`] is therefore
+/// not total, which is documented on [`ErrorRepr::Io`].
+///
+/// Note that some errnos map to kinds that are not nameable at all — `ENODEV`
+/// becomes the unstable `ErrorKind::Uncategorized`, for instance — so those
+/// necessarily arrive back as `Other`.
+#[cfg(feature = "serde")]
+pub(crate) fn io_kind_name(kind: io::ErrorKind) -> &'static str {
+    use io::ErrorKind::*;
+    match kind {
+        NotFound => "NotFound",
+        PermissionDenied => "PermissionDenied",
+        ConnectionRefused => "ConnectionRefused",
+        ConnectionReset => "ConnectionReset",
+        ConnectionAborted => "ConnectionAborted",
+        NotConnected => "NotConnected",
+        NetworkDown => "NetworkDown",
+        NetworkUnreachable => "NetworkUnreachable",
+        HostUnreachable => "HostUnreachable",
+        ResourceBusy => "ResourceBusy",
+        AddrInUse => "AddrInUse",
+        AddrNotAvailable => "AddrNotAvailable",
+        BrokenPipe => "BrokenPipe",
+        AlreadyExists => "AlreadyExists",
+        WouldBlock => "WouldBlock",
+        InvalidInput => "InvalidInput",
+        InvalidData => "InvalidData",
+        TimedOut => "TimedOut",
+        WriteZero => "WriteZero",
+        Interrupted => "Interrupted",
+        Unsupported => "Unsupported",
+        UnexpectedEof => "UnexpectedEof",
+        OutOfMemory => "OutOfMemory",
+        _ => "Other",
+    }
+}
+
+/// The inverse of [`io_kind_name`], falling back to
+/// [`io::ErrorKind::Other`] for anything unrecognised.
+///
+/// The fallback is deliberate: a value written by a newer version of this
+/// crate must still deserialize in an older one.
+#[cfg(feature = "serde")]
+pub(crate) fn io_kind_from_name(name: &str) -> io::ErrorKind {
+    use io::ErrorKind::*;
+    match name {
+        "NotFound" => NotFound,
+        "PermissionDenied" => PermissionDenied,
+        "ConnectionRefused" => ConnectionRefused,
+        "ConnectionReset" => ConnectionReset,
+        "ConnectionAborted" => ConnectionAborted,
+        "NotConnected" => NotConnected,
+        "NetworkDown" => NetworkDown,
+        "NetworkUnreachable" => NetworkUnreachable,
+        "HostUnreachable" => HostUnreachable,
+        "ResourceBusy" => ResourceBusy,
+        "AddrInUse" => AddrInUse,
+        "AddrNotAvailable" => AddrNotAvailable,
+        "BrokenPipe" => BrokenPipe,
+        "AlreadyExists" => AlreadyExists,
+        "WouldBlock" => WouldBlock,
+        "InvalidInput" => InvalidInput,
+        "InvalidData" => InvalidData,
+        "TimedOut" => TimedOut,
+        "WriteZero" => WriteZero,
+        "Interrupted" => Interrupted,
+        "Unsupported" => Unsupported,
+        "UnexpectedEof" => UnexpectedEof,
+        "OutOfMemory" => OutOfMemory,
+        _ => Other,
+    }
+}
+
+/// Hand-written because `serde(into = ...)` requires `Clone`, and
+/// [`enum@Error`] cannot be `Clone`: `io::Error` is not.
+///
+/// This clones the [`CanErrors`] to build the repr. Serialization is not a hot
+/// path, so the allocation is not worth avoiding with a parallel borrowing
+/// repr that would have to be kept in sync by hand.
+#[cfg(feature = "serde")]
+impl Serialize for Error {
+    fn serialize<S: serde::Serializer>(&self, ser: S) -> std::result::Result<S::Ok, S::Error> {
+        let repr = match self {
+            Error::Can(errs) => ErrorRepr::Can(errs.clone()),
+            Error::Io(e) => ErrorRepr::Io {
+                kind: io_kind_name(e.kind()).to_string(),
+                message: e.to_string(),
+            },
+        };
+        repr.serialize(ser)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl From<ErrorRepr> for Error {
+    fn from(repr: ErrorRepr) -> Self {
+        match repr {
+            ErrorRepr::Can(errs) => Self::Can(errs),
+            ErrorRepr::Io { kind, message } => {
+                Self::Io(io::Error::new(io_kind_from_name(&kind), message))
+            }
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl From<CanErrors> for Vec<CanError> {
+    fn from(errs: CanErrors) -> Self {
+        errs.into_iter().collect()
+    }
+}
+
+#[cfg(feature = "serde")]
+impl TryFrom<Vec<CanError>> for CanErrors {
+    type Error = EmptyCanErrors;
+
+    /// Rebuilds the collection, rejecting an empty sequence.
+    ///
+    /// This is what keeps the non-empty invariant intact across
+    /// deserialization; without it, serde would be a way to construct an
+    /// invalid `CanErrors` from outside the crate.
+    fn try_from(errs: Vec<CanError>) -> std::result::Result<Self, Self::Error> {
+        Self::from_iter_checked(errs).ok_or(EmptyCanErrors)
+    }
+}
+
+/// Error returned when deserializing a [`CanErrors`] from an empty sequence.
+///
+/// [`CanErrors`] is non-empty by construction, so an empty input is invalid
+/// rather than merely unusual.
+#[cfg(feature = "serde")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EmptyCanErrors;
+
+#[cfg(feature = "serde")]
+impl fmt::Display for EmptyCanErrors {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("a CanErrors collection must hold at least one error")
+    }
+}
+
+#[cfg(feature = "serde")]
+impl error::Error for EmptyCanErrors {}
+
 // ===== CanError ====
 
 /// A single CAN bus error condition derived from an error frame.
@@ -579,6 +762,7 @@ fn push_trx(errs: &mut Vec<CanError>, byte: u8) {
 /// (`CAN_ERR_FLAG`) is set. But there are additional types to handle any
 /// problems decoding the error frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum CanError {
     /// TX timeout (by netdevice driver)
     TransmitTimeout,
@@ -695,6 +879,7 @@ impl embedded_can::Error for CanError {
 /// anomaly.
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
 #[repr(u8)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum ControllerProblem {
     /// unspecified
     Unspecified = 0x00,
@@ -787,6 +972,7 @@ impl TryFrom<u8> for ControllerProblem {
 /// reporting it alone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum ViolationType {
     /// Unspecified Violation
     Unspecified = 0x00,
@@ -892,6 +1078,7 @@ impl TryFrom<u8> for ViolationType {
 /// remaining value decodes to [`Reserved`](Self::Reserved), which keeps the
 /// raw byte so nothing is lost and so decoding `data[3]` can never fail.
 #[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Location {
     /// Unspecified
     Unspecified,
@@ -1083,6 +1270,7 @@ impl fmt::Display for Location {
 /// single byte with both halves set and decodes to two of these values.
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
 #[repr(u8)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum TransceiverError {
     /// Unspecified
     Unspecified = 0x00,
@@ -1183,6 +1371,7 @@ impl<T: Frame> ControllerSpecificErrorInformation for T {
 /// former preserves unknown values as [`Location::Reserved`] and the latter
 /// has a named type for every bit of the byte.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum CanErrorDecodingFailure {
     /// `data[1]` had a bit set that no known controller problem claims.
     InvalidControllerProblem,
@@ -1214,6 +1403,7 @@ impl fmt::Display for CanErrorDecodingFailure {
 
 #[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
 /// Error that occurs when creating CAN packets
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum ConstructionError {
     /// Trying to create a specific frame type from an incompatible type
     WrongFrameType,
