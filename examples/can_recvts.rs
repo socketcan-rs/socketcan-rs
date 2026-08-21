@@ -34,11 +34,11 @@ fn frame_info<F: Frame>(frame: &F) -> String {
 ///
 /// An error frame is not bus traffic — it is the driver reporting a problem —
 /// so it is shown as the decoded error text rather than as raw bytes. A
-/// single error frame can report several conditions at once, and `CanErrors`
+/// single error frame can report several causes at once, and `CanError`
 /// renders all of them on one line.
 fn frame_str(frame: &CanFrame) -> String {
     match frame {
-        CanFrame::Error(frame) => format!("ERROR: {}", frame.into_errors()),
+        CanFrame::Error(frame) => format!("ERROR: {}", frame.into_error()),
         _ => frame_info(frame),
     }
 }

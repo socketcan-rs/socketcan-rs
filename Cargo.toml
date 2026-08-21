@@ -1,6 +1,6 @@
 [package]
 name = "socketcan"
-version = "4.0.0-pre.0"
+version = "4.0.0-pre.1"
 edition = "2024"
 rust-version = "1.89"
 authors = [
@@ -56,6 +56,7 @@ itertools = "0.14"
 libc = { version = "0.2", features = ["extra_traits"] }
 nix = { version="0.31", features = ["poll", "net"] }
 bitflags = "2.6"
+smallvec = "1"
 thiserror = "2"
 socket2 = { version = "0.6", features = ["all"] }
 clap = { version = "4.6", optional = true }

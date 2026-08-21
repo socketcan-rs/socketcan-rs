@@ -126,7 +126,7 @@ pub use embedded_can::{
 pub mod errors;
 pub use errors::{
     CAN_BUS_OFF_THRESHOLD, CAN_ERROR_PASSIVE_THRESHOLD, CAN_ERROR_WARNING_THRESHOLD, CanError,
-    CanErrorDecodingFailure, CanErrors, ConstructionError, Error, IoError, IoErrorKind, IoResult,
+    CanErrorDecodingFailure, ConstructionError, Error, ErrorCause, IoError, IoErrorKind, IoResult,
     Result,
 };
 

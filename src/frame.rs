@@ -30,7 +30,7 @@
 //!   [Error](https://doc.rust-lang.org/std/error/trait.Error.html) types.
 //!
 
-use crate::{CanError, CanErrors, ConstructionError, id::CanId};
+use crate::{CanError, ConstructionError, ErrorCause, id::CanId};
 use embedded_can::{ExtendedId, Frame as EmbeddedFrame, Id, StandardId};
 use libc::{can_frame, canfd_frame, canid_t};
 #[cfg(feature = "serde")]
@@ -1121,13 +1121,13 @@ impl CanErrorFrame {
         self.id_word() & CAN_ERR_MASK
     }
 
-    /// Decodes this error frame into the set of errors it describes.
+    /// Decodes this error frame into the error it describes.
     ///
-    /// A single error frame commonly reports several distinct conditions, so
-    /// this yields a non-empty [`CanErrors`] collection rather than one
-    /// error. See the [errors module](crate::errors) for the layout.
-    pub fn into_errors(self) -> CanErrors {
-        CanErrors::from(self)
+    /// A single error frame reports one error event, though it commonly has
+    /// several distinct causes, so this yields a non-empty [`CanError`]. See
+    /// the [errors module](crate::errors) for the layout.
+    pub fn into_error(self) -> CanError {
+        CanError::from(self)
     }
 }
 
@@ -1254,51 +1254,55 @@ impl TryFrom<can_frame> for CanErrorFrame {
     }
 }
 
-impl From<CanErrors> for CanErrorFrame {
-    /// Encodes a set of errors back into a single error frame.
+impl From<CanError> for CanErrorFrame {
+    /// Encodes a decoded error back into a single error frame.
     ///
-    /// This is the inverse of [`CanErrorFrame::into_errors()`] and
-    /// round-trips byte-for-byte for anything that has a wire
-    /// representation. Class bits and the bitfield data bytes accumulate, so
-    /// several controller problems or violation types collapse back into the
-    /// one byte they came from.
+    /// This is the inverse of [`CanErrorFrame::into_error()`] and round-trips
+    /// byte-for-byte for anything that has a wire representation. Class bits
+    /// and the bitfield data bytes accumulate, so a folded set of controller
+    /// problems or violation types writes straight back into the one byte it
+    /// came from.
     ///
-    /// The one lossy case is [`CanError::DecodingFailure`], which describes a
-    /// byte pattern we could not interpret rather than a condition the bus
-    /// reported; it has no encoding and is skipped. Note also that several
-    /// protocol violations sharing a location all write the same `data[3]`,
-    /// and that a set holding violations with *differing* locations cannot be
-    /// represented — the last one written wins, since the frame has only one
-    /// location byte.
-    fn from(errs: CanErrors) -> Self {
-        use CanError::*;
+    /// The one lossy case is [`ErrorCause::DecodingFailure`], which describes
+    /// a byte pattern we could not interpret rather than a condition the bus
+    /// reported; it has no encoding and is skipped. Note also that a
+    /// (hand-built) error holding several [`ErrorCause::Protocol`] causes with
+    /// *differing* locations cannot be represented — the last one written
+    /// wins, since the frame has only one location byte.
+    fn from(err: CanError) -> Self {
+        use ErrorCause::*;
 
         let mut data = [0u8; CAN_MAX_DLEN];
         let mut id: canid_t = 0;
 
-        for err in &errs {
-            match *err {
+        for cause in &err {
+            match *cause {
                 TransmitTimeout => id |= libc::CAN_ERR_TX_TIMEOUT,
                 LostArbitration(bit) => {
                     id |= libc::CAN_ERR_LOSTARB;
                     data[0] = bit;
                 }
-                ControllerProblem(prob) => {
+                Controller(problems) => {
                     id |= libc::CAN_ERR_CRTL;
                     // OR, not assign: data[1] is a bitfield and a frame can
                     // report several problems at once.
-                    data[1] |= prob as u8;
+                    data[1] |= problems.bits();
                 }
-                ProtocolViolation { vtype, location } => {
+                Protocol { types, location } => {
                     id |= libc::CAN_ERR_PROT;
-                    data[2] |= vtype as u8;
+                    data[2] |= types.bits();
                     data[3] = location.as_raw();
                 }
-                TransceiverError(trx) => {
+                Transceiver { canh, canl } => {
                     id |= libc::CAN_ERR_TRX;
                     // Two independent nibbles: CAN High in the low half,
                     // CAN Low in the high half.
-                    data[4] |= trx as u8;
+                    if let Some(h) = canh {
+                        data[4] |= h as u8;
+                    }
+                    if let Some(l) = canl {
+                        data[4] |= l as u8;
+                    }
                 }
                 NoAck => id |= libc::CAN_ERR_ACK,
                 BusOff => id |= libc::CAN_ERR_BUSOFF,
@@ -1318,10 +1322,10 @@ impl From<CanErrors> for CanErrorFrame {
     }
 }
 
-impl From<CanError> for CanErrorFrame {
-    /// Encodes a single error into an error frame.
-    fn from(err: CanError) -> Self {
-        Self::from(CanErrors::from_single(err))
+impl From<ErrorCause> for CanErrorFrame {
+    /// Encodes a single error cause into an error frame.
+    fn from(cause: ErrorCause) -> Self {
+        Self::from(CanError::new(cause))
     }
 }
 
@@ -2004,11 +2008,14 @@ mod tests {
         frame.can_id = CAN_ERR_FLAG | 0x0010;
 
         // A bare CAN_ERR_TRX with data[4] == 0 is an unspecified
-        // transceiver fault.
-        let errs = CanErrors::from(CanErrorFrame(frame));
+        // transceiver fault (both lines absent).
+        let err = CanError::from(CanErrorFrame(frame));
         assert_eq!(
-            *errs.first(),
-            CanError::TransceiverError(errors::TransceiverError::Unspecified)
+            *err.first(),
+            ErrorCause::Transceiver {
+                canh: None,
+                canl: None
+            }
         );
 
         let id = StandardId::new(0x0010).unwrap();
@@ -2017,10 +2024,13 @@ mod tests {
         assert!(!frame.is_remote_frame());
         assert!(frame.is_error_frame());
 
-        let errs = CanErrors::from(frame);
+        let err = CanError::from(frame);
         assert_eq!(
-            *errs.first(),
-            CanError::TransceiverError(errors::TransceiverError::Unspecified)
+            *err.first(),
+            ErrorCause::Transceiver {
+                canh: None,
+                canl: None
+            }
         );
 
         let id = ExtendedId::new(0x0020).unwrap();
@@ -2029,33 +2039,33 @@ mod tests {
         assert!(!frame.is_remote_frame());
         assert!(frame.is_error_frame());
 
-        let errs = CanErrors::from(frame);
-        assert_eq!(*errs.first(), CanError::NoAck);
-        assert!(errs.is_single());
+        let err = CanError::from(frame);
+        assert_eq!(*err.first(), ErrorCause::NoAck);
+        assert!(err.is_single());
 
-        // From CanErrors
+        // From a single cause
 
-        let frame = CanErrorFrame::from(CanError::TransmitTimeout);
+        let frame = CanErrorFrame::from(ErrorCause::TransmitTimeout);
         assert!(!frame.is_data_frame());
         assert!(!frame.is_remote_frame());
         assert!(frame.is_error_frame());
 
-        let errs = frame.into_errors();
-        assert!(errs.is_single());
-        assert_eq!(*errs.first(), CanError::TransmitTimeout);
+        let err = frame.into_error();
+        assert!(err.is_single());
+        assert_eq!(*err.first(), ErrorCause::TransmitTimeout);
 
-        let err = CanError::ProtocolViolation {
-            vtype: errors::ViolationType::BitStuffingError,
+        let cause = ErrorCause::Protocol {
+            types: errors::ViolationTypes::STUFF,
             location: errors::Location::Id0400,
         };
-        let frame = CanErrorFrame::from(err);
+        let frame = CanErrorFrame::from(cause);
         assert!(!frame.is_data_frame());
         assert!(!frame.is_remote_frame());
         assert!(frame.is_error_frame());
 
-        let errs = frame.into_errors();
-        assert_eq!(errs.len(), 1);
-        assert_eq!(*errs.first(), err);
+        let err = frame.into_error();
+        assert_eq!(err.len(), 1);
+        assert_eq!(*err.first(), cause);
     }
 
     /// Encoding a decoded frame must reproduce it byte for byte.
@@ -2065,7 +2075,7 @@ mod tests {
     /// data byte (or the reverse), or a whole field is dropped.
     #[test]
     fn test_error_frame_round_trip() {
-        use crate::errors::{ControllerProblem, Location, TransceiverError, ViolationType};
+        use crate::errors::{CanLowFault, ControllerProblems, Location, ViolationTypes};
         use libc::{
             CAN_ERR_ACK, CAN_ERR_BUSERROR, CAN_ERR_BUSOFF, CAN_ERR_CNT, CAN_ERR_CRTL,
             CAN_ERR_LOSTARB, CAN_ERR_PROT, CAN_ERR_RESTARTED, CAN_ERR_TRX, CAN_ERR_TX_TIMEOUT,
@@ -2109,12 +2119,12 @@ mod tests {
 
         for (bits, data) in cases {
             let orig = CanErrorFrame::new_error(*bits, data).unwrap();
-            let errs = orig.into_errors();
-            let again = CanErrorFrame::from(errs.clone());
+            let err = orig.into_error();
+            let again = CanErrorFrame::from(err.clone());
             assert_eq!(
                 again, orig,
                 "round-trip failed for bits={:#x} data={:02X?}\n  decoded as: {}",
-                bits, data, errs
+                bits, data, err
             );
         }
 
@@ -2124,27 +2134,27 @@ mod tests {
             let orig =
                 CanErrorFrame::new_error(CAN_ERR_PROT, &[0, 0, 0x02, v, 0, 0, 0, 0]).unwrap();
             assert_eq!(
-                CanErrorFrame::from(orig.into_errors()),
+                CanErrorFrame::from(orig.into_error()),
                 orig,
                 "data[3]={v:#04x}"
             );
         }
 
         // The documented lossy case: a decoding failure has no encoding.
-        let errs = CanErrors::new(
-            CanError::BusOff,
-            [CanError::DecodingFailure(
+        let err = CanError::from_multiple(
+            ErrorCause::BusOff,
+            [ErrorCause::DecodingFailure(
                 errors::CanErrorDecodingFailure::InvalidControllerProblem,
             )],
         );
-        let frame = CanErrorFrame::from(errs);
+        let frame = CanErrorFrame::from(err);
         assert_eq!(frame.error_bits(), CAN_ERR_BUSOFF);
-        assert_eq!(frame.into_errors().len(), 1);
+        assert_eq!(frame.into_error().len(), 1);
 
         // Sanity: the pieces used above really do carry their raw values.
-        assert_eq!(ControllerProblem::ReceiveErrorWarning as u8, 0x04);
-        assert_eq!(ViolationType::TransmissionError as u8, 0x80);
-        assert_eq!(TransceiverError::CanLowNoWire as u8, 0x40);
+        assert_eq!(ControllerProblems::RX_WARNING.bits(), 0x04);
+        assert_eq!(ViolationTypes::TX.bits(), 0x80);
+        assert_eq!(CanLowFault::NoWire as u8, 0x40);
         assert_eq!(Location::OverloadFlag.as_raw(), 0x1C);
     }
 

@@ -41,10 +41,10 @@
 //! data[5] is reserved by the kernel and is never decoded here.
 //! ```
 //!
-//! # Multiplicity
+//! # One error, several causes
 //!
-//! A single error frame can describe **many** distinct error conditions, at
-//! two independent levels:
+//! A single error frame describes **one** error event, but that event can
+//! have several distinct causes, at two levels:
 //!
 //! 1. Several class bits can be set in the CAN ID at once. `CAN_ERR_CRTL |
 //!    CAN_ERR_CNT` accompanies essentially every controller state change,
@@ -57,10 +57,12 @@
 //!    warning transition. `data[4]` is similarly split into two independent
 //!    nibbles for the CAN High and CAN Low lines.
 //!
-//! Decoding therefore yields a *collection* — [`CanErrors`] — which is
-//! non-empty by construction and preserves every condition the frame
-//! reported. Entries appear in a documented order: class bits ascending,
-//! and within a class byte, least-significant bit first.
+//! Decoding therefore yields a single [`CanError`] holding one [`ErrorCause`]
+//! per class bit. The two bitfield facets ([`ErrorCause::Controller`],
+//! [`ErrorCause::Protocol`]) and the two-nibble [`ErrorCause::Transceiver`]
+//! each carry a *set* of conditions in one cause, rather than exploding into
+//! sibling entries. A [`CanError`] is non-empty by construction: there is
+//! always a [`first`](CanError::first) cause, in ascending class-bit order.
 //!
 //! All of this error information is not well documented, but can be
 //! extracted from the Linux kernel header file:
@@ -70,6 +72,7 @@
 use crate::{CanErrorFrame, EmbeddedFrame, Frame};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use smallvec::{SmallVec, smallvec};
 use std::{convert::TryFrom, error, fmt, io};
 use thiserror::Error;
 
@@ -84,15 +87,15 @@ pub use libc::{
 };
 
 /// The error counter value at which a controller enters the "error warning"
-/// state. Compare against [`CanError::Counters`].
+/// state. Compare against the counters from [`ErrorCause::Counters`].
 pub use libc::CAN_ERROR_WARNING_THRESHOLD;
 
 /// The error counter value at which a controller enters the "error passive"
-/// state. Compare against [`CanError::Counters`].
+/// state. Compare against the counters from [`ErrorCause::Counters`].
 pub use libc::CAN_ERROR_PASSIVE_THRESHOLD;
 
 /// The error counter value at which a controller goes bus-off.
-/// Compare against [`CanError::Counters`].
+/// Compare against the counters from [`ErrorCause::Counters`].
 pub use libc::CAN_BUS_OFF_THRESHOLD;
 
 /// Mask of every error class bit this crate knows how to decode.
@@ -117,9 +120,9 @@ const KNOWN_ERR_CLASSES: u32 = CAN_ERR_TX_TIMEOUT
 #[derive(Error, Debug)]
 #[cfg_attr(feature = "serde", derive(Deserialize), serde(from = "ErrorRepr"))]
 pub enum Error {
-    /// One or more CANbus errors, usually from an error frame
+    /// A CAN error decoded from an error frame.
     #[error(transparent)]
-    Can(#[from] CanErrors),
+    Can(#[from] CanError),
     /// An I/O Error
     #[error(transparent)]
     Io(#[from] io::Error),
@@ -128,22 +131,22 @@ pub enum Error {
 impl embedded_can::Error for Error {
     fn kind(&self) -> embedded_can::ErrorKind {
         match self {
-            Error::Can(errs) => errs.kind(),
+            Error::Can(err) => err.kind(),
             _ => embedded_can::ErrorKind::Other,
         }
     }
 }
 
-impl From<CanError> for Error {
-    /// Wraps a single CAN error, promoting it to a one-element collection.
-    fn from(err: CanError) -> Self {
-        Error::Can(CanErrors::from_single(err))
+impl From<ErrorCause> for Error {
+    /// Wraps a single cause, promoting it to a one-cause [`CanError`].
+    fn from(cause: ErrorCause) -> Self {
+        Error::Can(CanError::new(cause))
     }
 }
 
 impl From<CanErrorFrame> for Error {
     fn from(frame: CanErrorFrame) -> Self {
-        Error::Can(CanErrors::from(frame))
+        Error::Can(CanError::from(frame))
     }
 }
 
@@ -197,380 +200,396 @@ pub type IoErrorKind = io::ErrorKind;
 /// An I/O specific result
 pub type IoResult<T> = io::Result<T>;
 
-// ===== CanErrors =====
+// ===== CanError =====
 
-/// One or more CAN errors observed in a single error frame.
+/// Inline capacity for the cause list. Real frames report 1–3 causes; the
+/// theoretical maximum (~13) is synthetic, so anything larger spills to the
+/// heap. The common single-cause case never allocates.
+const INLINE_CAUSES: usize = 4;
+
+/// The backing storage for a [`CanError`]'s causes.
+type Causes = SmallVec<[ErrorCause; INLINE_CAUSES]>;
+
+/// The error decoded from a single CAN error frame.
 ///
-/// Linux SocketCAN error frames can report multiple distinct error
-/// conditions simultaneously — most commonly a controller state change
-/// together with the current TX/RX error counter values, or a bus error
-/// annotated with several protocol violation types and a location. See the
-/// [module documentation](self) for the two levels at which this
-/// multiplicity arises.
+/// A SocketCAN error frame reports *one* error event, described by one or
+/// more [`ErrorCause`]s — most commonly a controller state change together
+/// with the current TX/RX error counter values, or a bus error annotated
+/// with several protocol violation types and a location. See the [module
+/// documentation](self) for the two levels at which several causes arise.
 ///
-/// `CanErrors` is **non-empty by construction**: there is always a
-/// [`first()`](Self::first) error. A frame with no recognisable error bits
-/// decodes to a single [`CanError::Unknown`] rather than an empty
-/// collection.
+/// `CanError` is **non-empty by construction**: there is always a
+/// [`first()`](Self::first) cause. A frame with no recognisable error bits
+/// decodes to a single [`ErrorCause::Unknown`] rather than an empty error.
 ///
 /// # Ordering
 ///
-/// Entries appear in a stable, documented order:
-///
-/// - error classes in ascending numeric order of their CAN ID bit, i.e.
-///   TX timeout, lost arbitration, controller problem, protocol violation,
-///   transceiver status, no-ACK, bus off, bus error, restarted, counters
-/// - within `data[1]` and `data[2]`, least-significant bit first
-/// - within a protocol violation, all types precede any location decoding
-///   failure
-/// - within a transceiver status, CAN High precedes CAN Low
-/// - any unrecognised class bits produce a trailing [`CanError::Unknown`]
+/// Causes appear in a stable, documented order: error classes in ascending
+/// numeric order of their CAN ID bit, i.e. TX timeout, lost arbitration,
+/// controller problem, protocol violation, transceiver status, no-ACK, bus
+/// off, bus error, restarted, counters, followed by any unrecognised class
+/// bits as a trailing [`ErrorCause::Unknown`].
 ///
 /// # Implementation
 ///
-/// This is slightly optimized for the single error case: No allocation is
-/// done if there is only one error.
+/// The causes are held inline for the common small case, so decoding a
+/// single- or few-cause frame does not allocate.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(
     feature = "serde",
     derive(Serialize, Deserialize),
-    serde(into = "Vec<CanError>", try_from = "Vec<CanError>")
+    serde(into = "Vec<ErrorCause>", try_from = "Vec<ErrorCause>")
 )]
-pub struct CanErrors {
-    first: CanError,
-    rest: Vec<CanError>,
+pub struct CanError {
+    causes: Causes,
 }
 
-impl CanErrors {
-    /// Creates a collection from a first error plus any number of
-    /// additional ones.
-    pub fn new(first: CanError, rest: impl IntoIterator<Item = CanError>) -> Self {
-        Self {
-            first,
-            rest: rest.into_iter().collect(),
-        }
-    }
-
-    /// Creates a collection holding exactly one error.
+impl CanError {
+    /// Creates an error holding exactly one cause.
     ///
     /// This does not allocate.
-    pub fn from_single(err: CanError) -> Self {
+    pub fn new(cause: ErrorCause) -> Self {
         Self {
-            first: err,
-            rest: Vec::new(),
+            causes: smallvec![cause],
         }
     }
 
-    /// Creates a collection from an iterator, returning `None` if it is
-    /// empty.
-    ///
-    /// Prefer [`from_single()`](Self::from_single) or [`new()`](Self::new) when the
-    /// non-emptiness is already known statically.
-    pub fn from_iter_checked(errs: impl IntoIterator<Item = CanError>) -> Option<Self> {
-        let mut it = errs.into_iter();
-        let first = it.next()?;
-        Some(Self {
-            first,
-            rest: it.collect(),
-        })
+    /// Creates an error from a first cause plus any number of additional ones.
+    pub fn from_multiple(first: ErrorCause, rest: impl IntoIterator<Item = ErrorCause>) -> Self {
+        let mut causes = Causes::new();
+        causes.push(first);
+        causes.extend(rest);
+        Self { causes }
     }
 
-    /// Gets the first error.
+    /// Creates an error from an iterator of causes, returning `None` if it is
+    /// empty.
+    ///
+    /// Prefer [`new()`](Self::new) or [`from_multiple()`](Self::from_multiple)
+    /// when the non-emptiness is already known statically.
+    pub fn from_iter_checked(causes: impl IntoIterator<Item = ErrorCause>) -> Option<Self> {
+        let causes: Causes = causes.into_iter().collect();
+        (!causes.is_empty()).then_some(Self { causes })
+    }
+
+    /// Gets the first cause.
     ///
     /// This is never `None`: the type is non-empty by construction. For a
     /// frame that set several class bits, this is the one belonging to the
     /// lowest-numbered class bit.
-    pub fn first(&self) -> &CanError {
-        &self.first
+    pub fn first(&self) -> &ErrorCause {
+        &self.causes[0]
     }
 
-    /// Gets the last error.
-    pub fn last(&self) -> &CanError {
-        self.rest.last().unwrap_or(&self.first)
+    /// Gets the last cause.
+    pub fn last(&self) -> &ErrorCause {
+        self.causes.last().unwrap()
     }
 
-    /// The number of errors reported. Always at least one.
+    /// The number of causes reported. Always at least one.
     pub fn len(&self) -> usize {
-        1 + self.rest.len()
+        self.causes.len()
     }
 
-    /// Always `false`; the collection is non-empty by construction.
+    /// Always `false`; the error is non-empty by construction.
     ///
     /// Provided only because clippy expects `is_empty` alongside `len`.
     pub fn is_empty(&self) -> bool {
         false
     }
 
-    /// Determines whether this holds exactly one error.
+    /// Determines whether this holds exactly one cause.
     ///
-    /// Note that multi-entry collections are *common*, not exceptional: any
+    /// Note that multi-cause errors are *common*, not exceptional: any
     /// controller state change reports `CAN_ERR_CRTL | CAN_ERR_CNT`, which
-    /// is at least two entries. Do not treat the single case as the norm.
+    /// is two causes. Do not treat the single case as the norm.
     pub fn is_single(&self) -> bool {
-        self.rest.is_empty()
+        self.causes.len() == 1
     }
 
-    /// An iterator over the errors, in the order documented on the type.
-    pub fn iter(&self) -> impl Iterator<Item = &CanError> + '_ {
-        std::iter::once(&self.first).chain(self.rest.iter())
+    /// An iterator over the causes, in the order documented on the type.
+    pub fn causes(&self) -> impl Iterator<Item = &ErrorCause> + '_ {
+        self.causes.iter()
     }
 
-    /// Determines whether any of the errors maps to the given
+    /// Determines whether any of the causes maps to the given
     /// [`embedded_can::ErrorKind`].
     pub fn contains_kind(&self, kind: embedded_can::ErrorKind) -> bool {
         use embedded_can::Error as _;
-        self.iter().any(|e| e.kind() == kind)
+        self.causes().any(|c| c.kind() == kind)
     }
-}
 
-impl From<CanError> for CanErrors {
-    fn from(err: CanError) -> Self {
-        Self::from_single(err)
-    }
-}
+    // ----- typed accessors for the data-carrying causes -----
 
-impl IntoIterator for CanErrors {
-    type Item = CanError;
-    type IntoIter = std::iter::Chain<std::iter::Once<CanError>, std::vec::IntoIter<CanError>>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        std::iter::once(self.first).chain(self.rest)
-    }
-}
-
-impl<'a> IntoIterator for &'a CanErrors {
-    type Item = &'a CanError;
-    type IntoIter = std::iter::Chain<std::iter::Once<&'a CanError>, std::slice::Iter<'a, CanError>>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        std::iter::once(&self.first).chain(self.rest.iter())
-    }
-}
-
-impl error::Error for CanErrors {}
-
-impl fmt::Display for CanErrors {
-    /// Renders the errors as a single line.
+    /// The bit position after which arbitration was lost, if reported.
     ///
-    /// A lone error renders exactly as its own `Display`. Multiple errors
-    /// are joined with "; ". Consecutive protocol violations that share a
-    /// location are grouped, so a frame reporting several violation types
-    /// at one location reads as
-    /// `protocol violation at CRC sequence: frame format error, bit stuffing error`
-    /// rather than repeating the location for each type.
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut first_out = true;
-        let mut pending: Option<(Location, Vec<ViolationType>)> = None;
+    /// Note that the kernel uses zero to mean *unspecified* rather than
+    /// literally "bit 0".
+    pub fn lost_arbitration(&self) -> Option<u8> {
+        self.causes().find_map(|c| match c {
+            ErrorCause::LostArbitration(bit) => Some(*bit),
+            _ => None,
+        })
+    }
 
-        // Flushes a grouped run of protocol violations.
-        fn flush(
-            f: &mut fmt::Formatter,
-            first_out: &mut bool,
-            pending: &mut Option<(Location, Vec<ViolationType>)>,
-        ) -> fmt::Result {
-            if let Some((location, types)) = pending.take() {
-                if !*first_out {
-                    write!(f, "; ")?;
-                }
-                *first_out = false;
-                write!(f, "protocol violation at {}: ", location)?;
-                for (i, t) in types.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{}", t)?;
-                }
-            }
-            Ok(())
+    /// The controller status flags, if the frame carried them.
+    pub fn controller(&self) -> Option<ControllerProblems> {
+        self.causes().find_map(|c| match c {
+            ErrorCause::Controller(p) => Some(*p),
+            _ => None,
+        })
+    }
+
+    /// The protocol violation type(s) and location, if reported.
+    pub fn protocol(&self) -> Option<(ViolationTypes, Location)> {
+        self.causes().find_map(|c| match c {
+            ErrorCause::Protocol { types, location } => Some((*types, *location)),
+            _ => None,
+        })
+    }
+
+    /// The CAN High and CAN Low line faults, if a transceiver status was
+    /// reported.
+    pub fn transceiver(&self) -> Option<(Option<CanHighFault>, Option<CanLowFault>)> {
+        self.causes().find_map(|c| match c {
+            ErrorCause::Transceiver { canh, canl } => Some((*canh, *canl)),
+            _ => None,
+        })
+    }
+
+    /// The TX/RX error counters, if the frame carried a `CAN_ERR_CNT` cause.
+    pub fn counters(&self) -> Option<(u8, u8)> {
+        self.causes().find_map(|c| match c {
+            ErrorCause::Counters { tx, rx } => Some((*tx, *rx)),
+            _ => None,
+        })
+    }
+}
+
+/// Generates a boolean predicate over the causes.
+macro_rules! cause_predicate {
+    ($name:ident, $doc:literal, $pat:pat) => {
+        #[doc = $doc]
+        pub fn $name(&self) -> bool {
+            self.causes().any(|c| matches!(c, $pat))
         }
+    };
+}
 
-        for err in self.iter() {
-            if let CanError::ProtocolViolation { vtype, location } = err {
-                match pending.as_mut() {
-                    Some((loc, types)) if *loc == *location => {
-                        types.push(*vtype);
-                        continue;
-                    }
-                    _ => {
-                        flush(f, &mut first_out, &mut pending)?;
-                        pending = Some((*location, vec![*vtype]));
-                        continue;
-                    }
-                }
-            }
-            flush(f, &mut first_out, &mut pending)?;
-            if !first_out {
+impl CanError {
+    cause_predicate!(
+        is_transmit_timeout,
+        "Whether a TX timeout was reported.",
+        ErrorCause::TransmitTimeout
+    );
+    cause_predicate!(
+        is_no_ack,
+        "Whether the frame went unacknowledged.",
+        ErrorCause::NoAck
+    );
+    cause_predicate!(
+        is_bus_off,
+        "Whether the controller reported a bus-off condition.",
+        ErrorCause::BusOff
+    );
+    cause_predicate!(
+        is_bus_error,
+        "Whether a bus error was reported.",
+        ErrorCause::BusError
+    );
+    cause_predicate!(
+        is_restarted,
+        "Whether the controller restarted.",
+        ErrorCause::Restarted
+    );
+    cause_predicate!(
+        has_counters,
+        "Whether error counter values were reported.",
+        ErrorCause::Counters { .. }
+    );
+}
+
+impl From<ErrorCause> for CanError {
+    fn from(cause: ErrorCause) -> Self {
+        Self::new(cause)
+    }
+}
+
+impl IntoIterator for CanError {
+    type Item = ErrorCause;
+    type IntoIter = smallvec::IntoIter<[ErrorCause; INLINE_CAUSES]>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.causes.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a CanError {
+    type Item = &'a ErrorCause;
+    type IntoIter = std::slice::Iter<'a, ErrorCause>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.causes.iter()
+    }
+}
+
+impl error::Error for CanError {}
+
+impl fmt::Display for CanError {
+    /// Renders the causes as a single line.
+    ///
+    /// A lone cause renders exactly as its own `Display`. Multiple causes are
+    /// joined with "; ".
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut first = true;
+        for cause in self.causes() {
+            if !first {
                 write!(f, "; ")?;
             }
-            first_out = false;
-            write!(f, "{}", err)?;
+            first = false;
+            write!(f, "{}", cause)?;
         }
-        flush(f, &mut first_out, &mut pending)
+        Ok(())
     }
 }
 
-impl embedded_can::Error for CanErrors {
+impl embedded_can::Error for CanError {
     /// Reports the most specific error kind present.
     ///
-    /// Scans the entries in order and returns the first kind that is not
+    /// Scans the causes in order and returns the first kind that is not
     /// [`ErrorKind::Other`](embedded_can::ErrorKind::Other), falling back to
-    /// `Other` when every entry is unspecific. The scan is over *kinds*, not
+    /// `Other` when every cause is unspecific. The scan is over *kinds*, not
     /// over error classes in declaration order — a frame carrying both a
     /// controller warning and a missing ACK reports `Acknowledge`, since the
     /// warning maps only to `Other`.
     fn kind(&self) -> embedded_can::ErrorKind {
         use embedded_can::ErrorKind;
-        self.iter()
-            .map(|e| e.kind())
+        self.causes()
+            .map(|c| c.kind())
             .find(|k| *k != ErrorKind::Other)
             .unwrap_or(ErrorKind::Other)
     }
 }
 
-impl From<CanErrorFrame> for CanErrors {
-    /// Decodes every error condition described by an error frame.
+impl From<CanErrorFrame> for CanError {
+    /// Decodes every cause described by an error frame.
     ///
-    /// Walks the class bits of the CAN ID in ascending order, decomposing
-    /// the bitfield data bytes so that a class describing several
-    /// simultaneous conditions yields one entry per condition.
+    /// Walks the class bits of the CAN ID in ascending order, producing one
+    /// [`ErrorCause`] per class bit. The bitfield facets carry a set, so a
+    /// class describing several simultaneous conditions is a single cause.
     fn from(frame: CanErrorFrame) -> Self {
         // Note that the CanErrorFrame is guaranteed to have the full 8-byte
         // data payload.
         let bits = frame.error_bits();
         let data = frame.data();
-        let mut errs: Vec<CanError> = Vec::new();
+        let mut causes = Causes::new();
 
         if bits & CAN_ERR_TX_TIMEOUT != 0 {
-            errs.push(CanError::TransmitTimeout);
+            causes.push(ErrorCause::TransmitTimeout);
         }
         if bits & CAN_ERR_LOSTARB != 0 {
-            errs.push(CanError::LostArbitration(data[0]));
+            causes.push(ErrorCause::LostArbitration(data[0]));
         }
         if bits & CAN_ERR_CRTL != 0 {
-            push_ctrl(&mut errs, data[1]);
+            push_controller(&mut causes, data[1]);
         }
         if bits & CAN_ERR_PROT != 0 {
-            push_prot(&mut errs, data[2], data[3]);
+            // Every bit of data[2] is defined, so this cannot drop bits.
+            causes.push(ErrorCause::Protocol {
+                types: ViolationTypes::from_bits_truncate(data[2]),
+                location: Location::from_raw(data[3]),
+            });
         }
         if bits & CAN_ERR_TRX != 0 {
-            push_trx(&mut errs, data[4]);
+            push_transceiver(&mut causes, data[4]);
         }
         if bits & CAN_ERR_ACK != 0 {
-            errs.push(CanError::NoAck);
+            causes.push(ErrorCause::NoAck);
         }
         if bits & CAN_ERR_BUSOFF != 0 {
-            errs.push(CanError::BusOff);
+            causes.push(ErrorCause::BusOff);
         }
         if bits & CAN_ERR_BUSERROR != 0 {
-            errs.push(CanError::BusError);
+            causes.push(ErrorCause::BusError);
         }
         if bits & CAN_ERR_RESTARTED != 0 {
-            errs.push(CanError::Restarted);
+            causes.push(ErrorCause::Restarted);
         }
         // Strictly gated on the flag. The kernel leaves data[6..7] undefined
         // when CAN_ERR_CNT is clear; can-utils prints them anyway, but that
         // is a display convenience, not a decoding rule.
         if bits & CAN_ERR_CNT != 0 {
-            errs.push(CanError::Counters {
+            causes.push(ErrorCause::Counters {
                 tx: data[6],
                 rx: data[7],
             });
         }
 
         // Any class bits we do not recognise are reported as a single
-        // trailing entry carrying just those bits.
+        // trailing cause carrying just those bits.
         let unknown = bits & !KNOWN_ERR_CLASSES;
         if unknown != 0 {
-            errs.push(CanError::Unknown(unknown));
+            causes.push(ErrorCause::Unknown(unknown));
         }
 
         // A frame with no class bits at all is malformed; report it rather
         // than violating the non-empty invariant.
-        Self::from_iter_checked(errs).unwrap_or_else(|| Self::from_single(CanError::Unknown(0)))
+        if causes.is_empty() {
+            causes.push(ErrorCause::Unknown(0));
+        }
+        Self { causes }
     }
 }
 
-/// Decomposes the controller-problem bitfield in `data[1]`.
+/// Decodes the controller-problem bitfield in `data[1]` into one
+/// [`ErrorCause::Controller`]. An empty set is `CAN_ERR_CRTL_UNSPEC`.
 ///
-/// Pushes one entry per set bit, or a single `Unspecified` for a zero byte.
-/// Guaranteed to push at least one entry.
-fn push_ctrl(errs: &mut Vec<CanError>, byte: u8) {
-    // `data[1] == 0` is CAN_ERR_CRTL_UNSPEC, a legitimate value. It must be
-    // handled before the bit walk, because `byte & 0 != 0` is never true and
-    // a naive loop would report a valid frame as a decoding failure.
-    if byte == 0 {
-        errs.push(CanError::ControllerProblem(ControllerProblem::Unspecified));
-        return;
-    }
-    let mut matched = 0u8;
-    for prob in ControllerProblem::ALL {
-        let bit = prob as u8;
-        if byte & bit != 0 {
-            errs.push(CanError::ControllerProblem(prob));
-            matched |= bit;
-        }
-    }
-    if byte & !matched != 0 {
-        errs.push(CanError::DecodingFailure(
+/// Any bits with no known meaning produce a trailing
+/// [`ErrorCause::DecodingFailure`].
+fn push_controller(causes: &mut Causes, byte: u8) {
+    causes.push(ErrorCause::Controller(
+        ControllerProblems::from_bits_truncate(byte),
+    ));
+    if byte & !ControllerProblems::all().bits() != 0 {
+        causes.push(ErrorCause::DecodingFailure(
             CanErrorDecodingFailure::InvalidControllerProblem,
         ));
     }
 }
 
-/// Decomposes the protocol-violation bitfield in `data[2]` and pairs each
-/// type with the single location in `data[3]`.
+/// Decodes the two nibbles of `data[4]` into one [`ErrorCause::Transceiver`].
 ///
-/// Guaranteed to push at least one entry.
-fn push_prot(errs: &mut Vec<CanError>, types: u8, loc: u8) {
-    let location = Location::from_raw(loc);
-
-    // As with data[1], zero means "unspecified" and must bypass the walk.
-    if types == 0 {
-        errs.push(CanError::ProtocolViolation {
-            vtype: ViolationType::Unspecified,
-            location,
-        });
-        return;
-    }
-    // Every bit of data[2] is claimed by a known violation type, so unlike
-    // data[1] there is no unmatched-bits case to report here.
-    for vtype in ViolationType::ALL {
-        if types & (vtype as u8) != 0 {
-            errs.push(CanError::ProtocolViolation { vtype, location });
-        }
-    }
-}
-
-/// Decodes the transceiver status byte `data[4]`.
-///
-/// `data[4]` is **two independent nibbles**: the low nibble describes the
-/// CAN High line and the high nibble the CAN Low line, so a fault on both
-/// lines is reported as a single byte with both halves set (the kernel's
-/// `etas_es58x` driver emits `0x44` for a lost connection on either line).
-/// Each non-zero half yields its own entry.
-///
-/// Guaranteed to push at least one entry.
-fn push_trx(errs: &mut Vec<CanError>, byte: u8) {
-    if byte == 0 {
-        errs.push(CanError::TransceiverError(TransceiverError::Unspecified));
-        return;
-    }
-    // The enum discriminants are already nibble-aligned: the CanHigh*
-    // values occupy 0x04..=0x07 and the CanLow* values 0x40..=0x80, so each
-    // masked half decodes directly.
-    for half in [byte & 0x0F, byte & 0xF0] {
-        if half == 0 {
-            continue;
-        }
-        match TransceiverError::try_from(half) {
-            Ok(e) => errs.push(CanError::TransceiverError(e)),
-            Err(e) => errs.push(CanError::DecodingFailure(e)),
-        }
+/// The low nibble describes the CAN High line and the high nibble the CAN Low
+/// line, so a fault on both lines is a single byte with both halves set (the
+/// kernel's `etas_es58x` driver emits `0x44` for a lost connection on either
+/// line). A zero half is absent (`None`). An unrecognised half yields a
+/// trailing [`ErrorCause::DecodingFailure`].
+fn push_transceiver(causes: &mut Causes, byte: u8) {
+    let mut invalid = false;
+    let canh = match byte & 0x0F {
+        0 => None,
+        h => CanHighFault::try_from(h).map(Some).unwrap_or_else(|_| {
+            invalid = true;
+            None
+        }),
+    };
+    let canl = match byte & 0xF0 {
+        0 => None,
+        l => CanLowFault::try_from(l).map(Some).unwrap_or_else(|_| {
+            invalid = true;
+            None
+        }),
+    };
+    causes.push(ErrorCause::Transceiver { canh, canl });
+    if invalid {
+        causes.push(ErrorCause::DecodingFailure(
+            CanErrorDecodingFailure::InvalidTransceiverError,
+        ));
     }
 }
 
 /////////////////////////////////////////////////////////////////////////////
-// serde support for the composite error and the error collection
+// serde support for the composite error and the CAN error
 
 /// Serialized form of [`enum@Error`].
 ///
@@ -580,8 +599,8 @@ fn push_trx(errs: &mut Vec<CanError>, byte: u8) {
 #[cfg(feature = "serde")]
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ErrorRepr {
-    /// One or more CAN errors
-    Can(CanErrors),
+    /// A CAN error
+    Can(CanError),
     /// An I/O error, reduced to a kind name and a message.
     ///
     /// This conversion is **lossy**: after a round trip
@@ -676,14 +695,14 @@ pub(crate) fn io_kind_from_name(name: &str) -> io::ErrorKind {
 /// Hand-written because `serde(into = ...)` requires `Clone`, and
 /// [`enum@Error`] cannot be `Clone`: `io::Error` is not.
 ///
-/// This clones the [`CanErrors`] to build the repr. Serialization is not a hot
+/// This clones the [`CanError`] to build the repr. Serialization is not a hot
 /// path, so the allocation is not worth avoiding with a parallel borrowing
 /// repr that would have to be kept in sync by hand.
 #[cfg(feature = "serde")]
 impl Serialize for Error {
     fn serialize<S: serde::Serializer>(&self, ser: S) -> std::result::Result<S::Ok, S::Error> {
         let repr = match self {
-            Error::Can(errs) => ErrorRepr::Can(errs.clone()),
+            Error::Can(err) => ErrorRepr::Can(err.clone()),
             Error::Io(e) => ErrorRepr::Io {
                 kind: io_kind_name(e.kind()).to_string(),
                 message: e.to_string(),
@@ -697,7 +716,7 @@ impl Serialize for Error {
 impl From<ErrorRepr> for Error {
     fn from(repr: ErrorRepr) -> Self {
         match repr {
-            ErrorRepr::Can(errs) => Self::Can(errs),
+            ErrorRepr::Can(err) => Self::Can(err),
             ErrorRepr::Io { kind, message } => {
                 Self::Io(io::Error::new(io_kind_from_name(&kind), message))
             }
@@ -706,99 +725,101 @@ impl From<ErrorRepr> for Error {
 }
 
 #[cfg(feature = "serde")]
-impl From<CanErrors> for Vec<CanError> {
-    fn from(errs: CanErrors) -> Self {
-        errs.into_iter().collect()
+impl From<CanError> for Vec<ErrorCause> {
+    fn from(err: CanError) -> Self {
+        err.into_iter().collect()
     }
 }
 
 #[cfg(feature = "serde")]
-impl TryFrom<Vec<CanError>> for CanErrors {
-    type Error = EmptyCanErrors;
+impl TryFrom<Vec<ErrorCause>> for CanError {
+    type Error = EmptyCanError;
 
-    /// Rebuilds the collection, rejecting an empty sequence.
+    /// Rebuilds the error, rejecting an empty sequence.
     ///
     /// This is what keeps the non-empty invariant intact across
     /// deserialization; without it, serde would be a way to construct an
-    /// invalid `CanErrors` from outside the crate.
-    fn try_from(errs: Vec<CanError>) -> std::result::Result<Self, Self::Error> {
-        Self::from_iter_checked(errs).ok_or(EmptyCanErrors)
+    /// invalid `CanError` from outside the crate.
+    fn try_from(causes: Vec<ErrorCause>) -> std::result::Result<Self, Self::Error> {
+        Self::from_iter_checked(causes).ok_or(EmptyCanError)
     }
 }
 
-/// Error returned when deserializing a [`CanErrors`] from an empty sequence.
+/// Error returned when deserializing a [`CanError`] from an empty sequence.
 ///
-/// [`CanErrors`] is non-empty by construction, so an empty input is invalid
+/// [`CanError`] is non-empty by construction, so an empty input is invalid
 /// rather than merely unusual.
 #[cfg(feature = "serde")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct EmptyCanErrors;
+pub struct EmptyCanError;
 
 #[cfg(feature = "serde")]
-impl fmt::Display for EmptyCanErrors {
+impl fmt::Display for EmptyCanError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str("a CanErrors collection must hold at least one error")
+        f.write_str("a CanError must hold at least one cause")
     }
 }
 
 #[cfg(feature = "serde")]
-impl error::Error for EmptyCanErrors {}
+impl error::Error for EmptyCanError {}
 
-// ===== CanError ====
+// ===== ErrorCause ====
 
-/// A single CAN bus error condition derived from an error frame.
+/// A single condition a CAN error frame reported.
 ///
-/// An CAN interface device driver can send detailed error information up
-/// to the application in an "error frame". These are selectable by the
-/// application by applying an error bitmask to the socket to choose which
-/// types of errors to receive.
+/// One `ErrorCause` corresponds to one class bit in the frame's CAN ID. The
+/// two bitfield facets ([`Controller`](Self::Controller),
+/// [`Protocol`](Self::Protocol)) and the two-nibble
+/// [`Transceiver`](Self::Transceiver) byte each carry a *set* of conditions
+/// in a single cause, rather than exploding into sibling entries.
 ///
-/// A single error frame commonly describes several of these at once; the
-/// frame as a whole converts to a [`CanErrors`] collection rather than to
-/// one of these directly.
+/// A frame as a whole decodes to a [`CanError`], which holds these; see the
+/// [module documentation](self).
 ///
-/// Most error types here correspond to a bit in the error mask of a CAN ID
-/// word of an error frame - a frame in which the CAN error flag
-/// (`CAN_ERR_FLAG`) is set. But there are additional types to handle any
-/// problems decoding the error frame.
+/// This is `#[non_exhaustive]`: new class bits may be added in future kernels,
+/// so downstream `match`es should include a wildcard arm.
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub enum CanError {
-    /// TX timeout (by netdevice driver)
+pub enum ErrorCause {
+    /// TX timeout (by netdevice driver). `CAN_ERR_TX_TIMEOUT`.
     TransmitTimeout,
     /// Arbitration was lost.
     ///
     /// Contains the bit number after which arbitration was lost. Note that
     /// the kernel uses zero (`CAN_ERR_LOSTARB_UNSPEC`) to mean
-    /// *unspecified* rather than literally "bit 0".
+    /// *unspecified* rather than literally "bit 0". `CAN_ERR_LOSTARB`.
     LostArbitration(u8),
-    /// Controller problem
-    ControllerProblem(ControllerProblem),
-    /// Protocol violation at the specified [`Location`].
+    /// Controller status flags, from `data[1]`. `CAN_ERR_CRTL`.
     ///
-    /// A frame reporting several violation types shares one location among
-    /// them, so several of these can appear with the same `location`.
-    ProtocolViolation {
-        /// The type of protocol violation
-        vtype: ViolationType,
-        /// The location (field or bit) of the violation
+    /// An empty set is `CAN_ERR_CRTL_UNSPEC`.
+    Controller(ControllerProblems),
+    /// Protocol violation(s) at one location, from `data[2..=3]`.
+    /// `CAN_ERR_PROT`.
+    Protocol {
+        /// The violation type(s); an empty set means "unspecified".
+        types: ViolationTypes,
+        /// The location (field or bit) of the violation.
         location: Location,
     },
-    /// Transceiver error, decoded from `data[4]`.
-    ///
-    /// The CAN High and CAN Low lines are reported independently, so a
-    /// fault on both produces two of these.
-    TransceiverError(TransceiverError),
-    /// No ACK received for current CAN frame.
+    /// Transceiver line faults, from the two nibbles of `data[4]`.
+    /// `CAN_ERR_TRX`.
+    Transceiver {
+        /// The CAN High line fault (low nibble), if any.
+        canh: Option<CanHighFault>,
+        /// The CAN Low line fault (high nibble), if any.
+        canl: Option<CanLowFault>,
+    },
+    /// No ACK received for the transmitted frame. `CAN_ERR_ACK`.
     NoAck,
-    /// Bus off (due to too many detected errors)
+    /// Bus off (due to too many detected errors). `CAN_ERR_BUSOFF`.
     BusOff,
-    /// Bus error (due to too many detected errors)
+    /// Bus error (due to too many detected errors). `CAN_ERR_BUSERROR`.
     BusError,
-    /// The bus has been restarted
+    /// The controller has been restarted. `CAN_ERR_RESTARTED`.
     Restarted,
     /// The controller's TX and RX error counter values, from a
-    /// `CAN_ERR_CNT` frame.
+    /// `CAN_ERR_CNT` frame (`data[6..=7]`).
     ///
     /// Compare against [`CAN_ERROR_WARNING_THRESHOLD`],
     /// [`CAN_ERROR_PASSIVE_THRESHOLD`] and [`CAN_BUS_OFF_THRESHOLD`] to
@@ -809,253 +830,192 @@ pub enum CanError {
         /// RX error counter, from `data[7]`
         rx: u8,
     },
-    /// There was an error decoding the error frame
+    /// A data byte held a bit pattern this crate could not decode.
     DecodingFailure(CanErrorDecodingFailure),
-    /// Unknown, possibly invalid, error class bits
+    /// Unknown, possibly invalid, error class bits.
     Unknown(u32),
 }
 
-impl error::Error for CanError {}
+impl error::Error for ErrorCause {}
 
-impl fmt::Display for CanError {
+impl fmt::Display for ErrorCause {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use CanError::*;
+        use ErrorCause::*;
         match *self {
             TransmitTimeout => write!(f, "transmission timeout"),
             LostArbitration(n) => write!(f, "arbitration lost after {} bits", n),
-            ControllerProblem(e) => write!(f, "controller problem: {}", e),
-            ProtocolViolation { vtype, location } => {
-                write!(f, "protocol violation at {}: {}", location, vtype)
+            Controller(p) => write!(f, "controller problem: {}", p),
+            Protocol { types, location } => {
+                write!(f, "protocol violation at {}: {}", location, types)
             }
-            TransceiverError(e) => write!(f, "transceiver error: {}", e),
+            Transceiver { canh, canl } => {
+                write!(f, "transceiver error: ")?;
+                match (canh, canl) {
+                    (Some(h), Some(l)) => write!(f, "CAN High, {}; CAN Low, {}", h, l),
+                    (Some(h), None) => write!(f, "CAN High, {}", h),
+                    (None, Some(l)) => write!(f, "CAN Low, {}", l),
+                    (None, None) => write!(f, "unspecified"),
+                }
+            }
             NoAck => write!(f, "no ack"),
             BusOff => write!(f, "bus off"),
             BusError => write!(f, "bus error"),
             Restarted => write!(f, "restarted"),
             Counters { tx, rx } => write!(f, "error counters: tx={}, rx={}", tx, rx),
             DecodingFailure(err) => write!(f, "decoding failure: {}", err),
-            Unknown(err) => write!(f, "unknown error ({:#x})", err),
+            Unknown(bits) => write!(f, "unknown error ({:#x})", bits),
         }
     }
 }
 
-impl embedded_can::Error for CanError {
+impl embedded_can::Error for ErrorCause {
     fn kind(&self) -> embedded_can::ErrorKind {
         use embedded_can::ErrorKind;
         match *self {
-            CanError::ControllerProblem(cp) => {
-                use ControllerProblem::*;
-                match cp {
-                    ReceiveBufferOverflow | TransmitBufferOverflow => ErrorKind::Overrun,
-                    _ => ErrorKind::Other,
+            ErrorCause::Controller(p) => {
+                if p.intersects(ControllerProblems::RX_OVERFLOW | ControllerProblems::TX_OVERFLOW) {
+                    ErrorKind::Overrun
+                } else {
+                    ErrorKind::Other
                 }
             }
-            CanError::ProtocolViolation { vtype, .. } => {
-                use ViolationType::*;
-                match vtype {
-                    SingleBitError | UnableToSendDominantBit | UnableToSendRecessiveBit => {
-                        ErrorKind::Bit
-                    }
-                    FrameFormatError => ErrorKind::Form,
-                    BitStuffingError => ErrorKind::Stuff,
-                    _ => ErrorKind::Other,
+            ErrorCause::Protocol { types, .. } => {
+                if types
+                    .intersects(ViolationTypes::BIT | ViolationTypes::BIT0 | ViolationTypes::BIT1)
+                {
+                    ErrorKind::Bit
+                } else if types.contains(ViolationTypes::FORM) {
+                    ErrorKind::Form
+                } else if types.contains(ViolationTypes::STUFF) {
+                    ErrorKind::Stuff
+                } else {
+                    ErrorKind::Other
                 }
             }
-            CanError::NoAck => ErrorKind::Acknowledge,
+            ErrorCause::NoAck => ErrorKind::Acknowledge,
             _ => ErrorKind::Other,
         }
     }
 }
 
-// ===== ControllerProblem =====
+// ===== ControllerProblems =====
 
-/// Error status of the CAN controller.
-///
-/// This is derived from `data[1]` of an error frame, which is a **bitfield**
-/// — several of these can be reported at once. The kernel's shared
-/// `can_change_state()` helper ORs the TX and RX state codes together
-/// whenever the two states match, so pairs such as `ReceiveErrorWarning`
-/// plus `TransmitErrorWarning` are the normal encoding rather than an
-/// anomaly.
-#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
-#[repr(u8)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub enum ControllerProblem {
-    /// unspecified
-    Unspecified = 0x00,
-    /// RX buffer overflow
-    ReceiveBufferOverflow = libc::CAN_ERR_CRTL_RX_OVERFLOW as u8,
-    /// TX buffer overflow
-    TransmitBufferOverflow = libc::CAN_ERR_CRTL_TX_OVERFLOW as u8,
-    /// reached warning level for RX errors
-    ReceiveErrorWarning = libc::CAN_ERR_CRTL_RX_WARNING as u8,
-    /// reached warning level for TX errors
-    TransmitErrorWarning = libc::CAN_ERR_CRTL_TX_WARNING as u8,
-    /// reached error passive status RX
-    ReceiveErrorPassive = libc::CAN_ERR_CRTL_RX_PASSIVE as u8,
-    /// reached error passive status TX
-    TransmitErrorPassive = libc::CAN_ERR_CRTL_TX_PASSIVE as u8,
-    /// recovered to error active state
-    BackToErrorActive = libc::CAN_ERR_CRTL_ACTIVE as u8,
-}
-
-impl ControllerProblem {
-    /// Every problem that occupies a bit in `data[1]`, least-significant
-    /// bit first.
+bitflags::bitflags! {
+    /// Error status flags of the CAN controller.
     ///
-    /// Deliberately excludes [`Unspecified`](Self::Unspecified), whose
-    /// value is zero and so cannot be found by a bit test. A zero `data[1]`
-    /// means "unspecified" and is handled before any bit walk.
-    pub const ALL: [Self; 7] = [
-        Self::ReceiveBufferOverflow,
-        Self::TransmitBufferOverflow,
-        Self::ReceiveErrorWarning,
-        Self::TransmitErrorWarning,
-        Self::ReceiveErrorPassive,
-        Self::TransmitErrorPassive,
-        Self::BackToErrorActive,
-    ];
+    /// Decoded from `data[1]` of an error frame, which is a **bitfield** —
+    /// several of these can be set at once. The kernel's shared
+    /// `can_change_state()` helper ORs the TX and RX state codes together
+    /// whenever the two states match, so pairs such as `RX_WARNING` plus
+    /// `TX_WARNING` are the normal encoding rather than an anomaly. An empty
+    /// set is `CAN_ERR_CRTL_UNSPEC` ("unspecified").
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+    pub struct ControllerProblems: u8 {
+        /// RX buffer overflow
+        const RX_OVERFLOW = libc::CAN_ERR_CRTL_RX_OVERFLOW as u8;
+        /// TX buffer overflow
+        const TX_OVERFLOW = libc::CAN_ERR_CRTL_TX_OVERFLOW as u8;
+        /// reached warning level for RX errors
+        const RX_WARNING = libc::CAN_ERR_CRTL_RX_WARNING as u8;
+        /// reached warning level for TX errors
+        const TX_WARNING = libc::CAN_ERR_CRTL_TX_WARNING as u8;
+        /// reached error-passive status, RX
+        const RX_PASSIVE = libc::CAN_ERR_CRTL_RX_PASSIVE as u8;
+        /// reached error-passive status, TX
+        const TX_PASSIVE = libc::CAN_ERR_CRTL_TX_PASSIVE as u8;
+        /// recovered to error-active state
+        const ACTIVE = libc::CAN_ERR_CRTL_ACTIVE as u8;
+    }
 }
 
-impl error::Error for ControllerProblem {}
-
-impl fmt::Display for ControllerProblem {
+impl fmt::Display for ControllerProblems {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use ControllerProblem::*;
-        let msg = match *self {
-            Unspecified => "unspecified controller problem",
-            ReceiveBufferOverflow => "receive buffer overflow",
-            TransmitBufferOverflow => "transmit buffer overflow",
-            ReceiveErrorWarning => "ERROR WARNING (receive)",
-            TransmitErrorWarning => "ERROR WARNING (transmit)",
-            ReceiveErrorPassive => "ERROR PASSIVE (receive)",
-            TransmitErrorPassive => "ERROR PASSIVE (transmit)",
-            BackToErrorActive => "back to ERROR ACTIVE",
-        };
-        write!(f, "{}", msg)
+        if self.is_empty() {
+            return f.write_str("unspecified controller problem");
+        }
+        const NAMED: [(ControllerProblems, &str); 7] = [
+            (ControllerProblems::RX_OVERFLOW, "receive buffer overflow"),
+            (ControllerProblems::TX_OVERFLOW, "transmit buffer overflow"),
+            (ControllerProblems::RX_WARNING, "ERROR WARNING (receive)"),
+            (ControllerProblems::TX_WARNING, "ERROR WARNING (transmit)"),
+            (ControllerProblems::RX_PASSIVE, "ERROR PASSIVE (receive)"),
+            (ControllerProblems::TX_PASSIVE, "ERROR PASSIVE (transmit)"),
+            (ControllerProblems::ACTIVE, "back to ERROR ACTIVE"),
+        ];
+        let mut first = true;
+        for (flag, msg) in NAMED {
+            if self.contains(flag) {
+                if !first {
+                    f.write_str(", ")?;
+                }
+                first = false;
+                f.write_str(msg)?;
+            }
+        }
+        Ok(())
     }
 }
 
-impl TryFrom<u8> for ControllerProblem {
-    type Error = CanErrorDecodingFailure;
+// ===== ViolationTypes =====
 
-    /// Decodes a *single* controller problem code.
+bitflags::bitflags! {
+    /// The type(s) of a protocol violation error.
     ///
-    /// Note that `data[1]` is a bitfield and may hold several of these at
-    /// once, in which case this rejects the combined value. Use
-    /// [`CanErrors::from`] on the frame to decode all of them.
-    fn try_from(val: u8) -> std::result::Result<Self, Self::Error> {
-        use ControllerProblem::*;
-        Ok(match val {
-            0x00 => Unspecified,
-            0x01 => ReceiveBufferOverflow,
-            0x02 => TransmitBufferOverflow,
-            0x04 => ReceiveErrorWarning,
-            0x08 => TransmitErrorWarning,
-            0x10 => ReceiveErrorPassive,
-            0x20 => TransmitErrorPassive,
-            0x40 => BackToErrorActive,
-            _ => return Err(CanErrorDecodingFailure::InvalidControllerProblem),
-        })
+    /// Decoded from `data[2]` of an error frame, which is a **bitfield** —
+    /// several of these can be set at once. Every bit is defined, so decoding
+    /// this byte can never fail. An empty set means "unspecified". Note that
+    /// [`TX`](Self::TX) (`CAN_ERR_PROT_TX`) is really a direction annotation
+    /// meaning "the error occurred while transmitting"; drivers OR it
+    /// alongside a specific type rather than reporting it alone.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+    pub struct ViolationTypes: u8 {
+        /// single bit error
+        const BIT = libc::CAN_ERR_PROT_BIT as u8;
+        /// frame format error
+        const FORM = libc::CAN_ERR_PROT_FORM as u8;
+        /// bit stuffing error
+        const STUFF = libc::CAN_ERR_PROT_STUFF as u8;
+        /// unable to send dominant bit
+        const BIT0 = libc::CAN_ERR_PROT_BIT0 as u8;
+        /// unable to send recessive bit
+        const BIT1 = libc::CAN_ERR_PROT_BIT1 as u8;
+        /// bus overload
+        const OVERLOAD = libc::CAN_ERR_PROT_OVERLOAD as u8;
+        /// active error announcement
+        const ACTIVE = libc::CAN_ERR_PROT_ACTIVE as u8;
+        /// error occurred on transmission
+        const TX = libc::CAN_ERR_PROT_TX as u8;
     }
 }
 
-// ===== ViolationType =====
-
-/// The type of protocol violation error.
-///
-/// This is derived from `data[2]` of an error frame, which is a **bitfield**
-/// — several of these can be reported at once. Note that
-/// [`TransmissionError`](Self::TransmissionError) (`CAN_ERR_PROT_TX`) is
-/// really a direction annotation meaning "the error occurred while
-/// transmitting"; drivers OR it alongside a specific type rather than
-/// reporting it alone.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub enum ViolationType {
-    /// Unspecified Violation
-    Unspecified = 0x00,
-    /// Single Bit Error
-    SingleBitError = libc::CAN_ERR_PROT_BIT as u8,
-    /// Frame formatting error
-    FrameFormatError = libc::CAN_ERR_PROT_FORM as u8,
-    /// Bit stuffing error
-    BitStuffingError = libc::CAN_ERR_PROT_STUFF as u8,
-    /// A dominant bit was sent, but not received
-    UnableToSendDominantBit = libc::CAN_ERR_PROT_BIT0 as u8,
-    /// A recessive bit was sent, but not received
-    UnableToSendRecessiveBit = libc::CAN_ERR_PROT_BIT1 as u8,
-    /// Bus overloaded
-    BusOverload = libc::CAN_ERR_PROT_OVERLOAD as u8,
-    /// Active error announcement
-    Active = libc::CAN_ERR_PROT_ACTIVE as u8,
-    /// Error occurred on transmission
-    TransmissionError = libc::CAN_ERR_PROT_TX as u8,
-}
-
-impl ViolationType {
-    /// Every violation type that occupies a bit in `data[2]`,
-    /// least-significant bit first.
-    ///
-    /// Deliberately excludes [`Unspecified`](Self::Unspecified), whose
-    /// value is zero and so cannot be found by a bit test. Between them
-    /// these eight claim every bit of the byte, so a bit walk over `ALL`
-    /// can never leave an unmatched bit behind.
-    pub const ALL: [Self; 8] = [
-        Self::SingleBitError,
-        Self::FrameFormatError,
-        Self::BitStuffingError,
-        Self::UnableToSendDominantBit,
-        Self::UnableToSendRecessiveBit,
-        Self::BusOverload,
-        Self::Active,
-        Self::TransmissionError,
-    ];
-}
-
-impl error::Error for ViolationType {}
-
-impl fmt::Display for ViolationType {
+impl fmt::Display for ViolationTypes {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use ViolationType::*;
-        let msg = match *self {
-            Unspecified => "unspecified",
-            SingleBitError => "single bit error",
-            FrameFormatError => "frame format error",
-            BitStuffingError => "bit stuffing error",
-            UnableToSendDominantBit => "unable to send dominant bit",
-            UnableToSendRecessiveBit => "unable to send recessive bit",
-            BusOverload => "bus overload",
-            Active => "active error announcement",
-            TransmissionError => "error on transmission",
-        };
-        write!(f, "{}", msg)
-    }
-}
-
-impl TryFrom<u8> for ViolationType {
-    type Error = CanErrorDecodingFailure;
-
-    /// Decodes a *single* violation type code.
-    ///
-    /// Note that `data[2]` is a bitfield and may hold several of these at
-    /// once, in which case this rejects the combined value. Use
-    /// [`CanErrors::from`] on the frame to decode all of them.
-    fn try_from(val: u8) -> std::result::Result<Self, Self::Error> {
-        use ViolationType::*;
-        Ok(match val {
-            0x00 => Unspecified,
-            0x01 => SingleBitError,
-            0x02 => FrameFormatError,
-            0x04 => BitStuffingError,
-            0x08 => UnableToSendDominantBit,
-            0x10 => UnableToSendRecessiveBit,
-            0x20 => BusOverload,
-            0x40 => Active,
-            0x80 => TransmissionError,
-            _ => return Err(CanErrorDecodingFailure::InvalidViolationType),
-        })
+        if self.is_empty() {
+            return f.write_str("unspecified");
+        }
+        const NAMED: [(ViolationTypes, &str); 8] = [
+            (ViolationTypes::BIT, "single bit error"),
+            (ViolationTypes::FORM, "frame format error"),
+            (ViolationTypes::STUFF, "bit stuffing error"),
+            (ViolationTypes::BIT0, "unable to send dominant bit"),
+            (ViolationTypes::BIT1, "unable to send recessive bit"),
+            (ViolationTypes::OVERLOAD, "bus overload"),
+            (ViolationTypes::ACTIVE, "active error announcement"),
+            (ViolationTypes::TX, "error on transmission"),
+        ];
+        let mut first = true;
+        for (flag, msg) in NAMED {
+            if self.contains(flag) {
+                if !first {
+                    f.write_str(", ")?;
+                }
+                first = false;
+                f.write_str(msg)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -1260,85 +1220,99 @@ impl fmt::Display for Location {
     }
 }
 
-// ===== TransceiverError =====
+// ===== Transceiver faults =====
 
-/// The error status of the CAN transceiver.
+/// A fault on the CAN High line.
 ///
-/// This is derived from `data[4]` of an error frame. That byte is **two
-/// independent nibbles**: the low nibble describes the CAN High line and
-/// the high nibble the CAN Low line, so a fault on both lines arrives as a
-/// single byte with both halves set and decodes to two of these values.
+/// Decoded from the low nibble of `data[4]` of an error frame. See
+/// [`ErrorCause::Transceiver`].
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
 #[repr(u8)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub enum TransceiverError {
-    /// Unspecified
-    Unspecified = 0x00,
-    /// CAN High, no wire
-    CanHighNoWire = libc::CAN_ERR_TRX_CANH_NO_WIRE as u8,
-    /// CAN High, short to BAT
-    CanHighShortToBat = libc::CAN_ERR_TRX_CANH_SHORT_TO_BAT as u8,
-    /// CAN High, short to VCC
-    CanHighShortToVcc = libc::CAN_ERR_TRX_CANH_SHORT_TO_VCC as u8,
-    /// CAN High, short to GND
-    CanHighShortToGnd = libc::CAN_ERR_TRX_CANH_SHORT_TO_GND as u8,
-    /// CAN Low, no wire
-    CanLowNoWire = libc::CAN_ERR_TRX_CANL_NO_WIRE as u8,
-    /// CAN Low, short to BAT
-    CanLowShortToBat = libc::CAN_ERR_TRX_CANL_SHORT_TO_BAT as u8,
-    /// CAN Low, short to VCC
-    CanLowShortToVcc = libc::CAN_ERR_TRX_CANL_SHORT_TO_VCC as u8,
-    /// CAN Low, short to GND
-    CanLowShortToGnd = libc::CAN_ERR_TRX_CANL_SHORT_TO_GND as u8,
-    /// CAN Low short to CAN High
-    CanLowShortToCanHigh = libc::CAN_ERR_TRX_CANL_SHORT_TO_CANH as u8,
+pub enum CanHighFault {
+    /// no wire
+    NoWire = libc::CAN_ERR_TRX_CANH_NO_WIRE as u8,
+    /// short to BAT
+    ShortToBat = libc::CAN_ERR_TRX_CANH_SHORT_TO_BAT as u8,
+    /// short to VCC
+    ShortToVcc = libc::CAN_ERR_TRX_CANH_SHORT_TO_VCC as u8,
+    /// short to GND
+    ShortToGnd = libc::CAN_ERR_TRX_CANH_SHORT_TO_GND as u8,
 }
 
-impl error::Error for TransceiverError {}
-
-impl TryFrom<u8> for TransceiverError {
+impl TryFrom<u8> for CanHighFault {
     type Error = CanErrorDecodingFailure;
 
-    /// Decodes a single transceiver code.
-    ///
-    /// Expects one nibble's worth of information: either a CAN High code
-    /// (`0x00..=0x0F`) or a CAN Low code (`0x00..=0xF0`, low nibble clear).
-    /// A byte with both halves set describes two faults and must be split
-    /// before calling this.
+    /// Decodes the CAN High nibble (low nibble of `data[4]`).
     fn try_from(val: u8) -> std::result::Result<Self, Self::Error> {
-        use TransceiverError::*;
+        use CanHighFault::*;
         Ok(match val {
-            0x00 => Unspecified,
-            0x04 => CanHighNoWire,
-            0x05 => CanHighShortToBat,
-            0x06 => CanHighShortToVcc,
-            0x07 => CanHighShortToGnd,
-            0x40 => CanLowNoWire,
-            0x50 => CanLowShortToBat,
-            0x60 => CanLowShortToVcc,
-            0x70 => CanLowShortToGnd,
-            0x80 => CanLowShortToCanHigh,
+            0x04 => NoWire,
+            0x05 => ShortToBat,
+            0x06 => ShortToVcc,
+            0x07 => ShortToGnd,
             _ => return Err(CanErrorDecodingFailure::InvalidTransceiverError),
         })
     }
 }
 
-impl fmt::Display for TransceiverError {
+impl fmt::Display for CanHighFault {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use TransceiverError::*;
-        let msg = match *self {
-            Unspecified => "unspecified",
-            CanHighNoWire => "CAN High, no wire",
-            CanHighShortToBat => "CAN High, short to BAT",
-            CanHighShortToVcc => "CAN High, short to VCC",
-            CanHighShortToGnd => "CAN High, short to GND",
-            CanLowNoWire => "CAN Low, no wire",
-            CanLowShortToBat => "CAN Low, short to BAT",
-            CanLowShortToVcc => "CAN Low, short to VCC",
-            CanLowShortToGnd => "CAN Low, short to GND",
-            CanLowShortToCanHigh => "CAN Low, short to CAN High",
-        };
-        write!(f, "{}", msg)
+        f.write_str(match self {
+            Self::NoWire => "no wire",
+            Self::ShortToBat => "short to BAT",
+            Self::ShortToVcc => "short to VCC",
+            Self::ShortToGnd => "short to GND",
+        })
+    }
+}
+
+/// A fault on the CAN Low line.
+///
+/// Decoded from the high nibble of `data[4]` of an error frame. See
+/// [`ErrorCause::Transceiver`].
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
+#[repr(u8)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum CanLowFault {
+    /// no wire
+    NoWire = libc::CAN_ERR_TRX_CANL_NO_WIRE as u8,
+    /// short to BAT
+    ShortToBat = libc::CAN_ERR_TRX_CANL_SHORT_TO_BAT as u8,
+    /// short to VCC
+    ShortToVcc = libc::CAN_ERR_TRX_CANL_SHORT_TO_VCC as u8,
+    /// short to GND
+    ShortToGnd = libc::CAN_ERR_TRX_CANL_SHORT_TO_GND as u8,
+    /// short to CAN High
+    ShortToCanHigh = libc::CAN_ERR_TRX_CANL_SHORT_TO_CANH as u8,
+}
+
+impl TryFrom<u8> for CanLowFault {
+    type Error = CanErrorDecodingFailure;
+
+    /// Decodes the CAN Low nibble (high nibble of `data[4]`).
+    fn try_from(val: u8) -> std::result::Result<Self, Self::Error> {
+        use CanLowFault::*;
+        Ok(match val {
+            0x40 => NoWire,
+            0x50 => ShortToBat,
+            0x60 => ShortToVcc,
+            0x70 => ShortToGnd,
+            0x80 => ShortToCanHigh,
+            _ => return Err(CanErrorDecodingFailure::InvalidTransceiverError),
+        })
+    }
+}
+
+impl fmt::Display for CanLowFault {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(match self {
+            Self::NoWire => "no wire",
+            Self::ShortToBat => "short to BAT",
+            Self::ShortToVcc => "short to VCC",
+            Self::ShortToGnd => "short to GND",
+            Self::ShortToCanHigh => "short to CAN High",
+        })
     }
 }
 
@@ -1363,7 +1337,7 @@ impl<T: Frame> ControllerSpecificErrorInformation for T {
 
 // ===== CanErrorDecodingFailure =====
 
-/// Error decoding a [`CanError`] from a [`CanErrorFrame`].
+/// Error decoding an [`ErrorCause`] from a [`CanErrorFrame`].
 ///
 /// Only two conditions in an error frame are genuinely undecodable, both of
 /// them a data byte holding a bit pattern with no defined meaning. Locations
@@ -1375,12 +1349,6 @@ impl<T: Frame> ControllerSpecificErrorInformation for T {
 pub enum CanErrorDecodingFailure {
     /// `data[1]` had a bit set that no known controller problem claims.
     InvalidControllerProblem,
-    /// The type of the ProtocolViolation was not valid.
-    ///
-    /// Unreachable when decoding a frame, since every bit of `data[2]` has
-    /// a defined meaning; retained because [`ViolationType::try_from`] can
-    /// still be called directly with a combined value.
-    InvalidViolationType,
     /// One half of `data[4]` held an unrecognised transceiver code.
     InvalidTransceiverError,
 }
@@ -1392,7 +1360,6 @@ impl fmt::Display for CanErrorDecodingFailure {
         use CanErrorDecodingFailure::*;
         let msg = match *self {
             InvalidControllerProblem => "not a valid controller problem",
-            InvalidViolationType => "not a valid violation type",
             InvalidTransceiverError => "not a valid transceiver error",
         };
         write!(f, "{}", msg)
@@ -1441,9 +1408,9 @@ mod tests {
         CanErrorFrame::new_error(bits, &data).unwrap()
     }
 
-    /// Decodes raw class bits + data into a vector of errors.
-    fn decode(bits: u32, data: [u8; 8]) -> Vec<CanError> {
-        CanErrors::from(frame(bits, data)).into_iter().collect()
+    /// Decodes raw class bits + data into a vector of causes.
+    fn decode(bits: u32, data: [u8; 8]) -> Vec<ErrorCause> {
+        CanError::from(frame(bits, data)).into_iter().collect()
     }
 
     #[test]
@@ -1471,23 +1438,23 @@ mod tests {
 
     #[test]
     fn non_empty_invariant() {
-        let errs = CanErrors::from_single(CanError::BusOff);
-        assert_eq!(errs.len(), 1);
-        assert!(errs.is_single());
-        assert!(!errs.is_empty());
-        assert_eq!(*errs.first(), CanError::BusOff);
-        assert_eq!(*errs.last(), CanError::BusOff);
+        let err = CanError::new(ErrorCause::BusOff);
+        assert_eq!(err.len(), 1);
+        assert!(err.is_single());
+        assert!(!err.is_empty());
+        assert_eq!(*err.first(), ErrorCause::BusOff);
+        assert_eq!(*err.last(), ErrorCause::BusOff);
 
-        // A frame with no class bits at all still yields one error.
-        let errs = CanErrors::from(frame(0, [0; 8]));
-        assert_eq!(errs.len(), 1);
-        assert_eq!(*errs.first(), CanError::Unknown(0));
+        // A frame with no class bits at all still yields one cause.
+        let err = CanError::from(frame(0, [0; 8]));
+        assert_eq!(err.len(), 1);
+        assert_eq!(*err.first(), ErrorCause::Unknown(0));
     }
 
     #[test]
-    fn single_error_does_not_allocate() {
-        let errs = CanErrors::from_single(CanError::BusOff);
-        assert_eq!(errs.rest.capacity(), 0);
+    fn single_cause_does_not_allocate() {
+        let err = CanError::new(ErrorCause::BusOff);
+        assert!(!err.causes.spilled());
     }
 
     // ----- level 1: multiple classes per frame -----
@@ -1497,14 +1464,14 @@ mod tests {
         // The universal controller-state-change frame. m_can and peak_canfd
         // write `cf->can_id |= CAN_ERR_CRTL | CAN_ERR_CNT` literally.
         let mut data = [0u8; 8];
-        data[1] = ControllerProblem::ReceiveErrorPassive as u8;
+        data[1] = ControllerProblems::RX_PASSIVE.bits();
         data[6] = 130;
         data[7] = 42;
         assert_eq!(
             decode(CAN_ERR_CRTL | CAN_ERR_CNT, data),
             vec![
-                CanError::ControllerProblem(ControllerProblem::ReceiveErrorPassive),
-                CanError::Counters { tx: 130, rx: 42 },
+                ErrorCause::Controller(ControllerProblems::RX_PASSIVE),
+                ErrorCause::Counters { tx: 130, rx: 42 },
             ]
         );
     }
@@ -1512,16 +1479,16 @@ mod tests {
     #[test]
     fn multi_class_prot_and_buserror() {
         let mut data = [0u8; 8];
-        data[2] = ViolationType::BitStuffingError as u8;
+        data[2] = ViolationTypes::STUFF.bits();
         data[3] = 0x08; // CRC sequence
         assert_eq!(
             decode(CAN_ERR_PROT | CAN_ERR_BUSERROR, data),
             vec![
-                CanError::ProtocolViolation {
-                    vtype: ViolationType::BitStuffingError,
+                ErrorCause::Protocol {
+                    types: ViolationTypes::STUFF,
                     location: Location::CrcSequence,
                 },
-                CanError::BusError,
+                ErrorCause::BusError,
             ]
         );
     }
@@ -1529,20 +1496,20 @@ mod tests {
     #[test]
     fn unknown_class_bits_trail() {
         // 0x400 is above every class bit we know.
-        let errs = decode(CAN_ERR_BUSOFF | 0x400, [0; 8]);
-        assert_eq!(errs, vec![CanError::BusOff, CanError::Unknown(0x400)]);
+        let causes = decode(CAN_ERR_BUSOFF | 0x400, [0; 8]);
+        assert_eq!(causes, vec![ErrorCause::BusOff, ErrorCause::Unknown(0x400)]);
     }
 
     #[test]
     fn class_bit_ordering_is_ascending() {
         let mut data = [0u8; 8];
         data[0] = 7;
-        data[1] = ControllerProblem::ReceiveBufferOverflow as u8;
-        data[2] = ViolationType::SingleBitError as u8;
-        data[4] = TransceiverError::CanHighNoWire as u8;
+        data[1] = ControllerProblems::RX_OVERFLOW.bits();
+        data[2] = ViolationTypes::BIT.bits();
+        data[4] = 0x04; // CanHigh, no wire
         data[6] = 1;
         data[7] = 2;
-        let errs = decode(
+        let causes = decode(
             CAN_ERR_TX_TIMEOUT
                 | CAN_ERR_LOSTARB
                 | CAN_ERR_CRTL
@@ -1556,82 +1523,79 @@ mod tests {
             data,
         );
         assert_eq!(
-            errs,
+            causes,
             vec![
-                CanError::TransmitTimeout,
-                CanError::LostArbitration(7),
-                CanError::ControllerProblem(ControllerProblem::ReceiveBufferOverflow),
-                CanError::ProtocolViolation {
-                    vtype: ViolationType::SingleBitError,
+                ErrorCause::TransmitTimeout,
+                ErrorCause::LostArbitration(7),
+                ErrorCause::Controller(ControllerProblems::RX_OVERFLOW),
+                ErrorCause::Protocol {
+                    types: ViolationTypes::BIT,
                     location: Location::Unspecified,
                 },
-                CanError::TransceiverError(TransceiverError::CanHighNoWire),
-                CanError::NoAck,
-                CanError::BusOff,
-                CanError::BusError,
-                CanError::Restarted,
-                CanError::Counters { tx: 1, rx: 2 },
+                ErrorCause::Transceiver {
+                    canh: Some(CanHighFault::NoWire),
+                    canl: None,
+                },
+                ErrorCause::NoAck,
+                ErrorCause::BusOff,
+                ErrorCause::BusError,
+                ErrorCause::Restarted,
+                ErrorCause::Counters { tx: 1, rx: 2 },
             ]
         );
     }
 
-    // ----- level 2: multiple bits within a class byte -----
+    // ----- level 2: multiple bits fold into one cause -----
 
     #[test]
     fn ctrl_multi_bit_symmetric_warning() {
         // What can_change_state() emits when tx_state == rx_state ==
-        // CAN_STATE_ERROR_WARNING. This is the single most common real
-        // multi-bit frame; it used to decode to a DecodingFailure.
+        // CAN_STATE_ERROR_WARNING. Folds into a single Controller cause.
         let mut data = [0u8; 8];
         data[1] = 0x0C;
         assert_eq!(
             decode(CAN_ERR_CRTL, data),
-            vec![
-                CanError::ControllerProblem(ControllerProblem::ReceiveErrorWarning),
-                CanError::ControllerProblem(ControllerProblem::TransmitErrorWarning),
-            ]
+            vec![ErrorCause::Controller(
+                ControllerProblems::RX_WARNING | ControllerProblems::TX_WARNING
+            )]
         );
     }
 
     #[test]
     fn ctrl_multi_bit_symmetric_passive() {
-        // can_change_state() with both states ERROR_PASSIVE; also m_can's
-        // CAN_STATE_ERROR_PASSIVE arm.
+        // can_change_state() with both states ERROR_PASSIVE.
         let mut data = [0u8; 8];
         data[1] = 0x30;
         assert_eq!(
             decode(CAN_ERR_CRTL, data),
-            vec![
-                CanError::ControllerProblem(ControllerProblem::ReceiveErrorPassive),
-                CanError::ControllerProblem(ControllerProblem::TransmitErrorPassive),
-            ]
+            vec![ErrorCause::Controller(
+                ControllerProblems::RX_PASSIVE | ControllerProblems::TX_PASSIVE
+            )]
         );
     }
 
     #[test]
     fn ctrl_three_bits_sja1000_overrun_plus_warning() {
         // sja1000 sets data[1] = RX_OVERFLOW on a data overrun, then
-        // can_change_state() ORs the warning bits in.
+        // can_change_state() ORs the warning bits in. One folded cause.
         let mut data = [0u8; 8];
         data[1] = 0x0D;
         assert_eq!(
             decode(CAN_ERR_CRTL, data),
-            vec![
-                CanError::ControllerProblem(ControllerProblem::ReceiveBufferOverflow),
-                CanError::ControllerProblem(ControllerProblem::ReceiveErrorWarning),
-                CanError::ControllerProblem(ControllerProblem::TransmitErrorWarning),
-            ]
+            vec![ErrorCause::Controller(
+                ControllerProblems::RX_OVERFLOW
+                    | ControllerProblems::RX_WARNING
+                    | ControllerProblems::TX_WARNING
+            )]
         );
     }
 
     #[test]
     fn ctrl_zero_is_unspecified_not_a_failure() {
-        // CAN_ERR_CRTL_UNSPEC. Regression guard: a bit walk alone can never
-        // produce this, and a naive implementation reports a decoding
-        // failure for a perfectly valid frame.
+        // CAN_ERR_CRTL_UNSPEC: an empty flag set, not a decoding failure.
         assert_eq!(
             decode(CAN_ERR_CRTL, [0; 8]),
-            vec![CanError::ControllerProblem(ControllerProblem::Unspecified)]
+            vec![ErrorCause::Controller(ControllerProblems::empty())]
         );
     }
 
@@ -1643,43 +1607,29 @@ mod tests {
         assert_eq!(
             decode(CAN_ERR_CRTL, data),
             vec![
-                CanError::ControllerProblem(ControllerProblem::ReceiveBufferOverflow),
-                CanError::DecodingFailure(CanErrorDecodingFailure::InvalidControllerProblem),
+                ErrorCause::Controller(ControllerProblems::RX_OVERFLOW),
+                ErrorCause::DecodingFailure(CanErrorDecodingFailure::InvalidControllerProblem),
             ]
         );
     }
 
     #[test]
     fn prot_multi_bit_shares_one_location() {
-        // mcp251xfd_handle_ivmif() accumulates STUFF|FORM|TX|BIT1|BIT0.
+        // mcp251xfd_handle_ivmif() accumulates STUFF|FORM|TX|BIT1|BIT0 into
+        // one folded Protocol cause.
         let mut data = [0u8; 8];
         data[2] = 0x9E;
         data[3] = 0x08;
-        let errs = decode(CAN_ERR_PROT, data);
-        assert_eq!(errs.len(), 5);
-        assert!(errs.iter().all(|e| matches!(
-            e,
-            CanError::ProtocolViolation {
-                location: Location::CrcSequence,
-                ..
-            }
-        )));
-        let types: Vec<_> = errs
-            .iter()
-            .map(|e| match e {
-                CanError::ProtocolViolation { vtype, .. } => *vtype,
-                _ => unreachable!(),
-            })
-            .collect();
         assert_eq!(
-            types,
-            vec![
-                ViolationType::FrameFormatError,
-                ViolationType::BitStuffingError,
-                ViolationType::UnableToSendDominantBit,
-                ViolationType::UnableToSendRecessiveBit,
-                ViolationType::TransmissionError,
-            ]
+            decode(CAN_ERR_PROT, data),
+            vec![ErrorCause::Protocol {
+                types: ViolationTypes::FORM
+                    | ViolationTypes::STUFF
+                    | ViolationTypes::BIT0
+                    | ViolationTypes::BIT1
+                    | ViolationTypes::TX,
+                location: Location::CrcSequence,
+            }]
         );
     }
 
@@ -1691,8 +1641,8 @@ mod tests {
         data[3] = 0x03;
         assert_eq!(
             decode(CAN_ERR_PROT, data),
-            vec![CanError::ProtocolViolation {
-                vtype: ViolationType::Unspecified,
+            vec![ErrorCause::Protocol {
+                types: ViolationTypes::empty(),
                 location: Location::StartOfFrame,
             }]
         );
@@ -1705,15 +1655,14 @@ mod tests {
         // es58x ORs CANH and CANL codes for a single-wire fault:
         //   cf->data[4] |= CAN_ERR_TRX_CANH_NO_WIRE;
         //   cf->data[4] |= CAN_ERR_TRX_CANL_NO_WIRE;
-        // A scalar decode of data[4] rejects 0x44 outright.
         let mut data = [0u8; 8];
         data[4] = 0x44;
         assert_eq!(
             decode(CAN_ERR_TRX, data),
-            vec![
-                CanError::TransceiverError(TransceiverError::CanHighNoWire),
-                CanError::TransceiverError(TransceiverError::CanLowNoWire),
-            ]
+            vec![ErrorCause::Transceiver {
+                canh: Some(CanHighFault::NoWire),
+                canl: Some(CanLowFault::NoWire),
+            }]
         );
     }
 
@@ -1723,17 +1672,19 @@ mod tests {
         data[4] = 0x05;
         assert_eq!(
             decode(CAN_ERR_TRX, data),
-            vec![CanError::TransceiverError(
-                TransceiverError::CanHighShortToBat
-            )]
+            vec![ErrorCause::Transceiver {
+                canh: Some(CanHighFault::ShortToBat),
+                canl: None,
+            }]
         );
 
         data[4] = 0x80;
         assert_eq!(
             decode(CAN_ERR_TRX, data),
-            vec![CanError::TransceiverError(
-                TransceiverError::CanLowShortToCanHigh
-            )]
+            vec![ErrorCause::Transceiver {
+                canh: None,
+                canl: Some(CanLowFault::ShortToCanHigh),
+            }]
         );
     }
 
@@ -1741,7 +1692,10 @@ mod tests {
     fn trx_zero_is_unspecified() {
         assert_eq!(
             decode(CAN_ERR_TRX, [0; 8]),
-            vec![CanError::TransceiverError(TransceiverError::Unspecified)]
+            vec![ErrorCause::Transceiver {
+                canh: None,
+                canl: None,
+            }]
         );
     }
 
@@ -1751,9 +1705,13 @@ mod tests {
         data[4] = 0x03; // no CANH code 0x03
         assert_eq!(
             decode(CAN_ERR_TRX, data),
-            vec![CanError::DecodingFailure(
-                CanErrorDecodingFailure::InvalidTransceiverError
-            )]
+            vec![
+                ErrorCause::Transceiver {
+                    canh: None,
+                    canl: None,
+                },
+                ErrorCause::DecodingFailure(CanErrorDecodingFailure::InvalidTransceiverError),
+            ]
         );
     }
 
@@ -1795,41 +1753,41 @@ mod tests {
         // win. Scanning by class in declaration order gets this wrong.
         let mut data = [0u8; 8];
         data[1] = 0x0C;
-        let errs = CanErrors::from(frame(CAN_ERR_CRTL | CAN_ERR_ACK, data));
-        assert_eq!(errs.kind(), ErrorKind::Acknowledge);
-        assert!(errs.contains_kind(ErrorKind::Acknowledge));
-        assert!(errs.contains_kind(ErrorKind::Other));
+        let err = CanError::from(frame(CAN_ERR_CRTL | CAN_ERR_ACK, data));
+        assert_eq!(err.kind(), ErrorKind::Acknowledge);
+        assert!(err.contains_kind(ErrorKind::Acknowledge));
+        assert!(err.contains_kind(ErrorKind::Other));
     }
 
     #[test]
     fn kind_maps_violation_types() {
-        let check = |vtype: ViolationType, expect: ErrorKind| {
-            let err = CanError::ProtocolViolation {
-                vtype,
+        let check = |types: ViolationTypes, expect: ErrorKind| {
+            let cause = ErrorCause::Protocol {
+                types,
                 location: Location::Unspecified,
             };
-            assert_eq!(err.kind(), expect, "for {:?}", vtype);
+            assert_eq!(cause.kind(), expect, "for {:?}", types);
         };
-        check(ViolationType::SingleBitError, ErrorKind::Bit);
-        check(ViolationType::UnableToSendDominantBit, ErrorKind::Bit);
-        check(ViolationType::UnableToSendRecessiveBit, ErrorKind::Bit);
-        check(ViolationType::FrameFormatError, ErrorKind::Form);
-        check(ViolationType::BitStuffingError, ErrorKind::Stuff);
-        check(ViolationType::BusOverload, ErrorKind::Other);
+        check(ViolationTypes::BIT, ErrorKind::Bit);
+        check(ViolationTypes::BIT0, ErrorKind::Bit);
+        check(ViolationTypes::BIT1, ErrorKind::Bit);
+        check(ViolationTypes::FORM, ErrorKind::Form);
+        check(ViolationTypes::STUFF, ErrorKind::Stuff);
+        check(ViolationTypes::OVERLOAD, ErrorKind::Other);
     }
 
     #[test]
     fn kind_overrun_from_buffer_overflow() {
         let mut data = [0u8; 8];
-        data[1] = ControllerProblem::TransmitBufferOverflow as u8;
-        let errs = CanErrors::from(frame(CAN_ERR_CRTL, data));
-        assert_eq!(errs.kind(), ErrorKind::Overrun);
+        data[1] = ControllerProblems::TX_OVERFLOW.bits();
+        let err = CanError::from(frame(CAN_ERR_CRTL, data));
+        assert_eq!(err.kind(), ErrorKind::Overrun);
     }
 
     #[test]
     fn kind_all_other_falls_back() {
-        let errs = CanErrors::from(frame(CAN_ERR_BUSOFF | CAN_ERR_RESTARTED, [0; 8]));
-        assert_eq!(errs.kind(), ErrorKind::Other);
+        let err = CanError::from(frame(CAN_ERR_BUSOFF | CAN_ERR_RESTARTED, [0; 8]));
+        assert_eq!(err.kind(), ErrorKind::Other);
     }
 
     #[test]
@@ -1840,12 +1798,33 @@ mod tests {
         assert_eq!(err.kind(), ErrorKind::Acknowledge);
     }
 
+    // ----- predicates and accessors -----
+
+    #[test]
+    fn predicates_and_accessors() {
+        let mut data = [0u8; 8];
+        data[1] = 0x0C;
+        data[6] = 96;
+        data[7] = 0;
+        let err = CanError::from(frame(CAN_ERR_CRTL | CAN_ERR_CNT | CAN_ERR_BUSOFF, data));
+
+        assert!(err.is_bus_off());
+        assert!(err.has_counters());
+        assert!(!err.is_no_ack());
+        assert_eq!(err.counters(), Some((96, 0)));
+        assert_eq!(
+            err.controller(),
+            Some(ControllerProblems::RX_WARNING | ControllerProblems::TX_WARNING)
+        );
+        assert_eq!(err.protocol(), None);
+    }
+
     // ----- Display -----
 
     #[test]
     fn display_single_is_bare() {
-        let errs = CanErrors::from_single(CanError::BusOff);
-        assert_eq!(errs.to_string(), "bus off");
+        let err = CanError::new(ErrorCause::BusOff);
+        assert_eq!(err.to_string(), "bus off");
     }
 
     #[test]
@@ -1854,24 +1833,22 @@ mod tests {
         data[1] = 0x0C;
         data[6] = 96;
         data[7] = 0;
-        let errs = CanErrors::from(frame(CAN_ERR_CRTL | CAN_ERR_CNT, data));
+        let err = CanError::from(frame(CAN_ERR_CRTL | CAN_ERR_CNT, data));
         assert_eq!(
-            errs.to_string(),
-            "controller problem: ERROR WARNING (receive); \
-             controller problem: ERROR WARNING (transmit); \
+            err.to_string(),
+            "controller problem: ERROR WARNING (receive), ERROR WARNING (transmit); \
              error counters: tx=96, rx=0"
         );
     }
 
     #[test]
-    fn display_groups_violations_sharing_a_location() {
-        // Without grouping this would repeat "at CRC sequence" five times.
+    fn display_violations_at_one_location() {
         let mut data = [0u8; 8];
         data[2] = 0x9E;
         data[3] = 0x08;
-        let errs = CanErrors::from(frame(CAN_ERR_PROT | CAN_ERR_BUSERROR, data));
+        let err = CanError::from(frame(CAN_ERR_PROT | CAN_ERR_BUSERROR, data));
         assert_eq!(
-            errs.to_string(),
+            err.to_string(),
             "protocol violation at CRC sequence: frame format error, \
              bit stuffing error, unable to send dominant bit, \
              unable to send recessive bit, error on transmission; bus error"
@@ -1880,44 +1857,47 @@ mod tests {
 
     #[test]
     fn display_unknown_in_hex() {
-        let errs = CanErrors::from_single(CanError::Unknown(0x400));
-        assert_eq!(errs.to_string(), "unknown error (0x400)");
+        let err = CanError::new(ErrorCause::Unknown(0x400));
+        assert_eq!(err.to_string(), "unknown error (0x400)");
     }
 
     // ----- iteration / conversion plumbing -----
 
     #[test]
     fn iteration_by_value_and_by_ref() {
-        let errs = CanErrors::new(CanError::BusOff, [CanError::NoAck, CanError::Restarted]);
-        assert_eq!(errs.len(), 3);
-        assert!(!errs.is_single());
-        assert_eq!(*errs.last(), CanError::Restarted);
+        let err = CanError::from_multiple(
+            ErrorCause::BusOff,
+            [ErrorCause::NoAck, ErrorCause::Restarted],
+        );
+        assert_eq!(err.len(), 3);
+        assert!(!err.is_single());
+        assert_eq!(*err.last(), ErrorCause::Restarted);
 
-        let by_ref: Vec<_> = (&errs).into_iter().copied().collect();
-        let by_val: Vec<_> = errs.clone().into_iter().collect();
+        let by_ref: Vec<_> = (&err).into_iter().copied().collect();
+        let by_val: Vec<_> = err.clone().into_iter().collect();
         assert_eq!(by_ref, by_val);
         assert_eq!(by_ref.len(), 3);
 
-        let via_iter: Vec<_> = errs.iter().copied().collect();
+        let via_iter: Vec<_> = err.causes().copied().collect();
         assert_eq!(via_iter, by_val);
     }
 
     #[test]
-    fn single_can_error_promotes_to_collection() {
-        let errs: CanErrors = CanError::BusOff.into();
-        assert!(errs.is_single());
+    fn single_cause_promotes_to_error() {
+        let err: CanError = ErrorCause::BusOff.into();
+        assert!(err.is_single());
 
         // ... and through the top-level Error.
-        let err: Error = CanError::BusOff.into();
+        let err: Error = ErrorCause::BusOff.into();
         match err {
-            Error::Can(errs) => assert_eq!(*errs.first(), CanError::BusOff),
+            Error::Can(err) => assert_eq!(*err.first(), ErrorCause::BusOff),
             _ => panic!("expected a CAN error"),
         }
     }
 
     #[test]
     fn from_iter_checked_rejects_empty() {
-        assert!(CanErrors::from_iter_checked(std::iter::empty()).is_none());
-        assert!(CanErrors::from_iter_checked([CanError::BusOff]).is_some());
+        assert!(CanError::from_iter_checked(std::iter::empty()).is_none());
+        assert!(CanError::from_iter_checked([ErrorCause::BusOff]).is_some());
     }
 }

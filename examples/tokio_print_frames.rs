@@ -28,7 +28,7 @@ use std::env;
 /// single error.
 fn print_error_frame(frame: CanErrorFrame) {
     println!("{:?}", frame);
-    let errs = frame.into_errors();
+    let errs = frame.into_error();
     if errs.is_single() {
         println!("    error: {}", errs.first());
     } else {

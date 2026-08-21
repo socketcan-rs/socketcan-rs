@@ -11,12 +11,12 @@
 
 #[cfg(feature = "vcan_tests")]
 use socketcan::{
-    CanError, CanErrorFrame, CanFrame, CanSocket, EmbeddedFrame, SOF_TIMESTAMPING_OPT_CMSG,
+    CanErrorFrame, CanFrame, CanSocket, EmbeddedFrame, ErrorCause, SOF_TIMESTAMPING_OPT_CMSG,
     SOF_TIMESTAMPING_RX_SOFTWARE, SOF_TIMESTAMPING_SOFTWARE, ShouldRetry, Socket, SocketOptions,
     StandardId,
     errors::{
-        CAN_ERR_ACK, CAN_ERR_BUSERROR, CAN_ERR_CNT, CAN_ERR_CRTL, CAN_ERR_PROT, ControllerProblem,
-        Location, ViolationType,
+        CAN_ERR_ACK, CAN_ERR_BUSERROR, CAN_ERR_CNT, CAN_ERR_CRTL, CAN_ERR_PROT, ControllerProblems,
+        Location, ViolationTypes,
     },
     id::{ERR_MASK_ALL, ERR_MASK_NONE},
 };
@@ -65,7 +65,7 @@ fn vcan_set_error_mask() {
 /// The frame mirrors what `mcp251xfd_handle_ivmif()` emits: three error
 /// classes at once, with five protocol violation bits packed into `data[2]`
 /// and one location in `data[3]`. Before the v4 errors rework this decoded
-/// to a single `CanError::Unknown(0xA8)`, discarding everything.
+/// to a single `Unknown(0xA8)`, discarding everything.
 #[test]
 #[cfg(feature = "vcan_tests")]
 #[serial]
@@ -91,35 +91,26 @@ fn vcan_multi_bit_error_frame_round_trip() {
     };
     assert_eq!(echoed.error_bits(), bits);
 
-    let errs = echoed.into_errors();
-    assert_eq!(errs.len(), 7, "decoded: {}", errs);
+    let err = echoed.into_error();
+    // The five protocol violations fold into one Protocol cause, so the frame
+    // decodes to Protocol + NoAck + BusError.
+    assert_eq!(err.len(), 3, "decoded: {}", err);
 
-    let all: Vec<CanError> = errs.iter().copied().collect();
-    let violations: Vec<ViolationType> = all
-        .iter()
-        .filter_map(|e| match e {
-            CanError::ProtocolViolation { vtype, location } => {
-                assert_eq!(*location, Location::CrcSequence);
-                Some(*vtype)
-            }
-            _ => None,
-        })
-        .collect();
+    let (types, location) = err.protocol().expect("a protocol violation");
+    assert_eq!(location, Location::CrcSequence);
     assert_eq!(
-        violations,
-        vec![
-            ViolationType::FrameFormatError,
-            ViolationType::BitStuffingError,
-            ViolationType::UnableToSendDominantBit,
-            ViolationType::UnableToSendRecessiveBit,
-            ViolationType::TransmissionError,
-        ]
+        types,
+        ViolationTypes::FORM
+            | ViolationTypes::STUFF
+            | ViolationTypes::BIT0
+            | ViolationTypes::BIT1
+            | ViolationTypes::TX,
     );
-    assert!(all.contains(&CanError::NoAck));
-    assert!(all.contains(&CanError::BusError));
+    assert!(err.is_no_ack());
+    assert!(err.is_bus_error());
 
     // And it re-encodes to the exact bytes the kernel handed us.
-    assert_eq!(CanErrorFrame::from(errs), echoed);
+    assert_eq!(CanErrorFrame::from(err), echoed);
 }
 
 /// Checks the `CAN_ERR_CRTL | CAN_ERR_CNT` frame that accompanies every
@@ -144,17 +135,16 @@ fn vcan_controller_state_change_error_frame() {
         other => panic!("expected an error frame, got {:?}", other),
     };
 
-    let errs = echoed.into_errors();
-    let all: Vec<CanError> = errs.iter().copied().collect();
+    let err = echoed.into_error();
+    let all: Vec<ErrorCause> = err.causes().copied().collect();
     assert_eq!(
         all,
         vec![
-            CanError::ControllerProblem(ControllerProblem::ReceiveErrorWarning),
-            CanError::ControllerProblem(ControllerProblem::TransmitErrorWarning),
-            CanError::Counters { tx: 112, rx: 96 },
+            ErrorCause::Controller(ControllerProblems::RX_WARNING | ControllerProblems::TX_WARNING),
+            ErrorCause::Counters { tx: 112, rx: 96 },
         ],
         "decoded: {}",
-        errs
+        err
     );
 }
 

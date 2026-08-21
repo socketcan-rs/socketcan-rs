@@ -20,10 +20,10 @@
 #![cfg(feature = "serde")]
 
 use socketcan::{
-    CanAnyFrame, CanDataFrame, CanError, CanErrorFrame, CanErrors, CanFdFrame, CanFilter, CanFrame,
-    CanId, CanTimestamps, EmbeddedFrame, Error, StandardId,
+    CanAnyFrame, CanDataFrame, CanError, CanErrorFrame, CanFdFrame, CanFilter, CanFrame, CanId,
+    CanTimestamps, EmbeddedFrame, Error, ErrorCause, StandardId,
     errors::{
-        CAN_ERR_CNT, CAN_ERR_CRTL, ControllerProblem, Location, TransceiverError, ViolationType,
+        CAN_ERR_CNT, CAN_ERR_CRTL, CanLowFault, ControllerProblems, Location, ViolationTypes,
     },
     id::FdFlags,
 };
@@ -188,58 +188,62 @@ fn payload_uses_native_bytes_in_binary_formats() {
 // ----- errors -----
 
 #[test]
-fn can_errors_serializes_as_a_flat_array() {
-    // The head+tail internal layout must not leak into the format.
+fn can_error_serializes_as_a_flat_array() {
+    // The internal smallvec layout must not leak into the format.
     let frame =
         CanErrorFrame::new_error(CAN_ERR_CRTL | CAN_ERR_CNT, &[0, 0x0C, 0, 0, 0, 0, 112, 96])
             .unwrap();
-    let errs = frame.into_errors();
-    assert_eq!(errs.len(), 3);
+    let err = frame.into_error();
+    // Symmetric warning folds into one Controller cause, plus the counters.
+    assert_eq!(err.len(), 2);
     check_json(
-        &errs,
-        r#"[{"ControllerProblem":"ReceiveErrorWarning"},{"ControllerProblem":"TransmitErrorWarning"},{"Counters":{"tx":112,"rx":96}}]"#,
+        &err,
+        r#"[{"Controller":"RX_WARNING | TX_WARNING"},{"Counters":{"tx":112,"rx":96}}]"#,
     );
 }
 
-/// `CanErrors` is non-empty by construction. Deserialization must not be a
+/// `CanError` is non-empty by construction. Deserialization must not be a
 /// way around that from outside the crate.
 #[test]
-fn can_errors_rejects_an_empty_sequence() {
-    assert!(serde_json::from_str::<CanErrors>("[]").is_err());
+fn can_error_rejects_an_empty_sequence() {
+    assert!(serde_json::from_str::<CanError>("[]").is_err());
 
-    let one: CanErrors = serde_json::from_str(r#"["BusOff"]"#).unwrap();
+    let one: CanError = serde_json::from_str(r#"["BusOff"]"#).unwrap();
     assert!(one.is_single());
-    assert_eq!(*one.first(), CanError::BusOff);
+    assert_eq!(*one.first(), ErrorCause::BusOff);
 }
 
 #[test]
-fn error_variants_round_trip() {
-    let cases: &[(CanError, &str)] = &[
-        (CanError::TransmitTimeout, r#""TransmitTimeout""#),
-        (CanError::LostArbitration(7), r#"{"LostArbitration":7}"#),
+fn error_cause_variants_round_trip() {
+    let cases: &[(ErrorCause, &str)] = &[
+        (ErrorCause::TransmitTimeout, r#""TransmitTimeout""#),
+        (ErrorCause::LostArbitration(7), r#"{"LostArbitration":7}"#),
         (
-            CanError::ControllerProblem(ControllerProblem::BackToErrorActive),
-            r#"{"ControllerProblem":"BackToErrorActive"}"#,
+            ErrorCause::Controller(ControllerProblems::ACTIVE),
+            r#"{"Controller":"ACTIVE"}"#,
         ),
         (
-            CanError::ProtocolViolation {
-                vtype: ViolationType::BitStuffingError,
+            ErrorCause::Protocol {
+                types: ViolationTypes::STUFF,
                 location: Location::CrcSequence,
             },
-            r#"{"ProtocolViolation":{"vtype":"BitStuffingError","location":"CrcSequence"}}"#,
+            r#"{"Protocol":{"types":"STUFF","location":"CrcSequence"}}"#,
         ),
         (
-            CanError::TransceiverError(TransceiverError::CanLowNoWire),
-            r#"{"TransceiverError":"CanLowNoWire"}"#,
+            ErrorCause::Transceiver {
+                canh: None,
+                canl: Some(CanLowFault::NoWire),
+            },
+            r#"{"Transceiver":{"canh":null,"canl":"NoWire"}}"#,
         ),
         (
-            CanError::Counters { tx: 1, rx: 2 },
+            ErrorCause::Counters { tx: 1, rx: 2 },
             r#"{"Counters":{"tx":1,"rx":2}}"#,
         ),
-        (CanError::Unknown(0x400), r#"{"Unknown":1024}"#),
+        (ErrorCause::Unknown(0x400), r#"{"Unknown":1024}"#),
     ];
-    for (err, expect) in cases {
-        check_json(err, expect);
+    for (cause, expect) in cases {
+        check_json(cause, expect);
     }
 }
 
@@ -254,15 +258,15 @@ fn reserved_location_keeps_its_value() {
 
 #[test]
 fn error_can_variant_round_trips_exactly() {
-    let err = Error::from(CanError::BusOff);
+    let err = Error::from(ErrorCause::BusOff);
     let json = serde_json::to_string(&err).unwrap();
     assert_eq!(json, r#"{"Can":["BusOff"]}"#);
 
     let back: Error = serde_json::from_str(&json).unwrap();
     match back {
-        Error::Can(errs) => {
-            assert!(errs.is_single());
-            assert_eq!(*errs.first(), CanError::BusOff);
+        Error::Can(err) => {
+            assert!(err.is_single());
+            assert_eq!(*err.first(), ErrorCause::BusOff);
         }
         other => panic!("expected a CAN error, got {other:?}"),
     }

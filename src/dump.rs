@@ -69,8 +69,8 @@
 //!
 //! An error frame's payload is the eight error-class bytes rather than bus
 //! data; see the [errors module](crate::errors) for their layout. Decode
-//! them with [`CanErrorFrame::into_errors()`], remembering that one frame
-//! usually reports several conditions at once. Error frames are always
+//! them with [`CanErrorFrame::into_error()`], remembering that one frame
+//! usually reports several causes at once. Error frames are always
 //! classical, so neither the FD nor the remote form applies to them.
 //!
 //! # Unsupported: the `_dlc` suffix
@@ -646,9 +646,10 @@ mod test {
             assert!(!frame.is_remote_frame());
             assert_eq!(frame.error_bits(), 0x004);
             assert_eq!(frame.data(), &[0, 0x0C, 0, 0, 0, 0, 0, 0]);
-            // ... and it decodes through the v4 errors path.
-            let errs = frame.into_errors();
-            assert_eq!(errs.len(), 2);
+            // ... and it decodes through the v4 errors path. The symmetric
+            // warning transition folds into a single Controller cause.
+            let err = frame.into_error();
+            assert_eq!(err.len(), 1);
         } else {
             panic!("Expected Error frame, got {:?}", rec1.frame);
         }
@@ -660,7 +661,8 @@ mod test {
         if let CanAnyFrame::Error(frame) = rec2.frame {
             assert_eq!(frame.error_bits(), 0x0A8);
             assert_eq!(frame.data(), &[0, 0, 0x9E, 0x08, 0, 0, 0, 0]);
-            assert_eq!(frame.into_errors().len(), 7);
+            // Protocol violations fold into one cause: Protocol + NoAck + BusError.
+            assert_eq!(frame.into_error().len(), 3);
         } else {
             panic!("Expected Error frame, got {:?}", rec2.frame);
         }
