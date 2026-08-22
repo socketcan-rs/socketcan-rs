@@ -112,9 +112,9 @@ pub trait AsPtr {
     ///
     /// All `self.size()` bytes of the inner value — including any padding —
     /// must be initialised at the time of this call. Reading the returned
-    /// slice is undefined behaviour otherwise. Note that `set_data` does not
-    /// zero the unused trailing bytes of `can_frame::data`, so a frame built
-    /// through typed accessors may still contain uninitialised padding.
+    /// slice is undefined behaviour otherwise. This crate's frame types
+    /// satisfy that by construction: they start from a zeroed struct and
+    /// every setter that shortens the payload zeroes the bytes it vacates.
     unsafe fn as_bytes(&self) -> &[u8] {
         unsafe {
             std::slice::from_raw_parts::<'_, u8>(
@@ -851,11 +851,16 @@ impl Frame for CanDataFrame {
     }
 
     /// Sets the data payload of the frame.
+    ///
+    /// The bytes beyond the new payload are zeroed, so a shorter payload does
+    /// not leave part of a longer one behind for the kernel to receive in the
+    /// unused tail of the frame struct.
     fn set_data(&mut self, data: &[u8]) -> Result<(), ConstructionError> {
         match data.len() {
             n if n <= CAN_MAX_DLEN => {
                 self.0.can_dlc = n as u8;
                 self.0.data[..n].copy_from_slice(data);
+                self.0.data[n..].fill(0);
                 Ok(())
             }
             _ => Err(ConstructionError::TooMuchData),
@@ -1905,6 +1910,31 @@ mod tests {
         rtr.can_dlc = 15;
         assert_eq!(CanRemoteFrame::try_from(rtr).unwrap().dlc(), CAN_MAX_DLEN);
         assert_eq!(CanFrame::from(rtr).dlc(), CAN_MAX_DLEN);
+    }
+
+    /// Shortening a payload clears the bytes it vacates.
+    ///
+    /// `data()` slices by the length either way, so the stale tail was
+    /// invisible through the API — but `write_frame()` hands the whole struct
+    /// to the kernel, and `AsPtr::as_bytes()` promises every byte is written.
+    #[test]
+    fn set_data_clears_the_tail() {
+        let mut frame = CanDataFrame::new(STD_ID, &[1, 2, 3, 4, 5, 6, 7, 8]).unwrap();
+        assert_eq!(frame.as_ref().data, [1, 2, 3, 4, 5, 6, 7, 8]);
+
+        frame.set_data(&[9]).unwrap();
+        assert_eq!(frame.data(), &[9]);
+        assert_eq!(frame.as_ref().data, [9, 0, 0, 0, 0, 0, 0, 0]);
+
+        frame.set_data(EMPTY_DATA).unwrap();
+        assert_eq!(frame.data(), EMPTY_DATA);
+        assert_eq!(frame.as_ref().data, [0; CAN_MAX_DLEN]);
+
+        // A rejected call leaves the frame alone.
+        frame.set_data(&[7, 7]).unwrap();
+        assert!(frame.set_data(&[0xFF; 9]).is_err());
+        assert_eq!(frame.data(), &[7, 7]);
+        assert_eq!(frame.as_ref().data, [7, 7, 0, 0, 0, 0, 0, 0]);
     }
 
     /// An error frame reports the full payload however it was built.

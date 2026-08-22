@@ -949,7 +949,8 @@ impl CanFdSocket {
     /// Reads a raw CAN frame from the socket.
     ///
     /// This might be either type of CAN frame, a classic CAN 2.0 frame
-    /// or an FD frame.
+    /// or an FD frame. A read of any other length is reported as
+    /// `InvalidData`.
     pub fn read_raw_frame(&self) -> IoResult<CanRawFrame> {
         let mut fdframe = canfd_frame_default();
 
@@ -970,7 +971,9 @@ impl CanFdSocket {
                 Ok(frame.into())
             }
             CANFD_MTU => Ok(fdframe.into()),
-            _ => Err(IoError::last_os_error()),
+            // The read succeeded, so `last_os_error()` would report a stale
+            // errno — or none at all. The length is the whole complaint.
+            _ => Err(IoError::from(IoErrorKind::InvalidData)),
         }
     }
 }
@@ -1288,5 +1291,39 @@ mod tests {
     #[test]
     fn would_block_without_an_errno_is_retried() {
         assert!(IoError::from(IoErrorKind::WouldBlock).should_retry());
+    }
+
+    /// A datagram that is neither `CAN_MTU` nor `CANFD_MTU` long is reported
+    /// as `InvalidData` by both read paths.
+    ///
+    /// A CAN socket cannot produce such a read, so the length is driven in
+    /// over a Unix datagram pair instead — enough to exercise the arm, which
+    /// used to return `last_os_error()` after a *successful* read and so
+    /// reported a stale errno, or `Success (os error 0)`.
+    #[test]
+    fn odd_read_length_is_invalid_data() {
+        use std::os::unix::net::UnixDatagram;
+
+        for _ in 0..2 {
+            let (tx, rx) = UnixDatagram::pair().expect("socketpair");
+            tx.send(&[0u8; 20]).expect("send");
+            let sock = CanFdSocket::from(OwnedFd::from(rx));
+
+            // `CanRawFrame` has no `Debug`, so no `expect_err()` here.
+            let err = match sock.read_raw_frame() {
+                Err(err) => err,
+                Ok(_) => panic!("20 bytes is not a frame"),
+            };
+            assert_eq!(err.kind(), IoErrorKind::InvalidData, "{err}");
+            assert_eq!(err.raw_os_error(), None, "should not carry an errno");
+        }
+
+        // The typed path already reported this correctly; assert it still does,
+        // so the two stay in step.
+        let (tx, rx) = UnixDatagram::pair().expect("socketpair");
+        tx.send(&[0u8; 20]).expect("send");
+        let sock = CanFdSocket::from(OwnedFd::from(rx));
+        let err = sock.read_frame().expect_err("20 bytes is not a frame");
+        assert_eq!(err.kind(), IoErrorKind::InvalidData, "{err}");
     }
 }
