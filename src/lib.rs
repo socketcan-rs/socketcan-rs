@@ -159,7 +159,7 @@ pub use timestamp::{
 pub mod nl;
 
 #[cfg(feature = "netlink")]
-pub use nl::{CanCtrlMode, CanInterface, InterfaceCanParams};
+pub use nl::{CanCtrlMode, CanInterface, InterfaceCanParams, NlError};
 
 /// Optional support for tokio runtime.
 #[cfg(feature = "tokio")]

@@ -131,6 +131,10 @@ pub enum Error {
     #[cfg(feature = "dump")]
     #[error(transparent)]
     Parser(#[from] crate::dump::ParseError),
+    /// Error reported by the netlink protocol layer
+    #[cfg(feature = "netlink")]
+    #[error(transparent)]
+    Nl(#[from] crate::nl::NlError),
 }
 
 impl embedded_can::Error for Error {
@@ -162,17 +166,115 @@ impl From<io::ErrorKind> for Error {
     }
 }
 
+/// Rebuilds an owned [`io::Error`] from a borrowed one, keeping the errno
+/// when there is one so the kind survives.
+///
+/// `io::Error` is not `Clone`, and neli hands out its socket errors behind an
+/// `Arc`, so the only way across is to rebuild.
+#[cfg(feature = "netlink")]
+fn clone_io_error(e: &io::Error) -> io::Error {
+    match e.raw_os_error() {
+        Some(errno) => io::Error::from_raw_os_error(errno),
+        None => io::Error::new(e.kind(), e.to_string()),
+    }
+}
+
 #[cfg(feature = "netlink")]
 impl<T, P> From<neli::err::RouterError<T, P>> for Error
 where
     T: neli::consts::nl::NlType,
     P: fmt::Debug,
 {
-    /// Wraps a netlink error as an [`io::Error`] of kind `Other`, preserving
-    /// the underlying description. Lets callers `?` netlink results across
-    /// module boundaries into the crate-level [`enum@Error`].
+    /// Summarizes a netlink error into the crate-level [`enum@Error`], letting
+    /// callers `?` netlink results across module boundaries.
+    ///
+    /// The information a caller can act on is preserved rather than flattened
+    /// into a message: an error packet from the kernel keeps its errno as
+    /// [`NlError::Netlink`](crate::nl::NlError::Netlink), an I/O failure keeps
+    /// its [`io::ErrorKind`] and becomes [`Error::Io`], and the protocol-level
+    /// conditions each get their own [`NlError`](crate::nl::NlError) variant.
+    /// Only the message-level failures — serialization, deserialization, an
+    /// arbitrary neli message — are reduced to text, having no structure worth
+    /// keeping.
+    ///
+    /// The neli error itself is deliberately not carried: it is generic over
+    /// the message type and payload, 128 bytes wide, and would put neli in
+    /// this crate's public API.
     fn from(e: neli::err::RouterError<T, P>) -> Error {
-        Self::Io(io::Error::other(e.to_string()))
+        use crate::nl::NlError;
+        use neli::err::{RouterError, SocketError};
+
+        match e {
+            // An error packet from the kernel. Netlink negates the errno.
+            RouterError::Nlmsgerr(err) => NlError::Netlink {
+                errno: -*err.error(),
+            }
+            .into(),
+            RouterError::Io(kind) => Self::Io(io::Error::from(kind)),
+            RouterError::Socket(SocketError::Io(err)) => Self::Io(clone_io_error(&err)),
+            RouterError::NoAck => NlError::NoAck.into(),
+            RouterError::UnexpectedAck => NlError::UnexpectedAck.into(),
+            RouterError::ClosedChannel => NlError::ClosedChannel.into(),
+            RouterError::BadSeqOrPid(msg) => NlError::BadSeqOrPid {
+                seq: *msg.nl_seq(),
+                pid: *msg.nl_pid(),
+            }
+            .into(),
+            // Serialization, deserialization and arbitrary messages, plus any
+            // variant a later neli adds.
+            other => NlError::Msg(other.to_string()).into(),
+        }
+    }
+}
+
+/// Maps an `errno` reported by a `nix` call onto an [`Error::Io`], preserving
+/// it exactly: `nix::Error` *is* an errno, so nothing is lost.
+impl From<nix::Error> for Error {
+    fn from(e: nix::Error) -> Self {
+        Self::Io(io::Error::from(e))
+    }
+}
+
+/// Lets the netlink module `?` a socket-level neli error, keeping a genuine
+/// I/O failure — with its kind and errno — as [`Error::Io`].
+#[cfg(feature = "netlink")]
+impl From<neli::err::SocketError> for Error {
+    fn from(e: neli::err::SocketError) -> Self {
+        use neli::err::SocketError;
+        match e {
+            SocketError::Io(err) => Self::Io(clone_io_error(&err)),
+            other => crate::nl::NlError::Msg(other.to_string()).into(),
+        }
+    }
+}
+
+/// Lets the netlink module `?` a deserialization error from neli. Only the
+/// I/O case has structure worth keeping.
+#[cfg(feature = "netlink")]
+impl From<neli::err::DeError> for Error {
+    fn from(e: neli::err::DeError) -> Self {
+        use neli::err::DeError;
+        match e {
+            DeError::Io(kind) => Self::Io(io::Error::from(kind)),
+            other => crate::nl::NlError::Msg(other.to_string()).into(),
+        }
+    }
+}
+
+/// Lets the netlink module `?` a serialization error from neli.
+#[cfg(feature = "netlink")]
+impl From<neli::err::SerError> for Error {
+    fn from(e: neli::err::SerError) -> Self {
+        crate::nl::NlError::Msg(e.to_string()).into()
+    }
+}
+
+/// Lets the netlink module `?` a failure to build a netlink attribute. These
+/// are programming errors in message construction, so only the text matters.
+#[cfg(feature = "netlink")]
+impl From<neli::rtnl::RtattrBuilderError> for Error {
+    fn from(e: neli::rtnl::RtattrBuilderError) -> Self {
+        crate::nl::NlError::Msg(e.to_string()).into()
     }
 }
 
@@ -606,6 +708,9 @@ pub enum ErrorRepr {
     /// A dump file parse error, in its own serialized form.
     #[cfg(feature = "dump")]
     Parser(crate::dump::ParseErrorRepr),
+    /// A netlink error. Round-trips exactly; it is already an owned summary.
+    #[cfg(feature = "netlink")]
+    Nl(crate::nl::NlError),
 }
 
 /// Maps an [`io::ErrorKind`] to a stable name.
@@ -702,6 +807,8 @@ impl Serialize for Error {
             },
             #[cfg(feature = "dump")]
             Error::Parser(e) => ErrorRepr::Parser(e.into()),
+            #[cfg(feature = "netlink")]
+            Error::Nl(e) => ErrorRepr::Nl(e.clone()),
         };
         repr.serialize(ser)
     }
@@ -717,6 +824,8 @@ impl From<ErrorRepr> for Error {
             }
             #[cfg(feature = "dump")]
             ErrorRepr::Parser(repr) => Self::Parser(repr.into()),
+            #[cfg(feature = "netlink")]
+            ErrorRepr::Nl(e) => Self::Nl(e),
         }
     }
 }
@@ -1429,6 +1538,102 @@ mod tests {
         } else {
             panic!("Wrong error conversion");
         }
+    }
+
+    /// A netlink failure keeps whatever a caller can act on: an error packet
+    /// from the kernel keeps its errno, an I/O failure keeps its kind, and the
+    /// protocol conditions each get a variant. Nothing lands in an `Io` error
+    /// of kind `Other` with only a message, which is what used to happen.
+    #[cfg(feature = "netlink")]
+    #[test]
+    fn netlink_error_conversion() {
+        use crate::nl::NlError;
+        use neli::{
+            consts::rtnl::Rtm,
+            err::{RouterError, SocketError},
+            rtnl::Ifinfomsg,
+        };
+        use std::sync::Arc;
+
+        type RtErr = RouterError<Rtm, Ifinfomsg>;
+
+        assert!(matches!(
+            Error::from(RtErr::NoAck),
+            Error::Nl(NlError::NoAck)
+        ));
+        assert!(matches!(
+            Error::from(RtErr::ClosedChannel),
+            Error::Nl(NlError::ClosedChannel)
+        ));
+
+        // A real I/O failure stays an I/O error, with its kind intact.
+        let err = Error::from(RtErr::Io(io::ErrorKind::PermissionDenied));
+        match err {
+            Error::Io(e) => assert_eq!(e.kind(), io::ErrorKind::PermissionDenied),
+            other => panic!("expected an I/O error, got {other:?}"),
+        }
+
+        // Same for one that arrives through neli's socket layer, where the
+        // errno survives the trip and not just the kind.
+        let err = Error::from(RtErr::Socket(SocketError::Io(Arc::new(
+            io::Error::from_raw_os_error(libc::ENODEV),
+        ))));
+        match err {
+            Error::Io(e) => assert_eq!(e.raw_os_error(), Some(libc::ENODEV)),
+            other => panic!("expected an I/O error, got {other:?}"),
+        }
+
+        // A message-level failure has no structure to keep, so it is text.
+        assert!(matches!(
+            Error::from(RtErr::new("malformed attribute")),
+            Error::Nl(NlError::Msg(_))
+        ));
+    }
+
+    /// An errno from a `nix` call reaches the caller as an `Error::Io` with
+    /// the errno intact — opening an interface that does not exist reports
+    /// `ENODEV` rather than an opaque message.
+    #[cfg(feature = "netlink")]
+    #[test]
+    fn nix_errno_becomes_an_io_error() {
+        use crate::nl::CanInterface;
+
+        match CanInterface::open("nosuchcan0") {
+            Err(Error::Io(e)) => assert_eq!(e.raw_os_error(), Some(libc::ENODEV)),
+            other => panic!("expected an I/O error, got {other:?}"),
+        }
+    }
+
+    /// The kernel's errno is reachable as an `io::ErrorKind`, so a netlink
+    /// rejection can be tested like any other system error.
+    #[cfg(feature = "netlink")]
+    #[test]
+    fn netlink_errno_is_actionable() {
+        use crate::nl::NlError;
+
+        let err = NlError::Netlink { errno: libc::EPERM };
+        assert_eq!(err.errno(), Some(libc::EPERM));
+        assert_eq!(err.io_kind(), Some(io::ErrorKind::PermissionDenied));
+        assert_eq!(NlError::NoAck.errno(), None);
+        assert_eq!(NlError::NoAck.io_kind(), None);
+    }
+
+    /// The whole reason `Error` summarizes the netlink error instead of
+    /// carrying it: a `RouterError` is far larger than every other error this
+    /// crate reports, and `Error` sits in every `Result` the crate returns.
+    #[cfg(feature = "netlink")]
+    #[test]
+    fn error_stays_smaller_than_a_router_error() {
+        use neli::{consts::rtnl::Rtm, err::RouterError, rtnl::Ifinfomsg};
+        use std::mem::size_of;
+
+        type RtErr = RouterError<Rtm, Ifinfomsg>;
+        assert!(
+            size_of::<Error>() < size_of::<RtErr>(),
+            "Error is {} bytes, RouterError is {}",
+            size_of::<Error>(),
+            size_of::<RtErr>()
+        );
     }
 
     /// A dump parse error keeps its identity now that it has a variant of its

@@ -365,6 +365,31 @@ fn parser_variant_round_trips() {
     }
 }
 
+/// The `Nl` variant is already an owned summary of the netlink failure — no
+/// `io::Error` and no neli types inside — so it round-trips exactly.
+#[cfg(feature = "netlink")]
+#[test]
+fn nl_variant_round_trips() {
+    use socketcan::NlError;
+
+    let err = Error::Nl(NlError::Netlink { errno: libc::EPERM });
+    let json = serde_json::to_string(&err).unwrap();
+    assert_eq!(json, r#"{"Nl":{"Netlink":{"errno":1}}}"#);
+
+    match serde_json::from_str::<Error>(&json).unwrap() {
+        Error::Nl(e) => {
+            assert_eq!(e.errno(), Some(libc::EPERM));
+            assert_eq!(e.io_kind(), Some(std::io::ErrorKind::PermissionDenied));
+        }
+        other => panic!("expected a netlink error, got {other:?}"),
+    }
+
+    let err = Error::Nl(NlError::BadSeqOrPid { seq: 7, pid: 42 });
+    let json = serde_json::to_string(&err).unwrap();
+    let back: Error = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.to_string(), err.to_string());
+}
+
 /// A kind name written by a newer version must not fail to deserialize in an
 /// older one; it degrades to `Other`.
 #[test]

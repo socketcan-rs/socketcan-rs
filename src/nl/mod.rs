@@ -52,13 +52,6 @@
 //! <https://github.com/lalten/libsocketcan>
 //!
 
-// TODO: The neli `RouterError<Rtm, Ifinfomsg>` (aliased here as `RouterInfoError`)
-// is 128+ bytes, so every `Result<_, RouterInfoError>` in this module trips
-// `clippy::result_large_err`. Boxing the error would shrink the `Result` but
-// requires reworking the error plumbing throughout the module (`?` conversions
-// rely on neli's `From<…> for RouterError` impls).
-#![allow(clippy::result_large_err)]
-
 use neli::{
     FromBytes, FromBytesWithInput, Size, ToBytes,
     attr::Attribute,
@@ -67,7 +60,6 @@ use neli::{
         rtnl::{Arphrd, Iff, Ifla, IflaInfo, RtAddrFamily, Rtm},
         socket::NlFamily,
     },
-    err::{MsgError, RouterError, SocketError},
     nl::{NlPayload, Nlmsghdr, NlmsghdrBuilder},
     rtnl::{Ifinfomsg, IfinfomsgBuilder, Rtattr, RtattrBuilder},
     socket::synchronous::NlSocketHandle,
@@ -78,7 +70,8 @@ use nix::{self, net::if_::if_nametoindex};
 use rt::IflaCan;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use std::{ffi::CStr, fmt::Debug, os::raw::c_uint};
+use std::{ffi::CStr, fmt::Debug, io, os::raw::c_uint};
+use thiserror::Error as ThisError;
 
 /// Low-level Netlink CAN struct bindings.
 mod rt;
@@ -86,11 +79,72 @@ mod rt;
 pub use rt::CanState;
 use rt::can_ctrlmode;
 
-/// A router error from an info query
-pub type RouterInfoError = RouterError<Rtm, Ifinfomsg>;
+/// A failure reported by the netlink protocol layer.
+///
+/// This crate's netlink calls go through `neli`, whose [`RouterError`](neli::err::RouterError) is
+/// generic over the message type and payload and holds whole netlink messages
+/// — it is 128 bytes wide. This is the owned, non-generic summary of it that
+/// the crate-level [`Error`](crate::Error) carries in its `Nl` variant: it
+/// keeps what a caller can act on, the kernel's errno above all, without
+/// putting `neli` types in this crate's public API or growing every
+/// `Result<_, Error>` to the size of a `RouterError`.
+///
+/// Genuine I/O failures are *not* here: those arrive as
+/// [`Error::Io`](crate::Error::Io) with their original kind intact.
+#[derive(ThisError, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum NlError {
+    /// The kernel rejected the request, returning this errno.
+    ///
+    /// Held positive, the way [`io::Error::from_raw_os_error()`] expects,
+    /// although netlink sends it negated on the wire.
+    #[error("netlink error: {}", io::Error::from_raw_os_error(*errno))]
+    Netlink {
+        /// The errno the kernel reported
+        errno: i32,
+    },
+    /// No ACK arrived for a request that asked for one.
+    #[error("no netlink ack received")]
+    NoAck,
+    /// An ACK arrived for a request that did not ask for one.
+    #[error("unexpected netlink ack received")]
+    UnexpectedAck,
+    /// A reply carried a sequence number or port ID that was not the one
+    /// requested.
+    #[error("netlink reply with bad sequence number or port id (seq {seq}, pid {pid})")]
+    BadSeqOrPid {
+        /// The sequence number of the offending reply
+        seq: u32,
+        /// The port ID of the offending reply
+        pid: u32,
+    },
+    /// The channel carrying netlink messages closed.
+    #[error("netlink channel closed")]
+    ClosedChannel,
+    /// A message-level failure — serialization, deserialization, or an
+    /// arbitrary `neli` message — reduced to its text.
+    #[error("netlink: {0}")]
+    Msg(String),
+}
 
-/// The result from a router info query
-pub type RouterInfoResult<T> = Result<T, RouterInfoError>;
+impl NlError {
+    /// The errno the kernel reported, if this was an error packet.
+    pub fn errno(&self) -> Option<i32> {
+        match *self {
+            Self::Netlink { errno } => Some(errno),
+            _ => None,
+        }
+    }
+
+    /// The kernel's errno as an [`io::ErrorKind`], if there was one.
+    ///
+    /// Lets a caller test a netlink rejection the same way as any other
+    /// system error: a privileged operation attempted as a normal user
+    /// gives `Some(io::ErrorKind::PermissionDenied)`.
+    pub fn io_kind(&self) -> Option<io::ErrorKind> {
+        self.errno().map(|e| io::Error::from_raw_os_error(e).kind())
+    }
+}
 
 /// CAN bit-timing parameters
 pub type CanBitTiming = rt::can_bittiming;
@@ -144,13 +198,13 @@ pub enum Mtu {
 }
 
 impl TryFrom<u32> for Mtu {
-    type Error = std::io::Error;
+    type Error = io::Error;
 
     fn try_from(val: u32) -> Result<Self, Self::Error> {
         match val {
             16 => Ok(Mtu::Standard),
             72 => Ok(Mtu::Fd),
-            _ => Err(std::io::Error::from(std::io::ErrorKind::InvalidData)),
+            _ => Err(io::Error::from(io::ErrorKind::InvalidData)),
         }
     }
 }
@@ -193,11 +247,12 @@ pub struct InterfaceCanParams {
     pub termination: Option<u16>,
 }
 
-impl TryFrom<&Rtattr<Ifla, Buffer>> for InterfaceCanParams {
-    type Error = RouterInfoError;
-
-    /// Try to parse the CAN parameters out of a Linkinfo attribute
-    fn try_from(link_info: &Rtattr<Ifla, Buffer>) -> Result<Self, Self::Error> {
+impl InterfaceCanParams {
+    /// Parses the CAN parameters out of a Linkinfo attribute.
+    ///
+    /// Internal: this takes a neli type, which is deliberately kept out of
+    /// the crate's public API.
+    pub(crate) fn from_link_info(link_info: &Rtattr<Ifla, Buffer>) -> crate::Result<Self> {
         let mut params = Self::default();
 
         for info in link_info.get_attr_handle::<IflaInfo>()?.get_attrs() {
@@ -244,84 +299,70 @@ impl TryFrom<&Rtattr<Ifla, Buffer>> for InterfaceCanParams {
         }
         Ok(params)
     }
-}
 
-impl TryFrom<&InterfaceCanParams> for RtBuffer<Ifla, Buffer> {
-    type Error = RouterInfoError;
-
-    /// Try to parse the CAN parameters into a NetLink buffer
-    fn try_from(params: &InterfaceCanParams) -> Result<Self, Self::Error> {
+    /// Renders the CAN parameters into a netlink attribute buffer.
+    ///
+    /// Internal: this yields a neli type, which is deliberately kept out of
+    /// the crate's public API.
+    pub(crate) fn to_rtbuffer(&self) -> crate::Result<RtBuffer<Ifla, Buffer>> {
         let mut rtattrs: RtBuffer<Ifla, Buffer> = RtBuffer::new();
         let mut data = RtattrBuilder::default()
             .rta_type(IflaInfo::Data)
             .rta_payload(Buffer::new())
             .build()?;
 
-        if let Some(bt) = params.bit_timing {
-            data = data
-                .nest(
-                    &RtattrBuilder::default()
-                        .rta_type(IflaCan::BitTiming)
-                        .rta_payload(bt)
-                        .build()?,
-                )
-                .map_err(SocketError::from)?;
+        if let Some(bt) = self.bit_timing {
+            data = data.nest(
+                &RtattrBuilder::default()
+                    .rta_type(IflaCan::BitTiming)
+                    .rta_payload(bt)
+                    .build()?,
+            )?;
         }
-        if let Some(r) = params.restart_ms {
-            data = data
-                .nest(
-                    &RtattrBuilder::default()
-                        .rta_type(IflaCan::RestartMs)
-                        .rta_payload(&r.to_ne_bytes()[..])
-                        .build()?,
-                )
-                .map_err(SocketError::from)?;
+        if let Some(r) = self.restart_ms {
+            data = data.nest(
+                &RtattrBuilder::default()
+                    .rta_type(IflaCan::RestartMs)
+                    .rta_payload(&r.to_ne_bytes()[..])
+                    .build()?,
+            )?;
         }
-        if let Some(cm) = params.ctrl_mode {
-            data = data
-                .nest(
-                    &RtattrBuilder::<_, can_ctrlmode>::default()
-                        .rta_type(IflaCan::CtrlMode)
-                        .rta_payload(cm.into())
-                        .build()?,
-                )
-                .map_err(SocketError::from)?;
+        if let Some(cm) = self.ctrl_mode {
+            data = data.nest(
+                &RtattrBuilder::<_, can_ctrlmode>::default()
+                    .rta_type(IflaCan::CtrlMode)
+                    .rta_payload(cm.into())
+                    .build()?,
+            )?;
         }
-        if let Some(dbt) = params.data_bit_timing {
-            data = data
-                .nest(
-                    &RtattrBuilder::default()
-                        .rta_type(IflaCan::DataBitTiming)
-                        .rta_payload(dbt)
-                        .build()?,
-                )
-                .map_err(SocketError::from)?;
+        if let Some(dbt) = self.data_bit_timing {
+            data = data.nest(
+                &RtattrBuilder::default()
+                    .rta_type(IflaCan::DataBitTiming)
+                    .rta_payload(dbt)
+                    .build()?,
+            )?;
         }
-        if let Some(t) = params.termination {
-            data = data
-                .nest(
-                    &RtattrBuilder::default()
-                        .rta_type(IflaCan::Termination)
-                        .rta_payload(t)
-                        .build()?,
-                )
-                .map_err(SocketError::from)?;
+        if let Some(t) = self.termination {
+            data = data.nest(
+                &RtattrBuilder::default()
+                    .rta_type(IflaCan::Termination)
+                    .rta_payload(t)
+                    .build()?,
+            )?;
         }
 
         let mut link_info = RtattrBuilder::default()
             .rta_type(Ifla::Linkinfo)
             .rta_payload(Buffer::new())
-            .build()
-            .map_err(SocketError::from)?;
-        link_info = link_info
-            .nest(
-                &RtattrBuilder::default()
-                    .rta_type(IflaInfo::Kind)
-                    .rta_payload("can")
-                    .build()?,
-            )
-            .map_err(SocketError::from)?;
-        link_info = link_info.nest(&data).map_err(SocketError::from)?;
+            .build()?;
+        link_info = link_info.nest(
+            &RtattrBuilder::default()
+                .rta_type(IflaInfo::Kind)
+                .rta_payload("can")
+                .build()?,
+        )?;
+        link_info = link_info.nest(&data)?;
 
         rtattrs.push(link_info);
         Ok(rtattrs)
@@ -459,8 +500,9 @@ impl CanInterface {
     /// Open a CAN interface by name.
     ///
     /// Similar to `open_iface`, but looks up the device by name instead of
-    /// the interface index.
-    pub fn open(ifname: &str) -> Result<Self, nix::Error> {
+    /// the interface index. An unknown name reports the `if_nametoindex()`
+    /// errno — typically `ENODEV` — as [`Error::Io`](crate::Error::Io).
+    pub fn open(ifname: &str) -> crate::Result<Self> {
         let if_index = if_nametoindex(ifname)?;
         Ok(Self::open_iface(if_index))
     }
@@ -489,11 +531,7 @@ impl CanInterface {
     }
 
     /// Sends an info message to the kernel.
-    fn send_info_msg(
-        msg_type: Rtm,
-        info: Ifinfomsg,
-        additional_flags: NlmF,
-    ) -> RouterInfoResult<()> {
+    fn send_info_msg(msg_type: Rtm, info: Ifinfomsg, additional_flags: NlmF) -> crate::Result<()> {
         let mut nl = Self::open_route_socket()?;
 
         // prepare message
@@ -509,10 +547,7 @@ impl CanInterface {
 
     /// Sends a message down a netlink socket, and checks if an ACK was
     /// properly received.
-    fn send_and_read_ack<T, P>(
-        sock: &mut NlSocketHandle,
-        msg: &Nlmsghdr<T, P>,
-    ) -> Result<(), RouterError<T, P>>
+    fn send_and_read_ack<T, P>(sock: &mut NlSocketHandle, msg: &Nlmsghdr<T, P>) -> crate::Result<()>
     where
         T: NlType + Debug,
         P: ToBytes + Debug + Size + FromBytesWithInput<Input = usize>,
@@ -530,7 +565,7 @@ impl CanInterface {
         {
             Ok(())
         } else {
-            Err(RouterError::NoAck)
+            Err(NlError::NoAck.into())
         }
     }
 
@@ -541,7 +576,7 @@ impl CanInterface {
     /// in the same process — for example, from concurrent calls on
     /// different threads, or when a getter is invoked while a setter is
     /// still in flight. Binding all sockets to `Pid::this()` would collide.
-    fn open_route_socket() -> Result<NlSocketHandle, SocketError> {
+    fn open_route_socket() -> crate::Result<NlSocketHandle> {
         // groups is empty because we want no multicast notifications
         let sock = NlSocketHandle::connect(NlFamily::Route, None, Groups::empty())?;
         Ok(sock)
@@ -549,7 +584,7 @@ impl CanInterface {
 
     /// Sends a query to the kernel and returns the response info message
     /// to the caller.
-    fn query_details(&self) -> Result<Option<Nlmsghdr<Rtm, Ifinfomsg>>, SocketError> {
+    fn query_details(&self) -> crate::Result<Option<Nlmsghdr<Rtm, Ifinfomsg>>> {
         let sock = Self::open_route_socket()?;
 
         let info = self.info_msg({
@@ -574,13 +609,13 @@ impl CanInterface {
         sock.send(&hdr)?;
 
         let mut iter = sock.recv::<Rtm, Ifinfomsg>()?.0;
-        iter.next().transpose()
+        Ok(iter.next().transpose()?)
     }
 
     /// Bring down this interface.
     ///
     /// Use a netlink control socket to set the interface status to "down".
-    pub fn bring_down(&self) -> RouterInfoResult<()> {
+    pub fn bring_down(&self) -> crate::Result<()> {
         // Specific iface down info
         let info = IfinfomsgBuilder::default()
             .down()
@@ -596,7 +631,7 @@ impl CanInterface {
     /// Bring up this interface
     ///
     /// Brings the interface up by settings its "up" flag enabled via netlink.
-    pub fn bring_up(&self) -> RouterInfoResult<()> {
+    pub fn bring_up(&self) -> crate::Result<()> {
         // Specific iface up info
         let info = IfinfomsgBuilder::default()
             .up()
@@ -617,7 +652,7 @@ impl CanInterface {
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn create_vcan(name: &str, index: Option<u32>) -> RouterInfoResult<Self> {
+    pub fn create_vcan(name: &str, index: Option<u32>) -> crate::Result<Self> {
         Self::create(name, index, "vcan")
     }
 
@@ -627,15 +662,13 @@ impl CanInterface {
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn create<I>(name: &str, index: I, kind: &str) -> RouterInfoResult<Self>
+    pub fn create<I>(name: &str, index: I, kind: &str) -> crate::Result<Self>
     where
         I: Into<Option<u32>>,
     {
         // Remember: IFNAMSIZ (15 bytes on Linux) includes the trailing NUL.
         if name.len() >= libc::IFNAMSIZ {
-            return Err(RouterInfoError::Msg(MsgError::new(
-                "Interface name too long",
-            )));
+            return Err(NlError::Msg("Interface name too long".into()).into());
         }
         let index = index.into();
 
@@ -660,8 +693,7 @@ impl CanInterface {
                             .rta_type(IflaInfo::Kind)
                             .rta_payload(kind)
                             .build()?,
-                    )
-                    .map_err(SocketError::from)?;
+                    )?;
                 buffer.push(linkinfo);
                 buffer
             })
@@ -676,9 +708,11 @@ impl CanInterface {
             if let Ok(if_index) = if_nametoindex(name) {
                 Ok(Self { if_index })
             } else {
-                Err(RouterInfoError::Msg(MsgError::new(
-                    "Interface must have been deleted between request and this if_nametoindex",
-                )))
+                Err(NlError::Msg(
+                    "Interface must have been deleted between request and this if_nametoindex"
+                        .into(),
+                )
+                .into())
             }
         }
     }
@@ -687,7 +721,7 @@ impl CanInterface {
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn delete(self) -> Result<(), (Self, RouterInfoError)> {
+    pub fn delete(self) -> Result<(), (Self, crate::Error)> {
         let info = self.info_msg(RtBuffer::new());
         match Self::send_info_msg(Rtm::Dellink, info, NlmF::empty()) {
             Ok(()) => Ok(()),
@@ -696,7 +730,7 @@ impl CanInterface {
     }
 
     /// Attempt to query detailed information on the interface.
-    pub fn details(&self) -> RouterInfoResult<InterfaceDetails> {
+    pub fn details(&self) -> crate::Result<InterfaceDetails> {
         match self.query_details()? {
             Some(msg_hdr) => {
                 let mut info = InterfaceDetails::new(self.if_index);
@@ -719,7 +753,7 @@ impl CanInterface {
                                     .and_then(|mtu| Mtu::try_from(mtu).ok());
                             }
                             Ifla::Linkinfo => {
-                                info.can = InterfaceCanParams::try_from(attr)?;
+                                info.can = InterfaceCanParams::from_link_info(attr)?;
                             }
                             _ => (),
                         }
@@ -728,7 +762,7 @@ impl CanInterface {
 
                 Ok(info)
             }
-            None => Err(RouterError::NoAck),
+            None => Err(NlError::NoAck.into()),
         }
     }
 
@@ -736,7 +770,7 @@ impl CanInterface {
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn set_mtu(&self, mtu: Mtu) -> RouterInfoResult<()> {
+    pub fn set_mtu(&self, mtu: Mtu) -> crate::Result<()> {
         let mtu = mtu as u32;
         let info = self.info_msg({
             let mut buffer = RtBuffer::new();
@@ -758,7 +792,7 @@ impl CanInterface {
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn set_can_param<P>(&self, param_type: IflaCan, param: P) -> RouterInfoResult<()>
+    pub fn set_can_param<P>(&self, param_type: IflaCan, param: P) -> crate::Result<()>
     where
         P: ToBytes + Size,
     {
@@ -772,8 +806,7 @@ impl CanInterface {
                         .rta_type(param_type)
                         .rta_payload(param)
                         .build()?,
-                )
-                .map_err(SocketError::from)?;
+                )?;
 
             let link_info = RtattrBuilder::default()
                 .rta_type(Ifla::Linkinfo)
@@ -784,10 +817,8 @@ impl CanInterface {
                         .rta_type(IflaInfo::Kind)
                         .rta_payload("can")
                         .build()?,
-                )
-                .map_err(SocketError::from)?
-                .nest(&data)
-                .map_err(SocketError::from)?;
+                )?
+                .nest(&data)?;
 
             let mut rtattrs = RtBuffer::new();
             rtattrs.push(link_info);
@@ -808,13 +839,13 @@ impl CanInterface {
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn set_can_params(&self, params: &InterfaceCanParams) -> RouterInfoResult<()> {
-        let info = self.info_msg(RtBuffer::try_from(params)?);
+    pub fn set_can_params(&self, params: &InterfaceCanParams) -> crate::Result<()> {
+        let info = self.info_msg(params.to_rtbuffer()?);
         Self::send_info_msg(Rtm::Newlink, info, NlmF::empty())
     }
 
     /// Attempt to query an individual CAN parameter on the interface.
-    pub fn can_param<P>(&self, param: IflaCan) -> RouterInfoResult<Option<P>>
+    pub fn can_param<P>(&self, param: IflaCan) -> crate::Result<Option<P>>
     where
         P: FromBytes + Clone,
     {
@@ -836,12 +867,12 @@ impl CanInterface {
             }
             Ok(None)
         } else {
-            Err(RouterError::NoAck)
+            Err(NlError::NoAck.into())
         }
     }
 
     /// Gets the current bit rate for the interface.
-    pub fn bit_rate(&self) -> RouterInfoResult<Option<u32>> {
+    pub fn bit_rate(&self) -> crate::Result<Option<u32>> {
         Ok(self.bit_timing()?.map(|timing| timing.bitrate))
     }
 
@@ -853,7 +884,7 @@ impl CanInterface {
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn set_bitrate<P>(&self, bitrate: u32, sample_point: P) -> RouterInfoResult<()>
+    pub fn set_bitrate<P>(&self, bitrate: u32, sample_point: P) -> crate::Result<()>
     where
         P: Into<Option<u32>>,
     {
@@ -878,7 +909,7 @@ impl CanInterface {
     }
 
     /// Gets the bit timing params for the interface
-    pub fn bit_timing(&self) -> RouterInfoResult<Option<CanBitTiming>> {
+    pub fn bit_timing(&self) -> crate::Result<Option<CanBitTiming>> {
         self.can_param::<CanBitTiming>(IflaCan::BitTiming)
     }
 
@@ -886,24 +917,24 @@ impl CanInterface {
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn set_bit_timing(&self, timing: CanBitTiming) -> RouterInfoResult<()> {
+    pub fn set_bit_timing(&self, timing: CanBitTiming) -> crate::Result<()> {
         self.set_can_param(IflaCan::BitTiming, timing)
     }
 
     /// Gets the bit timing const data for the interface
-    pub fn bit_timing_const(&self) -> RouterInfoResult<Option<CanBitTimingConst>> {
+    pub fn bit_timing_const(&self) -> crate::Result<Option<CanBitTimingConst>> {
         self.can_param::<CanBitTimingConst>(IflaCan::BitTimingConst)
     }
 
     /// Gets the clock frequency for the interface
-    pub fn clock(&self) -> RouterInfoResult<Option<u32>> {
+    pub fn clock(&self) -> crate::Result<Option<u32>> {
         Ok(self
             .can_param::<CanClock>(IflaCan::Clock)?
             .map(|clk| clk.freq))
     }
 
     /// Gets the state of the interface
-    pub fn state(&self) -> RouterInfoResult<Option<CanState>> {
+    pub fn state(&self) -> crate::Result<Option<CanState>> {
         Ok(self
             .can_param::<u32>(IflaCan::State)?
             .and_then(|st| CanState::try_from(st).ok()))
@@ -914,7 +945,7 @@ impl CanInterface {
     /// PRIVILEGED: This requires root privilege.
     ///
     #[deprecated(since = "3.2.0", note = "Use `set_ctrlmodes` instead")]
-    pub fn set_full_ctrlmode(&self, ctrlmode: can_ctrlmode) -> RouterInfoResult<()> {
+    pub fn set_full_ctrlmode(&self, ctrlmode: can_ctrlmode) -> crate::Result<()> {
         self.set_can_param(IflaCan::CtrlMode, ctrlmode)
     }
 
@@ -922,7 +953,7 @@ impl CanInterface {
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn set_ctrlmodes<M>(&self, ctrlmode: M) -> RouterInfoResult<()>
+    pub fn set_ctrlmodes<M>(&self, ctrlmode: M) -> crate::Result<()>
     where
         M: Into<CanCtrlModes>,
     {
@@ -935,7 +966,7 @@ impl CanInterface {
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn set_ctrlmode(&self, mode: CanCtrlMode, on: bool) -> RouterInfoResult<()> {
+    pub fn set_ctrlmode(&self, mode: CanCtrlMode, on: bool) -> crate::Result<()> {
         self.set_ctrlmodes(CanCtrlModes::from_mode(mode, on))
     }
 
@@ -945,14 +976,14 @@ impl CanInterface {
     /// (current state) alongside the `mask`; use [`CanCtrlModes::has_mode`]
     /// to test individual modes. Returns `None` if the interface reports no
     /// control-mode attribute.
-    pub fn ctrlmodes(&self) -> RouterInfoResult<Option<CanCtrlModes>> {
+    pub fn ctrlmodes(&self) -> crate::Result<Option<CanCtrlModes>> {
         Ok(self
             .can_param::<can_ctrlmode>(IflaCan::CtrlMode)?
             .map(CanCtrlModes))
     }
 
     /// Gets the automatic CANbus restart time for the interface, in milliseconds.
-    pub fn restart_ms(&self) -> RouterInfoResult<Option<u32>> {
+    pub fn restart_ms(&self) -> crate::Result<Option<u32>> {
         self.can_param::<u32>(IflaCan::RestartMs)
     }
 
@@ -960,7 +991,7 @@ impl CanInterface {
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn set_restart_ms(&self, restart_ms: u32) -> RouterInfoResult<()> {
+    pub fn set_restart_ms(&self, restart_ms: u32) -> crate::Result<()> {
         self.set_can_param(IflaCan::RestartMs, &restart_ms.to_ne_bytes()[..])
     }
 
@@ -976,7 +1007,7 @@ impl CanInterface {
     ///     EINVAL - The interface is down or automatic restarts are enabled
     ///     EBUSY - The interface is not in a bus-off state
     ///
-    pub fn restart(&self) -> RouterInfoResult<()> {
+    pub fn restart(&self) -> crate::Result<()> {
         // Note: The linux code shows the data type to be u32, but never
         // appears to access the value sent. iproute2 sends a 1, so we do
         // too!
@@ -986,12 +1017,12 @@ impl CanInterface {
     }
 
     /// Gets the bus error counter from the interface
-    pub fn berr_counter(&self) -> RouterInfoResult<Option<CanBerrCounter>> {
+    pub fn berr_counter(&self) -> crate::Result<Option<CanBerrCounter>> {
         self.can_param::<CanBerrCounter>(IflaCan::BerrCounter)
     }
 
     /// Gets the data bit timing params for the interface
-    pub fn data_bit_timing(&self) -> RouterInfoResult<Option<CanBitTiming>> {
+    pub fn data_bit_timing(&self) -> crate::Result<Option<CanBitTiming>> {
         self.can_param::<CanBitTiming>(IflaCan::DataBitTiming)
     }
 
@@ -999,7 +1030,7 @@ impl CanInterface {
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn set_data_bit_timing(&self, timing: CanBitTiming) -> RouterInfoResult<()> {
+    pub fn set_data_bit_timing(&self, timing: CanBitTiming) -> crate::Result<()> {
         self.set_can_param(IflaCan::DataBitTiming, timing)
     }
 
@@ -1014,7 +1045,7 @@ impl CanInterface {
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn set_data_bitrate<P>(&self, bitrate: u32, sample_point: P) -> RouterInfoResult<()>
+    pub fn set_data_bitrate<P>(&self, bitrate: u32, sample_point: P) -> crate::Result<()>
     where
         P: Into<Option<u32>>,
     {
@@ -1043,7 +1074,7 @@ impl CanInterface {
     }
 
     /// Gets the data bit timing const params for the interface
-    pub fn data_bit_timing_const(&self) -> RouterInfoResult<Option<CanBitTimingConst>> {
+    pub fn data_bit_timing_const(&self) -> crate::Result<Option<CanBitTimingConst>> {
         self.can_param::<CanBitTimingConst>(IflaCan::DataBitTimingConst)
     }
 
@@ -1055,12 +1086,12 @@ impl CanInterface {
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn set_termination(&self, termination: u16) -> RouterInfoResult<()> {
+    pub fn set_termination(&self, termination: u16) -> crate::Result<()> {
         self.set_can_param(IflaCan::Termination, termination)
     }
 
     /// Gets the CANbus termination for the interface
-    pub fn termination(&self) -> RouterInfoResult<Option<u16>> {
+    pub fn termination(&self) -> crate::Result<Option<u16>> {
         self.can_param::<u16>(IflaCan::Termination)
     }
 }
@@ -1095,7 +1126,7 @@ pub mod tests {
     impl TemporaryInterface {
         /// Creates a temporaty interface
         #[allow(unused)]
-        pub fn new(name: &str) -> RouterInfoResult<Self> {
+        pub fn new(name: &str) -> crate::Result<Self> {
             Ok(Self {
                 interface: CanInterface::create_vcan(name, None)?,
             })
