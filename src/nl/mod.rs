@@ -540,6 +540,17 @@ pub struct CanInterface {
     if_index: c_uint,
 }
 
+/// Resolves a caller's requested interface index into a real request.
+///
+/// Index 0 is netlink's own way of saying "unspecified" — `ifi_index = 0`
+/// with `NLM_F_CREATE` asks the kernel to assign one — so `Some(0)` means
+/// the same thing as `None` and must not be taken as the index of the
+/// resulting interface. Reading it literally handed back a `CanInterface`
+/// addressing interface 0 for the rest of its life.
+fn requested_index(index: impl Into<Option<u32>>) -> Option<u32> {
+    index.into().filter(|index| *index != 0)
+}
+
 impl CanInterface {
     /// Open a CAN interface by name.
     ///
@@ -693,6 +704,7 @@ impl CanInterface {
     /// bus is not available.
     ///
     /// Note that the length of the name is capped by ```libc::IFNAMSIZ```.
+    /// See [`create()`](Self::create) for how `index` is treated.
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
@@ -704,17 +716,23 @@ impl CanInterface {
     ///
     /// Note that the length of the name is capped by ```libc::IFNAMSIZ```.
     ///
+    /// `index` requests a specific interface index. `None` — or `Some(0)`,
+    /// which is how netlink itself spells "unspecified" — lets the kernel
+    /// assign one, which is then looked up by name, since netlink does not
+    /// report the index it picked.
+    ///
     /// PRIVILEGED: This requires root privilege.
     ///
     pub fn create<I>(name: &str, index: I, kind: &str) -> Result<Self>
     where
         I: Into<Option<u32>>,
     {
-        // Remember: IFNAMSIZ (15 bytes on Linux) includes the trailing NUL.
+        // Remember: IFNAMSIZ includes the trailing NUL, so a name may be at
+        // most IFNAMSIZ - 1 characters long.
         if name.len() >= libc::IFNAMSIZ {
             return Err(NlError::Msg("Interface name too long".into()).into());
         }
-        let index = index.into();
+        let index = requested_index(index);
 
         let info = IfinfomsgBuilder::default()
             .ifi_family(RtAddrFamily::Unspecified)
@@ -1144,7 +1162,7 @@ impl CanInterface {
 
 /// Tests that need neither a netlink socket nor privileges.
 #[cfg(test)]
-mod error_tests {
+mod unit_tests {
     use super::*;
 
     /// Each protocol-level condition neli reports keeps its own variant, and
@@ -1168,6 +1186,18 @@ mod error_tests {
             NlError::from(RtErr::Io(io::ErrorKind::PermissionDenied)),
             NlError::Msg(_)
         ));
+    }
+
+    /// Index 0 means "unspecified", the same as no index at all, so
+    /// `create()` looks the assigned index up by name instead of taking the
+    /// caller's 0 as the answer.
+    #[test]
+    fn index_zero_is_unspecified() {
+        assert_eq!(requested_index(None), None);
+        assert_eq!(requested_index(0), None);
+        assert_eq!(requested_index(Some(0)), None);
+        assert_eq!(requested_index(1), Some(1));
+        assert_eq!(requested_index(Some(42)), Some(42));
     }
 }
 
