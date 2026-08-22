@@ -613,6 +613,51 @@ mod test {
         assert!(reader.next_record().unwrap().is_none());
     }
 
+    /// The usable remote DLC range is `0..=8`, and every value in it
+    /// round-trips byte for byte.
+    ///
+    /// The wire field is four bits wide, but SocketCAN caps a classical
+    /// frame's length at `CAN_MAX_DLEN` in both directions — the kernel
+    /// refuses a longer one with `EINVAL` on send — so a higher nibble
+    /// describes a frame that could never be transmitted. See
+    /// `doc/CanDumpLogFormat.md` for why this parser rejects it where
+    /// can-utils discards it.
+    #[test]
+    fn test_remote_dlc_range() {
+        for dlc in 0..=8usize {
+            let line = if dlc == 0 {
+                "(1469439874.299591) can0 123#R".to_string()
+            } else {
+                format!("(1469439874.299591) can0 123#R{:X}", dlc)
+            };
+
+            let mut reader = Reader::from_reader(line.as_bytes());
+            let rec = reader.next_record().unwrap().unwrap();
+
+            match rec.frame {
+                CanAnyFrame::Remote(frame) => assert_eq!(frame.dlc(), dlc, "{line}"),
+                other => panic!("expected a remote frame, got {other:?}"),
+            }
+            assert_eq!(rec.to_string(), line, "round-trip changed the line");
+        }
+
+        // Above the kernel's limit: rejected, not silently taken as DLC 0.
+        for line in [
+            "(1469439874.299591) can0 123#R9",
+            "(1469439874.299591) can0 123#RF",
+        ] {
+            let mut reader = Reader::from_reader(line.as_bytes());
+            assert!(
+                matches!(reader.next_record(), Err(ParseError::InvalidCanFrame)),
+                "{line} should be rejected"
+            );
+        }
+
+        // The same boundary at its source, so the reason stays visible.
+        assert!(CanRemoteFrame::remote_from_raw_id(0x123, 8).is_some());
+        assert!(CanRemoteFrame::remote_from_raw_id(0x123, 9).is_none());
+    }
+
     // Issue #74
     #[test]
     fn test_extended_id_fd() {

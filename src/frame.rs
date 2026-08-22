@@ -64,6 +64,30 @@ pub fn canfd_frame_default() -> canfd_frame {
     unsafe { mem::zeroed() }
 }
 
+/// Normalizes the length field of a raw C `can_frame`.
+///
+/// An error frame always carries the full eight-byte payload, so its length
+/// is forced to `CAN_MAX_DLEN`; that keeps `dlc()`, `len()` and `data()` in
+/// agreement whichever conversion built it. Any other frame's length is
+/// clamped to what `can_frame::data` can hold, since `data()` slices by it
+/// and would otherwise panic.
+///
+/// The kernel never delivers a classical frame with a length above
+/// `CAN_MAX_DLEN` — a len8 frame's raw DLC lives in `len8_dlc`, which this
+/// crate does not use — but a caller-supplied struct can hold anything, and
+/// the conversions from a raw `can_frame` are infallible or check only the
+/// flag bits. Every one of them normalizes here rather than trusting the
+/// field. `CanFdFrame`'s conversion does the equivalent for `canfd_frame`.
+#[inline]
+fn normalize_dlc(mut frame: can_frame) -> can_frame {
+    frame.can_dlc = if frame.can_id & CAN_ERR_FLAG != 0 {
+        CAN_MAX_DLEN as u8
+    } else {
+        frame.can_dlc.min(CAN_MAX_DLEN as u8)
+    };
+    frame
+}
+
 // ===== AsPtr trait =====
 
 /// Trait to get a pointer to an inner type
@@ -630,7 +654,16 @@ impl fmt::UpperHex for CanFrame {
 
 impl From<can_frame> for CanFrame {
     /// Create a `CanFrame` from a C `can_frame` struct.
+    ///
+    /// The flag bits in the ID word pick the variant. The length field is
+    /// normalized on the way in: an error frame is given the full eight-byte
+    /// payload it always carries, and any other length is clamped to the
+    /// eight bytes `can_frame::data` can hold, so that `dlc()`, `len()` and
+    /// `data()` always agree. The kernel never delivers anything else, but
+    /// this conversion cannot fail, so it cannot reject a caller-built struct
+    /// either.
     fn from(frame: can_frame) -> Self {
+        let frame = normalize_dlc(frame);
         if frame.can_id & CAN_ERR_FLAG != 0 {
             CanFrame::Error(CanErrorFrame(frame))
         } else if frame.can_id & CAN_RTR_FLAG != 0 {
@@ -865,10 +898,11 @@ impl TryFrom<can_frame> for CanDataFrame {
     /// Try to create a `CanDataFrame` from a C `can_frame`
     ///
     /// This will succeed as long as the C frame is not marked as an error
-    /// or remote frame.
+    /// or remote frame. The payload length is clamped to the eight bytes
+    /// `can_frame::data` can hold.
     fn try_from(frame: can_frame) -> Result<Self, Self::Error> {
         if frame.can_id & (CAN_ERR_FLAG | CAN_RTR_FLAG) == 0 {
-            Ok(Self(frame))
+            Ok(Self(normalize_dlc(frame)))
         } else {
             Err(ConstructionError::WrongFrameType)
         }
@@ -1053,10 +1087,12 @@ impl TryFrom<can_frame> for CanRemoteFrame {
 
     /// Try to create a `CanRemoteFrame` from a C `can_frame`
     ///
-    /// This will only succeed the C frame is marked as a remote frame.
+    /// This will only succeed the C frame is marked as a remote frame. The
+    /// requested length is clamped to `CAN_MAX_DLEN`, so a raw struct cannot
+    /// smuggle in a DLC that the type's own constructors reject.
     fn try_from(frame: can_frame) -> Result<Self, Self::Error> {
         if frame.can_id & CAN_RTR_FLAG != 0 {
-            Ok(Self(frame))
+            Ok(Self(normalize_dlc(frame)))
         } else {
             Err(ConstructionError::WrongFrameType)
         }
@@ -1241,13 +1277,12 @@ impl TryFrom<can_frame> for CanErrorFrame {
 
     /// Try to create a `CanErrorFrame` from a C `can_frame`
     ///
-    /// This will only succeed the C frame is marked as an error frame.
-    fn try_from(mut frame: can_frame) -> Result<Self, Self::Error> {
+    /// This will only succeed the C frame is marked as an error frame. Error
+    /// frames carry the full 8-byte payload by convention, so the length is
+    /// forced to that, keeping `dlc()`, `len()` and `data()` in agreement.
+    fn try_from(frame: can_frame) -> Result<Self, Self::Error> {
         if frame.can_id & CAN_ERR_FLAG != 0 {
-            // Error frames carry the full 8-byte payload by convention; force
-            // can_dlc so that `dlc()`, `len()` and `data()` agree.
-            frame.can_dlc = CAN_MAX_DLEN as u8;
-            Ok(Self(frame))
+            Ok(Self(normalize_dlc(frame)))
         } else {
             Err(ConstructionError::WrongFrameType)
         }
@@ -1837,6 +1872,60 @@ mod tests {
         match id {
             Id::Standard(id) => id.as_raw() as u32,
             Id::Extended(id) => id.as_raw(),
+        }
+    }
+
+    /// A raw `can_frame` whose length exceeds the payload array is clamped on
+    /// the way in, on every conversion that accepts one.
+    ///
+    /// The kernel cannot deliver such a frame, but a caller-supplied struct
+    /// can hold anything, and `data()` slices by the length — so before this
+    /// was normalized, `data()`, `Debug` and `UpperHex` all panicked on the
+    /// resulting frame.
+    #[test]
+    fn raw_frame_length_is_clamped() {
+        let mut raw = can_frame_default();
+        raw.can_id = 0x123;
+        raw.can_dlc = 9;
+        raw.data = [1, 2, 3, 4, 5, 6, 7, 8];
+
+        let frame = CanFrame::from(raw);
+        assert_eq!(frame.dlc(), CAN_MAX_DLEN);
+        assert_eq!(frame.len(), CAN_MAX_DLEN);
+        assert_eq!(frame.data(), &raw.data[..]);
+        // These panicked before the clamp.
+        assert_eq!(format!("{:X}", frame), "123#0102030405060708");
+        let _ = format!("{:?}", frame);
+
+        // Every other entry point for a raw frame agrees.
+        assert_eq!(CanDataFrame::try_from(raw).unwrap().dlc(), CAN_MAX_DLEN);
+
+        let mut rtr = raw;
+        rtr.can_id |= CAN_RTR_FLAG;
+        rtr.can_dlc = 15;
+        assert_eq!(CanRemoteFrame::try_from(rtr).unwrap().dlc(), CAN_MAX_DLEN);
+        assert_eq!(CanFrame::from(rtr).dlc(), CAN_MAX_DLEN);
+    }
+
+    /// An error frame reports the full payload however it was built.
+    ///
+    /// `CanErrorFrame::data()` always yields all eight bytes, so a length
+    /// short of that would leave `len()` disagreeing with `data().len()`.
+    /// `TryFrom` always forced the length; `From<can_frame> for CanFrame`
+    /// used to skip it.
+    #[test]
+    fn raw_error_frame_length_is_forced() {
+        let mut raw = can_frame_default();
+        raw.can_id = CAN_ERR_FLAG | 0x04;
+        raw.can_dlc = 0;
+
+        for frame in [
+            CanFrame::from(raw),
+            CanFrame::Error(CanErrorFrame::try_from(raw).unwrap()),
+        ] {
+            assert_eq!(frame.dlc(), CAN_MAX_DLEN);
+            assert_eq!(frame.len(), CAN_MAX_DLEN);
+            assert_eq!(frame.data().len(), CAN_MAX_DLEN);
         }
     }
 

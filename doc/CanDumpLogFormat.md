@@ -43,7 +43,8 @@ can-id     = 3HEXDIG              ; SFF — standard 11-bit identifier
 classical  = "#" ( rtr / data ) [ "_" dlc8 ]
 canfd      = "##" flags data
 
-rtr        = "R" [ HEXDIG ]       ; remote frame; optional single-nibble DLC (0..F), absent = 0
+rtr        = "R" [ HEXDIG ]       ; remote frame; optional DLC nibble, absent = 0
+                                  ; 0..F syntactically; only 0..8 is usable (see below)
 data       = *( 2HEXDIG )         ; payload bytes; 0..8 for classical, 0..64 for CAN FD
 flags      = HEXDIG               ; single nibble mapped onto canfd_frame.flags
 dlc8       = HEXDIG               ; "len8 DLC" escape; only meaningful when data is 8 bytes
@@ -88,12 +89,16 @@ A `#` followed by an even number of hex digits, two per data byte. Zero bytes (`
 
 ### Remote frame (RTR) — `#R[<dlc>]`
 
-A `#R`, optionally followed by a single hex digit giving the requested DLC (`0`..`F`). An absent digit means DLC 0. Remote frames carry no data — only the DLC.
+A `#R`, optionally followed by a single hex digit giving the requested DLC. An absent digit means DLC 0. Remote frames carry no data — only the DLC.
 
 ```text
 104#R             RTR, DLC 0
 110#R4            RTR, DLC 4
 ```
+
+The nibble spans `0`..`F` syntactically, but only `0`..`8` is usable. A classical remote frame's DLC field is four bits wide on the wire, yet SocketCAN caps a classical frame's length at `CAN_MAX_DLEN` (8) in both directions: `can_dropped_invalid_skb()` rejects a larger value with `EINVAL` on send, and a driver clamps the received DLC before it reaches userspace. So `candump` never *emits* a nibble above 8 — it prints the already-clamped `can_frame::len` — and a line carrying one can only have been written by hand.
+
+can-utils resolves the excess by discarding it: `parse_canframe()` assigns the DLC only when the nibble is `<= CAN_MAX_DLEN`, so `cansend vcan0 123#RF` transmits DLC 0 and `candump -L` logs it back as `123#R`. This crate rejects such a line instead; see the parser notes below.
 
 CAN FD has no remote-frame concept; RTR applies to classical frames only.
 
@@ -142,6 +147,7 @@ Classical CAN can encode a raw DLC value greater than 8 while still carrying onl
 | `123#1122334455667788` | SFF, 8 data bytes                                |
 | `123#R`            | SFF remote frame, DLC 0                              |
 | `123#R7`           | SFF remote frame, DLC 7                              |
+| `123#RF`           | remote DLC 15 — rejected by this parser (see notes)  |
 | `123#1122334455667788_E` | SFF, 8 data bytes, raw DLC = 14                |
 | `12345678#DEADBEEF`| EFF, 4 data bytes                                    |
 | `123##0112233`     | CAN FD, flags=0, 3 data bytes                        |
@@ -154,7 +160,7 @@ The reader in `src/dump.rs` follows the grammar above, with these deliberate cho
 
 - The microsecond field must be **exactly six digits**; other lengths are rejected (`ParseError::InvalidTimestamp`). candump always emits six, so this is stricter than the permissive C parser but correct for real candump output.
 - Each line is read through a 64 KiB cap so a corrupt log cannot exhaust memory; an over-long line yields `ParseError::InvalidCanFrame`.
-- Remote-frame DLC parse failures are surfaced as errors rather than silently treated as 0; an empty DLC still parses as 0.
+- Remote-frame DLC handling is stricter than `parse_canframe()`'s in two ways: a nibble that does not parse as hex is an error rather than a silent 0, and a nibble above 8 is rejected with `ParseError::InvalidCanFrame` rather than discarded. `CanRemoteFrame` caps its DLC at `CAN_MAX_DLEN` because that is the kernel's own send-side limit, so a line like `123#RF` describes a frame this crate could not transmit in any case, and rejecting it beats reinterpreting it as its opposite, DLC 0. No captured log is affected, since candump cannot emit such a line. An empty DLC still parses as 0.
 - Error frames are supported in both directions as of v4.0. The parser branches on `CAN_ERR_FLAG` before decoding the identifier, because the error-class bits sit above `CAN_EFF_MASK` and would otherwise be rejected as an out-of-range extended ID. `Display` emits the identifier **with** `CAN_ERR_FLAG` included, matching candump, so a line round-trips exactly; emitting the bare class bits would produce output that re-parsed as a standard data frame.
 - A short error-frame payload is zero-padded out to the full eight bytes, since that is what the kernel always delivers. A hand-written log line with fewer than eight data bytes therefore does not round-trip byte-for-byte.
 - **The `_dlc` suffix is not supported.** A line containing it is rejected with `ParseError::InvalidCanFrame`. `CanDataFrame` has nowhere to store a raw DLC greater than its data length — `libc::can_frame::len8_dlc` exists in the wrapped struct but is unused by this crate — so accepting the suffix would mean either silently discarding it (making that one field lossy while every other round-trips) or widening the frame type's public API. Deferred pending a decision on `CAN_RAW_CC_LEN8_DLC` support for sockets generally.
