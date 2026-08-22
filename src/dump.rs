@@ -90,7 +90,6 @@ use crate::{
 };
 use embedded_can::Frame as EmbeddedFrame;
 use hex::FromHex;
-use itertools::Itertools;
 use libc::canid_t;
 use std::{
     fmt,
@@ -243,21 +242,20 @@ impl fmt::Display for CanDumpRecord {
                 // straight back through the parser. Emitting the bare class
                 // bits instead would re-parse as a standard data frame.
                 write!(f, "{:08X}#", frame.error_bits() | CAN_ERR_FLAG)?;
-                let mut parts = frame.data().iter().map(|v| format!("{:02X}", v));
-                write!(f, "{}", parts.join(""))
+                Self::fmt_data(f, frame.data())
             }
             Normal(frame) => {
                 Self::fmt_id(f, &frame)?;
-                let mut parts = frame.data().iter().map(|v| format!("{:02X}", v));
-                write!(f, "#{}", parts.join(""))
+                f.write_str("#")?;
+                Self::fmt_data(f, frame.data())
             }
             Fd(frame) => {
                 Self::fmt_id(f, &frame)?;
-                let mut parts = frame.data().iter().map(|v| format!("{:02X}", v));
                 // Single-hex-nibble flags between `##` and the payload, matching
                 // candump's `.log` format so this output round-trips through
                 // the parser.
-                write!(f, "##{:X}{}", frame.flags().bits() & 0x0F, parts.join(""))
+                write!(f, "##{:X}", frame.flags().bits() & 0x0F)?;
+                Self::fmt_data(f, frame.data())
             }
         }
     }
@@ -272,6 +270,11 @@ impl CanDumpRecord {
         } else {
             write!(f, "{:03X}", frame.raw_id())
         }
+    }
+
+    /// Writes a payload as candump's unseparated, uppercase hex.
+    fn fmt_data(f: &mut fmt::Formatter<'_>, data: &[u8]) -> fmt::Result {
+        data.iter().try_for_each(|b| write!(f, "{:02X}", b))
     }
 }
 
@@ -630,6 +633,12 @@ mod test {
             &[
                 0x0, 0x011, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB
             ]
+        );
+
+        // The FD form round-trips, flags nibble and all.
+        assert_eq!(
+            rec.to_string(),
+            "(1234.567890) can0 12345678##500112233445566778899AABB"
         );
     }
 

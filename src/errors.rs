@@ -127,11 +127,11 @@ pub enum Error {
     /// An I/O Error
     #[error(transparent)]
     Io(#[from] io::Error),
-    /// Error from the dump file parser
+    /// Error from the dump-file parser
     #[cfg(feature = "dump")]
     #[error(transparent)]
     Parser(#[from] crate::dump::ParseError),
-    /// Error reported by the netlink protocol layer
+    /// Non-I/O errors reported by the netlink protocol layer.
     #[cfg(feature = "netlink")]
     #[error(transparent)]
     Nl(#[from] crate::nl::NlError),
@@ -185,44 +185,27 @@ where
     T: neli::consts::nl::NlType,
     P: fmt::Debug,
 {
-    /// Summarizes a netlink error into the crate-level [`enum@Error`], letting
+    /// Lifts a netlink error into the crate-level [`enum@Error`], letting
     /// callers `?` netlink results across module boundaries.
     ///
-    /// The information a caller can act on is preserved rather than flattened
-    /// into a message: an error packet from the kernel keeps its errno as
-    /// [`NlError::Netlink`](crate::nl::NlError::Netlink), an I/O failure keeps
-    /// its [`io::ErrorKind`] and becomes [`Error::Io`], and the protocol-level
-    /// conditions each get their own [`NlError`](crate::nl::NlError) variant.
-    /// Only the message-level failures — serialization, deserialization, an
-    /// arbitrary neli message — are reduced to text, having no structure worth
-    /// keeping.
+    /// Only the split between the two kinds of failure is decided here: a
+    /// genuine I/O failure keeps its [`io::ErrorKind`] — and its errno, when
+    /// neli passed one along — as [`Error::Io`], and everything netlink-shaped
+    /// is summarized by [`NlError`](crate::nl::NlError), which arrives through
+    /// the [`Nl`](Error::Nl) variant's `From`. See
+    /// [`From<RouterError> for NlError`](crate::nl::NlError) for what that
+    /// summary keeps.
     ///
     /// The neli error itself is deliberately not carried: it is generic over
     /// the message type and payload, 128 bytes wide, and would put neli in
     /// this crate's public API.
     fn from(e: neli::err::RouterError<T, P>) -> Error {
-        use crate::nl::NlError;
         use neli::err::{RouterError, SocketError};
 
         match e {
-            // An error packet from the kernel. Netlink negates the errno.
-            RouterError::Nlmsgerr(err) => NlError::Netlink {
-                errno: -*err.error(),
-            }
-            .into(),
             RouterError::Io(kind) => Self::Io(io::Error::from(kind)),
             RouterError::Socket(SocketError::Io(err)) => Self::Io(clone_io_error(&err)),
-            RouterError::NoAck => NlError::NoAck.into(),
-            RouterError::UnexpectedAck => NlError::UnexpectedAck.into(),
-            RouterError::ClosedChannel => NlError::ClosedChannel.into(),
-            RouterError::BadSeqOrPid(msg) => NlError::BadSeqOrPid {
-                seq: *msg.nl_seq(),
-                pid: *msg.nl_pid(),
-            }
-            .into(),
-            // Serialization, deserialization and arbitrary messages, plus any
-            // variant a later neli adds.
-            other => NlError::Msg(other.to_string()).into(),
+            other => Self::Nl(other.into()),
         }
     }
 }
@@ -290,7 +273,7 @@ pub type IoErrorKind = io::ErrorKind;
 /// An I/O specific result
 pub type IoResult<T> = io::Result<T>;
 
-// ===== CanError =====
+// --------------------------------------------------------------------------
 
 /// Inline capacity for the cause list. Real frames report 1–3 causes; the
 /// theoretical maximum (~13) is synthetic, so anything larger spills to the
@@ -344,7 +327,12 @@ impl CanError {
         }
     }
 
-    /// Creates an error from a first cause plus any number of additional ones.
+    /// Creates an error from a first cause plus any number of additional
+    /// ones.
+    ///
+    /// Note that we can't simply take a collection of causes, since we
+    /// guarantee that an error has at least one cause, and an empty
+    /// collection would be invalid.
     pub fn from_multiple(first: ErrorCause, rest: impl IntoIterator<Item = ErrorCause>) -> Self {
         let mut causes = Causes::new();
         causes.push(first);
@@ -372,11 +360,15 @@ impl CanError {
     }
 
     /// Gets the last cause.
+    ///
+    /// This is never `None`: the type is non-empty by construction.
     pub fn last(&self) -> &ErrorCause {
         self.causes.last().unwrap()
     }
 
-    /// The number of causes reported. Always at least one.
+    /// The number of causes reported.
+    ///
+    /// This is never zero: the type is non-empty by construction.
     pub fn len(&self) -> usize {
         self.causes.len()
     }
@@ -531,13 +523,10 @@ impl fmt::Display for CanError {
     /// A lone cause renders exactly as its own `Display`. Multiple causes are
     /// joined with "; ".
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut first = true;
-        for cause in self.causes() {
-            if !first {
-                write!(f, "; ")?;
-            }
-            first = false;
-            write!(f, "{}", cause)?;
+        // There is always a first cause; only the rest need a separator.
+        write!(f, "{}", self.first())?;
+        for cause in self.causes().skip(1) {
+            write!(f, "; {}", cause)?;
         }
         Ok(())
     }
@@ -1035,11 +1024,28 @@ bitflags::bitflags! {
     }
 }
 
+/// Writes the names of a set of flags as a comma-separated list, falling back
+/// to `unspecified` when there are none.
+///
+/// Shared by the [`ControllerProblems`] and [`ViolationTypes`] renderings,
+/// which differ only in their names and their empty text.
+fn write_flag_names<'a>(
+    f: &mut fmt::Formatter,
+    names: impl IntoIterator<Item = &'a str>,
+    unspecified: &str,
+) -> fmt::Result {
+    let mut names = names.into_iter();
+    match names.next() {
+        None => f.write_str(unspecified),
+        Some(first) => {
+            f.write_str(first)?;
+            names.try_for_each(|name| write!(f, ", {}", name))
+        }
+    }
+}
+
 impl fmt::Display for ControllerProblems {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.is_empty() {
-            return f.write_str("unspecified controller problem");
-        }
         const NAMED: [(ControllerProblems, &str); 7] = [
             (ControllerProblems::RX_OVERFLOW, "receive buffer overflow"),
             (ControllerProblems::TX_OVERFLOW, "transmit buffer overflow"),
@@ -1049,17 +1055,11 @@ impl fmt::Display for ControllerProblems {
             (ControllerProblems::TX_PASSIVE, "tx passive"),
             (ControllerProblems::ACTIVE, "back to error active"),
         ];
-        let mut first = true;
-        for (flag, msg) in NAMED {
-            if self.contains(flag) {
-                if !first {
-                    f.write_str(", ")?;
-                }
-                first = false;
-                f.write_str(msg)?;
-            }
-        }
-        Ok(())
+        let names = NAMED
+            .into_iter()
+            .filter(|(flag, _)| self.contains(*flag))
+            .map(|(_, name)| name);
+        write_flag_names(f, names, "unspecified controller problem")
     }
 }
 
@@ -1098,9 +1098,6 @@ bitflags::bitflags! {
 
 impl fmt::Display for ViolationTypes {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.is_empty() {
-            return f.write_str("unspecified");
-        }
         const NAMED: [(ViolationTypes, &str); 8] = [
             (ViolationTypes::BIT, "single bit error"),
             (ViolationTypes::FORM, "frame format error"),
@@ -1111,17 +1108,11 @@ impl fmt::Display for ViolationTypes {
             (ViolationTypes::ACTIVE, "active error announcement"),
             (ViolationTypes::TX, "error on transmission"),
         ];
-        let mut first = true;
-        for (flag, msg) in NAMED {
-            if self.contains(flag) {
-                if !first {
-                    f.write_str(", ")?;
-                }
-                first = false;
-                f.write_str(msg)?;
-            }
-        }
-        Ok(())
+        let names = NAMED
+            .into_iter()
+            .filter(|(flag, _)| self.contains(*flag))
+            .map(|(_, name)| name);
+        write_flag_names(f, names, "unspecified")
     }
 }
 

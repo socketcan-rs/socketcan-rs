@@ -29,19 +29,17 @@ use udev::Enumerator;
 /// Scans the system for available SocketCAN network interfaces and returns a
 /// list of them.
 pub fn available_interfaces() -> Result<Vec<String>> {
-    let mut interfaces = Vec::new();
-
     let mut enumerator = Enumerator::new()?;
     enumerator.match_subsystem("net")?;
     enumerator.match_attribute("type", ARPHRD_CAN.to_string())?;
 
-    let devices = enumerator.scan_devices()?;
-    for d in devices {
-        if let Some(interface) = d.property_value("INTERFACE")
-            && let Some(interface) = interface.to_str()
-        {
-            interfaces.push(String::from(interface));
-        }
-    }
-    Ok(interfaces)
+    // Devices with no INTERFACE property, or a non-UTF-8 one, are skipped.
+    Ok(enumerator
+        .scan_devices()?
+        .filter_map(|dev| {
+            dev.property_value("INTERFACE")
+                .and_then(|name| name.to_str())
+                .map(String::from)
+        })
+        .collect())
 }
