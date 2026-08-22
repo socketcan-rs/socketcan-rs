@@ -61,17 +61,13 @@ pub trait ShouldRetry {
 
 impl ShouldRetry for IoError {
     fn should_retry(&self) -> bool {
-        match self.kind() {
-            // EAGAIN, EINPROGRESS and EWOULDBLOCK are the three possible codes
-            // returned when a timeout occurs. the stdlib already maps EAGAIN
-            // and EWOULDBLOCK os WouldBlock
-            IoErrorKind::WouldBlock => true,
-            // however, EINPROGRESS is also valid
-            IoErrorKind::Other => {
-                matches!(self.raw_os_error(), Some(errno) if errno == EINPROGRESS)
-            }
-            _ => false,
-        }
+        // EAGAIN, EWOULDBLOCK and EINPROGRESS are the three codes that can
+        // come back when a timeout occurs. The stdlib maps the first two onto
+        // `WouldBlock`, but EINPROGRESS has no `ErrorKind` this crate can name:
+        // it decodes to `ErrorKind::InProgress`, which is still unstable. So
+        // that one is matched on the errno itself rather than on the kind.
+        self.kind() == IoErrorKind::WouldBlock
+            || matches!(self.raw_os_error(), Some(errno) if errno == EINPROGRESS)
     }
 }
 
@@ -1240,5 +1236,57 @@ impl From<(u32, u32)> for CanFilter {
 impl AsRef<libc::can_filter> for CanFilter {
     fn as_ref(&self) -> &libc::can_filter {
         &self.0
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every errno that means "the operation would have blocked" is a retry,
+    /// including EINPROGRESS.
+    ///
+    /// EINPROGRESS is the interesting case: it is matched on the errno because
+    /// the `ErrorKind` it decodes to (`InProgress`) is unstable, so this crate
+    /// cannot name it. Testing the kind instead — as this did until it was
+    /// fixed — silently stopped working when the stdlib started mapping the
+    /// errno onto that kind rather than leaving it as `Other`.
+    #[test]
+    fn timeout_errnos_are_retried() {
+        for errno in [libc::EAGAIN, libc::EWOULDBLOCK, EINPROGRESS] {
+            let err = IoError::from_raw_os_error(errno);
+            assert!(
+                err.should_retry(),
+                "errno {errno} ({err}) should be a retry, kind is {:?}",
+                err.kind()
+            );
+            let res: IoResult<()> = Err(err);
+            assert!(res.should_retry());
+        }
+    }
+
+    /// A genuine failure is not a retry, whether it carries an errno or not.
+    #[test]
+    fn real_errors_are_not_retried() {
+        for errno in [libc::EPERM, libc::ENODEV, libc::EINVAL] {
+            let err = IoError::from_raw_os_error(errno);
+            assert!(!err.should_retry(), "errno {errno} ({err}) is not a retry");
+        }
+
+        // No errno at all, so only the kind can be consulted.
+        assert!(!IoError::from(IoErrorKind::InvalidData).should_retry());
+        assert!(!IoError::new(IoErrorKind::Other, "no errno here").should_retry());
+
+        let ok: IoResult<()> = Ok(());
+        assert!(!ok.should_retry());
+    }
+
+    /// The kind path stands on its own: a `WouldBlock` synthesized without an
+    /// errno still retries, which is what the async wrappers hand back.
+    #[test]
+    fn would_block_without_an_errno_is_retried() {
+        assert!(IoError::from(IoErrorKind::WouldBlock).should_retry());
     }
 }
