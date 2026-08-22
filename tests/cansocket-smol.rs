@@ -23,7 +23,7 @@ use serial_test::serial;
 #[cfg(feature = "vcan_tests")]
 use socketcan::{
     CanAnyFrame, CanFdFrame, EmbeddedFrame, Id, SocketOptions, StandardId, addr::CanAddr,
-    frame::FdFlags, smol::CanFdSocket as AsyncCanFdSocket, smol::CanSocket as AsyncCanSocket,
+    id::FdFlags, smol::CanFdSocket as AsyncCanFdSocket, smol::CanSocket as AsyncCanSocket,
 };
 
 // The virtual CAN interface to use for tests.

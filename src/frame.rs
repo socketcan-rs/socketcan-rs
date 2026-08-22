@@ -41,11 +41,9 @@ use std::{
     {convert::TryFrom, fmt, matches, mem},
 };
 
-// TODO: Remove these on the next major ver update.
-pub use crate::id::{
-    CAN_EFF_FLAG, CAN_EFF_MASK, CAN_ERR_FLAG, CAN_ERR_MASK, CAN_MAX_DLEN, CAN_RTR_FLAG,
-    CAN_SFF_MASK, CANFD_BRS, CANFD_ESI, CANFD_FDF, CANFD_MAX_DLEN, ERR_MASK_ALL, ERR_MASK_NONE,
-    FdFlags, IdFlags, id_from_raw, id_is_extended, id_to_canid_t,
+use crate::id::{
+    CAN_EFF_MASK, CAN_ERR_FLAG, CAN_ERR_MASK, CAN_MAX_DLEN, CAN_RTR_FLAG, CAN_SFF_MASK, CANFD_BRS,
+    CANFD_ESI, CANFD_FDF, CANFD_MAX_DLEN, FdFlags, IdFlags, id_from_raw, id_to_canid_t,
 };
 
 // ===== can_frame =====
@@ -217,8 +215,7 @@ pub trait Frame: EmbeddedFrame {
 // ===== CanAnyFrame =====
 
 /// An FD socket can read a raw classic 2.0 or FD frame.
-#[allow(missing_debug_implementations)]
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CanRawFrame {
     /// A classic CAN 2.0 frame, with up to 8-bytes of data
     Classic(can_frame),
@@ -1851,7 +1848,7 @@ impl TryFrom<CanFdFrameRepr> for CanFdFrame {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::errors;
+    use crate::{errors, id::CAN_EFF_FLAG};
 
     const STD_ID: Id = Id::Standard(StandardId::MAX);
     const EXT_ID: Id = Id::Extended(ExtendedId::MAX);

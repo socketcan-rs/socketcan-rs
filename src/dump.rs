@@ -49,7 +49,7 @@
 //!                              ;       OR an error frame (see below)
 //! classical = "#" ( rtr / data ) [ "_" dlc8 ]
 //! canfd     = "##" flags data
-//! rtr       = "R" [ HEXDIG ]   ; remote frame; optional DLC nibble 0..F
+//! rtr       = "R" [ HEXDIG ]   ; remote frame; optional DLC nibble, 0..8 usable
 //! data      = *(2HEXDIG)       ; 0..8 bytes classical, 0..64 bytes FD
 //! flags     = HEXDIG           ; canfd_frame.flags: BRS=0x1 ESI=0x2 FDF=0x4
 //! dlc8      = HEXDIG           ; "len8 DLC" escape; see the caveat below
@@ -308,12 +308,6 @@ impl Reader<File> {
 }
 
 impl<R: BufRead> Reader<R> {
-    /// Returns an iterator over all records
-    #[deprecated(since = "3.5.0", note = "Use `iter()`")]
-    pub fn records(&mut self) -> CanDumpRecords<'_, R> {
-        CanDumpRecords { src: self }
-    }
-
     /// Advance state, returning next record.
     pub fn next_record(&mut self) -> Result<Option<CanDumpRecord>, ParseError> {
         // Cap each line at 64 KiB so a malformed/corrupt log can't OOM the
@@ -460,25 +454,6 @@ impl<R: BufRead> Iterator for Reader<R> {
         // lift Option:
         match self.next_record() {
             Ok(Some(rec)) => Some(Ok(rec)),
-            Ok(None) => None,
-            Err(e) => Some(Err(e)),
-        }
-    }
-}
-
-/// Original Record iterator
-#[derive(Debug)]
-pub struct CanDumpRecords<'a, R: 'a> {
-    src: &'a mut Reader<R>,
-}
-
-impl<R: io::Read> Iterator for CanDumpRecords<'_, BufReader<R>> {
-    type Item = Result<(u64, CanAnyFrame), ParseError>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        // lift Option:
-        match self.src.next_record() {
-            Ok(Some(CanDumpRecord { t_us, frame, .. })) => Some(Ok((t_us, frame))),
             Ok(None) => None,
             Err(e) => Some(Err(e)),
         }

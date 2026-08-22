@@ -803,8 +803,9 @@ impl CanInterface {
                     for attr in payload.rtattrs().iter() {
                         match attr.rta_type() {
                             Ifla::Ifname => {
-                                // Note: Use `CStr::from_bytes_until_nul` when MSRV >= 1.69
-                                info.name = CStr::from_bytes_with_nul(attr.rta_payload().as_ref())
+                                // Stops at the first NUL, so any padding the
+                                // kernel left after the name is ignored.
+                                info.name = CStr::from_bytes_until_nul(attr.rta_payload().as_ref())
                                     .map(|s| s.to_string_lossy().into_owned())
                                     .ok();
                             }
@@ -1000,15 +1001,6 @@ impl CanInterface {
         Ok(self
             .can_param::<u32>(IflaCan::State)?
             .and_then(|st| CanState::try_from(st).ok()))
-    }
-
-    /// Set the full control mode (bit) collection.
-    ///
-    /// PRIVILEGED: This requires root privilege.
-    ///
-    #[deprecated(since = "3.2.0", note = "Use `set_ctrlmodes` instead")]
-    pub fn set_full_ctrlmode(&self, ctrlmode: can_ctrlmode) -> Result<()> {
-        self.set_can_param(IflaCan::CtrlMode, ctrlmode)
     }
 
     /// Set the full control mode (bit) collection.

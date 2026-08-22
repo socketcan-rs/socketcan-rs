@@ -12,8 +12,8 @@
 //! Implementation of sockets for CANbus 2.0 and FD for SocketCAN on Linux.
 
 use crate::{
-    CanAnyFrame, CanFdFrame, CanFrame, CanRawFrame, Error, IoError, IoErrorKind, IoResult, Result,
-    as_bytes, as_bytes_mut,
+    CanAddr, CanAnyFrame, CanFdFrame, CanFrame, CanRawFrame, Error, IoError, IoErrorKind, IoResult,
+    Result, as_bytes, as_bytes_mut,
     frame::{AsPtr, can_frame_default, canfd_frame_default},
     id::CAN_ERR_MASK,
     timestamp::CanTimestamps,
@@ -42,9 +42,6 @@ pub use libc::{
     CAN_MTU, CAN_RAW, CAN_RAW_ERR_FILTER, CAN_RAW_FD_FRAMES, CAN_RAW_FILTER, CAN_RAW_JOIN_FILTERS,
     CAN_RAW_LOOPBACK, CAN_RAW_RECV_OWN_MSGS, CANFD_MTU, SOL_CAN_BASE, SOL_CAN_RAW,
 };
-
-// TODO: This can be removed on the next major version update
-pub use crate::CanAddr;
 
 /// Check an error return value for timeouts.
 ///
@@ -90,72 +87,6 @@ fn raw_open_socket(addr: &CanAddr) -> IoResult<socket2::Socket> {
     let sock = socket2::Socket::new_raw(af_can, socket2::Type::RAW, Some(can_raw))?;
     sock.bind(&SockAddr::from(*addr))?;
     Ok(sock)
-}
-
-/// `setsockopt` wrapper
-///
-/// The libc `setsockopt` function is set to set various options on a socket.
-/// `set_socket_option` offers a somewhat type-safe wrapper that does not
-/// require messing around with `*const c_void`s.
-///
-/// A proper `std::io::Error` will be returned on failure.
-///
-/// Example use:
-///
-/// ```text
-/// let fd = ...;  // some file descriptor, this will be stdout
-/// set_socket_option(fd, SOL_TCP, TCP_NO_DELAY, 1 as c_int)
-/// ```
-///
-/// Note that the `val` parameter must be specified correctly; if an option
-/// expects an integer, it is advisable to pass in a `c_int`, not the default
-/// of `i32`.
-#[deprecated(since = "3.4.0", note = "Moved into `SocketOptions` trait")]
-#[inline]
-pub fn set_socket_option<T>(fd: c_int, level: c_int, name: c_int, val: &T) -> IoResult<()> {
-    let ret = unsafe {
-        libc::setsockopt(
-            fd,
-            level,
-            name,
-            val as *const _ as *const c_void,
-            size_of::<T>() as socklen_t,
-        )
-    };
-
-    match ret {
-        0 => Ok(()),
-        _ => Err(IoError::last_os_error()),
-    }
-}
-
-/// Sets a collection of multiple socket options with one call.
-#[deprecated(since = "3.4.0", note = "Moved into `SocketOptions` trait")]
-pub fn set_socket_option_mult<T>(
-    fd: c_int,
-    level: c_int,
-    name: c_int,
-    values: &[T],
-) -> IoResult<()> {
-    let ret = if values.is_empty() {
-        // can't pass in a ptr to a 0-len slice, pass a null ptr instead
-        unsafe { libc::setsockopt(fd, level, name, ptr::null(), 0) }
-    } else {
-        unsafe {
-            libc::setsockopt(
-                fd,
-                level,
-                name,
-                values.as_ptr().cast(),
-                size_of_val(values) as socklen_t,
-            )
-        }
-    };
-
-    match ret {
-        0 => Ok(()),
-        _ => Err(IoError::last_os_error()),
-    }
 }
 
 // ===== Common 'Socket' trait =====
@@ -443,12 +374,12 @@ pub trait SocketOptions: AsRawFd {
 
     /// Sets the error mask on the socket.
     ///
-    /// By default (`ERR_MASK_NONE`) no error conditions are reported as
-    /// special error frames by the socket. Enabling error conditions by
-    /// setting `ERR_MASK_ALL` or another non-empty error mask causes the
-    /// socket to receive notification about the specified conditions.
+    /// This is another name for [`set_error_filter()`](Self::set_error_filter)
+    /// — both set `CAN_RAW_ERR_FILTER` — kept because the mask spelling reads
+    /// naturally alongside the `ERR_MASK_ALL` and `ERR_MASK_NONE` constants.
+    #[inline]
     fn set_error_mask(&self, mask: u32) -> IoResult<()> {
-        self.set_socket_option(SOL_CAN_RAW, CAN_RAW_ERR_FILTER, &mask)
+        self.set_error_filter(mask)
     }
 
     /// Enable or disable loopback.
