@@ -92,8 +92,6 @@ use embedded_can::Frame as EmbeddedFrame;
 use hex::FromHex;
 use itertools::Itertools;
 use libc::canid_t;
-#[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
 use std::{
     fmt,
     fs::File,
@@ -101,6 +99,9 @@ use std::{
     path::Path,
 };
 use thiserror::Error;
+
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 /// candump line parse error
 #[derive(Error, Debug)]
@@ -158,24 +159,35 @@ pub enum ParseErrorRepr {
     ConstructionError(ConstructionError),
 }
 
+/// Borrows an error to build its serialized form.
+///
+/// Taken by reference because [`ParseError`] is not `Clone` — `io::Error` is
+/// not — so the crate-level [`Error`](crate::Error) can reach this from its
+/// own `Serialize` impl without owning the error.
+#[cfg(feature = "serde")]
+impl From<&ParseError> for ParseErrorRepr {
+    fn from(err: &ParseError) -> Self {
+        use crate::errors::io_kind_name;
+        match err {
+            ParseError::Io(e) => Self::Io {
+                kind: io_kind_name(e.kind()).to_string(),
+                message: e.to_string(),
+            },
+            ParseError::UnexpectedEndOfLine => Self::UnexpectedEndOfLine,
+            ParseError::InvalidTimestamp => Self::InvalidTimestamp,
+            ParseError::InvalidDeviceName => Self::InvalidDeviceName,
+            ParseError::InvalidCanFrame => Self::InvalidCanFrame,
+            ParseError::ConstructionError(e) => Self::ConstructionError(*e),
+        }
+    }
+}
+
 /// Hand-written because `serde(into = ...)` requires `Clone`, which
 /// [`ParseError`] cannot have: `io::Error` is not `Clone`.
 #[cfg(feature = "serde")]
 impl Serialize for ParseError {
     fn serialize<S: serde::Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
-        use crate::errors::io_kind_name;
-        let repr = match self {
-            Self::Io(e) => ParseErrorRepr::Io {
-                kind: io_kind_name(e.kind()).to_string(),
-                message: e.to_string(),
-            },
-            Self::UnexpectedEndOfLine => ParseErrorRepr::UnexpectedEndOfLine,
-            Self::InvalidTimestamp => ParseErrorRepr::InvalidTimestamp,
-            Self::InvalidDeviceName => ParseErrorRepr::InvalidDeviceName,
-            Self::InvalidCanFrame => ParseErrorRepr::InvalidCanFrame,
-            Self::ConstructionError(e) => ParseErrorRepr::ConstructionError(*e),
-        };
-        repr.serialize(ser)
+        ParseErrorRepr::from(self).serialize(ser)
     }
 }
 

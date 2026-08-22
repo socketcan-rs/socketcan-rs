@@ -189,23 +189,27 @@ Unset parameters are omitted rather than written as nulls, and a config file onl
 
 ### Errors
 
-A decoded error frame serializes as a flat array, since one frame commonly reports several conditions at once:
+A decoded error frame is a single `CanError` holding one cause per error class bit, and it serializes as a flat array of those causes, since one frame commonly reports several conditions at once:
 
 ```text
-[{"ControllerProblem":"ReceiveErrorWarning"},
- {"ControllerProblem":"TransmitErrorWarning"},
- {"Counters":{"tx":112,"rx":96}}]
+[{"Controller":"RX_WARNING | TX_WARNING"},{"Counters":{"tx":112,"rx":96}}]
 ```
 
-`CanErrors` is non-empty by construction, and that holds across serde: deserializing an empty array is an error rather than a way to build an invalid value.
+The bitfield facets carry a whole set of conditions in one cause, written as the flag names, and a cause with no detail of its own is a bare string:
 
-The one deliberately lossy conversion is the `Io` variant of the top-level `Error`. `std::io::Error` implements neither serde trait and may carry an OS errno or a boxed source, so it is reduced to a kind name and a message:
+```text
+[{"Protocol":{"types":"FORM | STUFF | BIT0 | BIT1 | TX","location":"CrcSequence"}},"NoAck","BusError"]
+```
+
+`CanError` is non-empty by construction, and that holds across serde: deserializing an empty array fails with "a CanError must hold at least one cause" rather than being a way to build an invalid value.
+
+The one deliberately lossy conversion is an `std::io::Error`, wherever one appears: the `Io` variant of the top-level `Error`, and the `Io` variant of a `dump::ParseError` nested in its `Parser` arm. `io::Error` implements neither serde trait and may carry an OS errno or a boxed source, so it is reduced to a kind name and a message:
 
 ```text
 {"Io":{"kind":"NetworkDown","message":"Network is down (os error 100)"}}
 ```
 
-After a round trip the kind and message survive, but `raw_os_error()` returns `None`, any `source()` chain is gone, and a kind with no stable name — or one introduced by a newer version of the crate — arrives as `ErrorKind::Other`. The `Can` variant round-trips exactly.
+After a round trip the kind and message survive, but `raw_os_error()` returns `None`, any `source()` chain is gone, and a kind with no stable name — or one introduced by a newer version of the crate — arrives as `ErrorKind::Other`. Everything else round-trips exactly, including the `Can` variant and the parser's own non-`Io` variants.
 
 ## Testing
 

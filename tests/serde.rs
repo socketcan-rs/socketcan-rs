@@ -333,6 +333,38 @@ fn unnameable_io_kind_becomes_other() {
     }
 }
 
+/// The `Parser` variant nests a `dump::ParseError`, which has a serialized
+/// form of its own. Its unit variants round-trip exactly; only a nested `Io`
+/// is reduced, in the same way as `Error::Io`.
+#[cfg(feature = "dump")]
+#[test]
+fn parser_variant_round_trips() {
+    use socketcan::dump::ParseError;
+
+    let err = Error::Parser(ParseError::InvalidTimestamp);
+    let json = serde_json::to_string(&err).unwrap();
+    assert_eq!(json, r#"{"Parser":"InvalidTimestamp"}"#);
+
+    let back: Error = serde_json::from_str(&json).unwrap();
+    match back {
+        Error::Parser(ParseError::InvalidTimestamp) => (),
+        other => panic!("expected a parse error, got {other:?}"),
+    }
+
+    let err = Error::Parser(ParseError::Io(std::io::Error::from_raw_os_error(
+        libc::ENOENT,
+    )));
+    let json = serde_json::to_string(&err).unwrap();
+    assert!(json.contains("NotFound"), "{json}");
+    match serde_json::from_str::<Error>(&json).unwrap() {
+        Error::Parser(ParseError::Io(e)) => {
+            assert_eq!(e.kind(), std::io::ErrorKind::NotFound);
+            assert!(e.raw_os_error().is_none(), "documented loss");
+        }
+        other => panic!("expected a nested I/O error, got {other:?}"),
+    }
+}
+
 /// A kind name written by a newer version must not fail to deserialize in an
 /// older one; it degrades to `Other`.
 #[test]

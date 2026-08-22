@@ -70,11 +70,12 @@
 //!
 
 use crate::{CanErrorFrame, EmbeddedFrame, Frame};
-#[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
 use smallvec::{SmallVec, smallvec};
 use std::{convert::TryFrom, error, fmt, io};
 use thiserror::Error;
+
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 /// The error class bits that can appear in the CAN ID of an error frame.
 ///
@@ -126,6 +127,10 @@ pub enum Error {
     /// An I/O Error
     #[error(transparent)]
     Io(#[from] io::Error),
+    /// Error from the dump file parser
+    #[cfg(feature = "dump")]
+    #[error(transparent)]
+    Parser(#[from] crate::dump::ParseError),
 }
 
 impl embedded_can::Error for Error {
@@ -168,23 +173,6 @@ where
     /// module boundaries into the crate-level [`enum@Error`].
     fn from(e: neli::err::RouterError<T, P>) -> Error {
         Self::Io(io::Error::other(e.to_string()))
-    }
-}
-
-#[cfg(feature = "dump")]
-impl From<crate::dump::ParseError> for Error {
-    /// Maps a [`ParseError`](crate::dump::ParseError) into an [`io::Error`]
-    /// of kind `InvalidData`, preserving the description. Lets callers `?`
-    /// dump-parsing results into the crate-level [`enum@Error`].
-    fn from(e: crate::dump::ParseError) -> Error {
-        use crate::dump::ParseError;
-        match e {
-            ParseError::Io(io_err) => Self::Io(io_err),
-            other => Self::Io(io::Error::new(
-                io::ErrorKind::InvalidData,
-                other.to_string(),
-            )),
-        }
     }
 }
 
@@ -595,7 +583,9 @@ fn push_transceiver(causes: &mut Causes, byte: u8) {
 ///
 /// The `Can` half round-trips exactly. The `Io` half cannot: `io::Error`
 /// implements neither serde trait and may carry an OS errno or a boxed source,
-/// so it is reduced to its kind and message. See [`ErrorRepr::Io`].
+/// so it is reduced to its kind and message. See [`ErrorRepr::Io`]. The
+/// `Parser` half round-trips exactly apart from its own nested `Io` variant,
+/// which is reduced the same way.
 #[cfg(feature = "serde")]
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ErrorRepr {
@@ -613,6 +603,9 @@ pub enum ErrorRepr {
         /// The original error's `Display` text
         message: String,
     },
+    /// A dump file parse error, in its own serialized form.
+    #[cfg(feature = "dump")]
+    Parser(crate::dump::ParseErrorRepr),
 }
 
 /// Maps an [`io::ErrorKind`] to a stable name.
@@ -707,6 +700,8 @@ impl Serialize for Error {
                 kind: io_kind_name(e.kind()).to_string(),
                 message: e.to_string(),
             },
+            #[cfg(feature = "dump")]
+            Error::Parser(e) => ErrorRepr::Parser(e.into()),
         };
         repr.serialize(ser)
     }
@@ -720,6 +715,8 @@ impl From<ErrorRepr> for Error {
             ErrorRepr::Io { kind, message } => {
                 Self::Io(io::Error::new(io_kind_from_name(&kind), message))
             }
+            #[cfg(feature = "dump")]
+            ErrorRepr::Parser(repr) => Self::Parser(repr.into()),
         }
     }
 }
@@ -1434,6 +1431,28 @@ mod tests {
         }
     }
 
+    /// A dump parse error keeps its identity now that it has a variant of its
+    /// own, rather than collapsing into an `Io` error, and stays `?`-able into
+    /// the crate-level error.
+    #[cfg(feature = "dump")]
+    #[test]
+    fn parse_error_conversion() {
+        use crate::dump::ParseError;
+
+        fn lift() -> Result<()> {
+            Err(ParseError::InvalidTimestamp)?
+        }
+
+        assert!(matches!(
+            Error::from(ParseError::InvalidCanFrame),
+            Error::Parser(ParseError::InvalidCanFrame)
+        ));
+        assert!(matches!(
+            lift(),
+            Err(Error::Parser(ParseError::InvalidTimestamp))
+        ));
+    }
+
     // ----- the non-empty invariant -----
 
     #[test]
@@ -1836,8 +1855,7 @@ mod tests {
         let err = CanError::from(frame(CAN_ERR_CRTL | CAN_ERR_CNT, data));
         assert_eq!(
             err.to_string(),
-            "controller problem: ERROR WARNING (receive), ERROR WARNING (transmit); \
-             error counters: tx=96, rx=0"
+            "controller problem: rx warning, tx warning; error counters: tx=96, rx=0"
         );
     }
 
