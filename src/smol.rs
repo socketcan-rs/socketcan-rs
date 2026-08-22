@@ -181,9 +181,16 @@ impl Sink<CanFrame> for CanSocket {
         Poll::Ready(Ok(()))
     }
 
+    /// Writes the frame with a single non-blocking write, since `poll_ready()`
+    /// has already established that the socket will accept one.
+    ///
+    /// There is one case the `Sink` contract does not cover: if another task
+    /// or thread sharing this socket fills the send buffer between that
+    /// `poll_ready()` and this call, the readiness relied on here is stale,
+    /// and the frame comes back as an `Io` error of kind `WouldBlock` rather
+    /// than being queued or retried. A single task driving the sink the way
+    /// `Sink` intends — one `poll_ready()` per `start_send()` — never sees it.
     fn start_send(self: Pin<&mut Self>, item: CanFrame) -> crate::Result<()> {
-        // `poll_ready` already cleared write-readiness, so a single
-        // non-blocking write is sufficient.
         self.0.get_ref().write_frame(&item)?;
         Ok(())
     }
@@ -338,9 +345,16 @@ impl Sink<CanAnyFrame> for CanFdSocket {
         Poll::Ready(Ok(()))
     }
 
+    /// Writes the frame with a single non-blocking write, since `poll_ready()`
+    /// has already established that the socket will accept one.
+    ///
+    /// There is one case the `Sink` contract does not cover: if another task
+    /// or thread sharing this socket fills the send buffer between that
+    /// `poll_ready()` and this call, the readiness relied on here is stale,
+    /// and the frame comes back as an `Io` error of kind `WouldBlock` rather
+    /// than being queued or retried. A single task driving the sink the way
+    /// `Sink` intends — one `poll_ready()` per `start_send()` — never sees it.
     fn start_send(self: Pin<&mut Self>, item: CanAnyFrame) -> crate::Result<()> {
-        // `poll_ready` already cleared write-readiness, so a single
-        // non-blocking write is sufficient.
         self.0.get_ref().write_frame(&item)?;
         Ok(())
     }

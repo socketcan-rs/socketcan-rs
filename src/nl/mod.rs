@@ -664,7 +664,24 @@ impl CanInterface {
         sock.send(&hdr)?;
 
         let mut iter = sock.recv::<Rtm, Ifinfomsg>()?.0;
-        Ok(iter.next().transpose()?)
+        let Some(msg) = iter.next().transpose()? else {
+            return Ok(None);
+        };
+
+        // A rejected query comes back as an NLMSG_ERROR message rather than as
+        // a `RouterError`, since this request did not ask for an ACK. Its
+        // payload is not an `Ifinfomsg`, so `get_payload()` would report
+        // `None` and every caller would read the reply as an interface with
+        // nothing to say — an unknown index looked like a real interface that
+        // was merely down. Surface the errno instead.
+        if let NlPayload::Err(err) = msg.nl_payload() {
+            let errno = -*err.error();
+            if errno != 0 {
+                return Err(NlError::Netlink { errno }.into());
+            }
+        }
+
+        Ok(Some(msg))
     }
 
     /// Bring down this interface.
@@ -792,6 +809,11 @@ impl CanInterface {
     }
 
     /// Attempt to query detailed information on the interface.
+    ///
+    /// A single netlink round trip, returning the interface's name, index,
+    /// up/down state and MTU together with every CAN parameter — so this is
+    /// cheaper than calling two of the individual getters. See
+    /// [`can_params()`](Self::can_params) for the CAN parameters alone.
     pub fn details(&self) -> Result<InterfaceDetails> {
         match self.query_details()? {
             Some(msg_hdr) => {
@@ -907,7 +929,40 @@ impl CanInterface {
         Self::send_info_msg(Rtm::Newlink, info, NlmF::empty())
     }
 
+    /// Reads every CAN parameter of the interface in a single query.
+    ///
+    /// The individual getters — [`bit_timing()`](Self::bit_timing),
+    /// [`state()`](Self::state), [`ctrlmodes()`](Self::ctrlmodes) and the
+    /// rest — each open a netlink socket and exchange a message, so reading
+    /// several of them costs one round trip apiece. This asks for all of
+    /// them at once, which is what the kernel sends anyway: the reply to a
+    /// single `RTM_GETLINK` carries the whole parameter set.
+    ///
+    /// A parameter the interface does not report is `None`, and an interface
+    /// with no CAN link information at all — a `vcan`, for instance — yields
+    /// the default, with every field `None`.
+    ///
+    /// [`details()`](Self::details) is the same query with the interface's
+    /// name, index, flags and MTU alongside these parameters.
+    pub fn can_params(&self) -> Result<InterfaceCanParams> {
+        let Some(hdr) = self.query_details()? else {
+            return Err(NlError::NoAck.into());
+        };
+        let Some(payload) = hdr.get_payload() else {
+            return Ok(InterfaceCanParams::default());
+        };
+        for attr in payload.rtattrs().iter() {
+            if *attr.rta_type() == Ifla::Linkinfo {
+                return InterfaceCanParams::from_link_info(attr);
+            }
+        }
+        Ok(InterfaceCanParams::default())
+    }
+
     /// Attempt to query an individual CAN parameter on the interface.
+    ///
+    /// One netlink round trip per call; see [`can_params()`](Self::can_params)
+    /// to read the whole set at once.
     pub fn can_param<P>(&self, param: IflaCan) -> Result<Option<P>>
     where
         P: FromBytes + Clone,
@@ -935,6 +990,9 @@ impl CanInterface {
     }
 
     /// Gets the current bit rate for the interface.
+    ///
+    /// One netlink round trip; see [`can_params()`](Self::can_params) to read
+    /// every parameter at once.
     pub fn bit_rate(&self) -> Result<Option<u32>> {
         Ok(self.bit_timing()?.map(|timing| timing.bitrate))
     }
@@ -972,6 +1030,9 @@ impl CanInterface {
     }
 
     /// Gets the bit timing params for the interface
+    ///
+    /// One netlink round trip; see [`can_params()`](Self::can_params) to read
+    /// every parameter at once.
     pub fn bit_timing(&self) -> Result<Option<CanBitTiming>> {
         self.can_param::<CanBitTiming>(IflaCan::BitTiming)
     }
@@ -985,11 +1046,17 @@ impl CanInterface {
     }
 
     /// Gets the bit timing const data for the interface
+    ///
+    /// One netlink round trip; see [`can_params()`](Self::can_params) to read
+    /// every parameter at once.
     pub fn bit_timing_const(&self) -> Result<Option<CanBitTimingConst>> {
         self.can_param::<CanBitTimingConst>(IflaCan::BitTimingConst)
     }
 
     /// Gets the clock frequency for the interface
+    ///
+    /// One netlink round trip; see [`can_params()`](Self::can_params) to read
+    /// every parameter at once.
     pub fn clock(&self) -> Result<Option<u32>> {
         Ok(self
             .can_param::<CanClock>(IflaCan::Clock)?
@@ -997,6 +1064,9 @@ impl CanInterface {
     }
 
     /// Gets the state of the interface
+    ///
+    /// One netlink round trip; see [`can_params()`](Self::can_params) to read
+    /// every parameter at once.
     pub fn state(&self) -> Result<Option<CanState>> {
         Ok(self
             .can_param::<u32>(IflaCan::State)?
@@ -1030,6 +1100,9 @@ impl CanInterface {
     /// (current state) alongside the `mask`; use [`CanCtrlModes::has_mode`]
     /// to test individual modes. Returns `None` if the interface reports no
     /// control-mode attribute.
+    ///
+    /// One netlink round trip; see [`can_params()`](Self::can_params) to read
+    /// every parameter at once.
     pub fn ctrlmodes(&self) -> Result<Option<CanCtrlModes>> {
         Ok(self
             .can_param::<can_ctrlmode>(IflaCan::CtrlMode)?
@@ -1037,6 +1110,9 @@ impl CanInterface {
     }
 
     /// Gets the automatic CANbus restart time for the interface, in milliseconds.
+    ///
+    /// One netlink round trip; see [`can_params()`](Self::can_params) to read
+    /// every parameter at once.
     pub fn restart_ms(&self) -> Result<Option<u32>> {
         self.can_param::<u32>(IflaCan::RestartMs)
     }
@@ -1071,11 +1147,17 @@ impl CanInterface {
     }
 
     /// Gets the bus error counter from the interface
+    ///
+    /// One netlink round trip; see [`can_params()`](Self::can_params) to read
+    /// every parameter at once.
     pub fn berr_counter(&self) -> Result<Option<CanBerrCounter>> {
         self.can_param::<CanBerrCounter>(IflaCan::BerrCounter)
     }
 
     /// Gets the data bit timing params for the interface
+    ///
+    /// One netlink round trip; see [`can_params()`](Self::can_params) to read
+    /// every parameter at once.
     pub fn data_bit_timing(&self) -> Result<Option<CanBitTiming>> {
         self.can_param::<CanBitTiming>(IflaCan::DataBitTiming)
     }
@@ -1128,6 +1210,9 @@ impl CanInterface {
     }
 
     /// Gets the data bit timing const params for the interface
+    ///
+    /// One netlink round trip; see [`can_params()`](Self::can_params) to read
+    /// every parameter at once.
     pub fn data_bit_timing_const(&self) -> Result<Option<CanBitTimingConst>> {
         self.can_param::<CanBitTimingConst>(IflaCan::DataBitTimingConst)
     }
@@ -1145,6 +1230,9 @@ impl CanInterface {
     }
 
     /// Gets the CANbus termination for the interface
+    ///
+    /// One netlink round trip; see [`can_params()`](Self::can_params) to read
+    /// every parameter at once.
     pub fn termination(&self) -> Result<Option<u16>> {
         self.can_param::<u16>(IflaCan::Termination)
     }
@@ -1178,6 +1266,60 @@ mod unit_tests {
             NlError::from(RtErr::Io(io::ErrorKind::PermissionDenied)),
             NlError::Msg(_)
         ));
+    }
+
+    /// The batch reader agrees with the same query made through
+    /// [`CanInterface::details()`], which is where the per-parameter getters
+    /// would each go separately.
+    ///
+    /// Read-only, so no privileges are needed — but it does need an
+    /// interface, hence `vcan_tests`. A `vcan` reports no CAN link
+    /// information, so both sides are the default here; what this pins is
+    /// that the query succeeds and that the two paths agree.
+    #[cfg(feature = "vcan_tests")]
+    #[test]
+    fn can_params_agrees_with_details() {
+        let iface = CanInterface::open("vcan0").expect("vcan0 must exist");
+
+        let params = iface.can_params().expect("can_params");
+        let details = iface.details().expect("details");
+
+        // The netlink parameter types have no `PartialEq`, so compare their
+        // rendering, which covers every field.
+        assert_eq!(format!("{params:?}"), format!("{:?}", details.can));
+    }
+
+    /// A query against an interface that does not exist reports the kernel's
+    /// errno, rather than an interface with nothing to say.
+    ///
+    /// The kernel answers `RTM_GETLINK` for an unknown index with an
+    /// `NLMSG_ERROR` message carrying `ENODEV`. Since the request asks for no
+    /// ACK, neli hands that back as a message whose payload is not an
+    /// `Ifinfomsg` instead of as a `RouterError`, and every read path used to
+    /// treat the missing payload as "no parameters set": `details()` returned
+    /// a plausible-looking record for an interface that was never there.
+    ///
+    /// Needs no interface and no privileges — the index simply has to be one
+    /// the kernel does not know.
+    #[test]
+    fn query_on_a_missing_interface_reports_enodev() {
+        let iface = CanInterface::open_iface(999_999);
+
+        let results: [(&str, Result<()>); 4] = [
+            ("details", iface.details().map(|_| ())),
+            ("can_params", iface.can_params().map(|_| ())),
+            ("bit_timing", iface.bit_timing().map(|_| ())),
+            ("state", iface.state().map(|_| ())),
+        ];
+
+        for (name, res) in results {
+            match res {
+                Err(crate::Error::Nl(NlError::Netlink { errno })) => {
+                    assert_eq!(errno, libc::ENODEV, "{name}");
+                }
+                other => panic!("{name}: expected ENODEV, got {other:?}"),
+            }
+        }
     }
 
     /// Index 0 means "unspecified", the same as no index at all, so
