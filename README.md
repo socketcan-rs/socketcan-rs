@@ -243,25 +243,33 @@ The ID carries the error class bits, and the eight data bytes carry the detail f
 | `0x100` | Restarted           | —                                                   |
 | `0x200` | Error counters      | `data[6]` TX count, `data[7]` RX count              |
 
-`data[5]` is reserved by the kernel and is never decoded. Several class bits are commonly set at once, and `data[1]`, `data[2]` and `data[4]` each describe more than one condition at a time, so one frame usually decodes to several errors.
+`data[5]` is reserved by the kernel and is never decoded. Several class bits are commonly set at once, and `data[1]`, `data[2]` and `data[4]` each describe more than one condition at a time, so one frame usually decodes to a single error with several causes.
 
 Some frames worth testing, each taken from the behavior of a real in-tree driver:
 
 ```sh
 # Controller state change: CRTL|CNT with both TX and RX warning bits set in
 # data[1]. This is what the kernel's shared can_change_state() helper emits
-# whenever the two states match. Decodes to 3 errors.
+# whenever the two states match. Decodes to 2 causes.
 $ cansend vcan0 '20000204#000C000000007060'
 
 # Bus error: PROT|BUSERROR|ACK with five violation bits in data[2] and a
-# location in data[3], as mcp251xfd_handle_ivmif() builds it. Decodes to 7.
+# location in data[3], as mcp251xfd_handle_ivmif() builds it. Decodes to 3.
 $ cansend vcan0 '200000A8#00009E0800000000'
 
+# Five classes on one frame: LOSTARB|CRTL|PROT|BUSERROR|CNT, as sja1000_err()
+# builds it when a single pass through the ISR sees a data overrun, a lost
+# arbitration (data[0] = bit 12) and a bus error together. That driver copies
+# the raw 5-bit ECC segment into data[3], so locations that
+# linux/can/error.h never names show up there: 0x11 is the active error flag.
+# Decodes to 5 causes.
+$ cansend vcan0 '2000028E#0C01811100000030'
+
 # Transceiver fault on both lines: TRX with data[4] = 0x44, as the
-# etas_es58x driver reports a lost connection. Decodes to 2 errors.
+# etas_es58x driver reports a lost connection. Decodes to 1 cause.
 $ cansend vcan0 '20000010#0000000044000000'
 
-# Bus off on its own. Decodes to 1 error.
+# Bus off on its own. Decodes to 1 cause.
 $ cansend vcan0 '20000040#0000000000000000'
 ```
 

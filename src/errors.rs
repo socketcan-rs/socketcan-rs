@@ -937,11 +937,11 @@ impl fmt::Display for ControllerProblems {
         const NAMED: [(ControllerProblems, &str); 7] = [
             (ControllerProblems::RX_OVERFLOW, "receive buffer overflow"),
             (ControllerProblems::TX_OVERFLOW, "transmit buffer overflow"),
-            (ControllerProblems::RX_WARNING, "ERROR WARNING (receive)"),
-            (ControllerProblems::TX_WARNING, "ERROR WARNING (transmit)"),
-            (ControllerProblems::RX_PASSIVE, "ERROR PASSIVE (receive)"),
-            (ControllerProblems::TX_PASSIVE, "ERROR PASSIVE (transmit)"),
-            (ControllerProblems::ACTIVE, "back to ERROR ACTIVE"),
+            (ControllerProblems::RX_WARNING, "rx warning"),
+            (ControllerProblems::TX_WARNING, "tx warning"),
+            (ControllerProblems::RX_PASSIVE, "rx passive"),
+            (ControllerProblems::TX_PASSIVE, "tx passive"),
+            (ControllerProblems::ACTIVE, "back to error active"),
         ];
         let mut first = true;
         for (flag, msg) in NAMED {
