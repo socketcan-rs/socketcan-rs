@@ -41,10 +41,10 @@
 //! data[5] is reserved by the kernel and is never decoded here.
 //! ```
 //!
-//! # One error, several causes
+//! # One error may have several causes
 //!
-//! A single error frame describes **one** error event, but that event can
-//! have several distinct causes, at two levels:
+//! A single error frame generally describes **one** error event, but that
+//! event can have several distinct causes, at two levels:
 //!
 //! 1. Several class bits can be set in the CAN ID at once. `CAN_ERR_CRTL |
 //!    CAN_ERR_CNT` accompanies essentially every controller state change,
@@ -60,9 +60,9 @@
 //! Decoding therefore yields a single [`CanError`] holding one [`ErrorCause`]
 //! per class bit. The two bitfield facets ([`ErrorCause::Controller`],
 //! [`ErrorCause::Protocol`]) and the two-nibble [`ErrorCause::Transceiver`]
-//! each carry a *set* of conditions in one cause, rather than exploding into
+//! each carry a *set* of conditions in one cause, rather than separate
 //! sibling entries. A [`CanError`] is non-empty by construction: there is
-//! always a [`first`](CanError::first) cause, in ascending class-bit order.
+//! **always** a [`first`](CanError::first) cause, in ascending class-bit order.
 //!
 //! All of this error information is not well documented, but can be
 //! extracted from the Linux kernel header file:
@@ -116,8 +116,14 @@ const KNOWN_ERR_CLASSES: u32 = CAN_ERR_TX_TIMEOUT
 /// Composite SocketCAN error.
 ///
 /// This can be any of the underlying errors from this library. The two main
-/// error sources are either CAN errors coming in through received error
-/// frames or from typical system I/O errors.
+/// error sources when interacting with the bus are:
+/// - CAN errors detected on the bus or in the kernel driver. These are
+/// reported up to the application through error frames and can be extracted
+/// into a composite `CanError`
+/// - Typical system I/O errors as `std::io::Error`
+///
+/// The parser and netlink error only occur when dealing with those specific
+/// modules.
 #[derive(Error, Debug)]
 #[cfg_attr(feature = "serde", derive(Deserialize), serde(from = "ErrorRepr"))]
 pub enum Error {
@@ -154,6 +160,7 @@ impl From<ErrorCause> for Error {
 }
 
 impl From<CanErrorFrame> for Error {
+    /// Converts an error frame into a CAN error.
     fn from(frame: CanErrorFrame) -> Self {
         Error::Can(CanError::from(frame))
     }
@@ -169,8 +176,8 @@ impl From<io::ErrorKind> for Error {
 /// Rebuilds an owned [`io::Error`] from a borrowed one, keeping the errno
 /// when there is one so the kind survives.
 ///
-/// `io::Error` is not `Clone`, and neli hands out its socket errors behind an
-/// `Arc`, so the only way across is to rebuild.
+/// `io::Error` is not `Clone`, and neli hands out its socket errors behind
+/// an `Arc`, so the only way across is to rebuild.
 #[cfg(feature = "netlink")]
 fn clone_io_error(e: &io::Error) -> io::Error {
     match e.raw_os_error() {
@@ -210,8 +217,8 @@ where
     }
 }
 
-/// Maps an `errno` reported by a `nix` call onto an [`Error::Io`], preserving
-/// it exactly: `nix::Error` *is* an errno, so nothing is lost.
+/// Maps an `errno` reported by a `nix` call onto an [`Error::Io`],
+/// preserving it exactly: `nix::Error` *is* an errno, so nothing is lost.
 impl From<nix::Error> for Error {
     fn from(e: nix::Error) -> Self {
         Self::Io(io::Error::from(e))
@@ -278,10 +285,10 @@ pub type IoResult<T> = io::Result<T>;
 /// Inline capacity for the cause list. Real frames report 1–3 causes; the
 /// theoretical maximum (~13) is synthetic, so anything larger spills to the
 /// heap. The common single-cause case never allocates.
-const INLINE_CAUSES: usize = 4;
+const NUM_INLINE_CAUSES: usize = 4;
 
 /// The backing storage for a [`CanError`]'s causes.
-type Causes = SmallVec<[ErrorCause; INLINE_CAUSES]>;
+type Causes = SmallVec<[ErrorCause; NUM_INLINE_CAUSES]>;
 
 /// The error decoded from a single CAN error frame.
 ///
@@ -499,7 +506,7 @@ impl From<ErrorCause> for CanError {
 
 impl IntoIterator for CanError {
     type Item = ErrorCause;
-    type IntoIter = smallvec::IntoIter<[ErrorCause; INLINE_CAUSES]>;
+    type IntoIter = smallvec::IntoIter<[ErrorCause; NUM_INLINE_CAUSES]>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.causes.into_iter()
@@ -607,6 +614,7 @@ impl From<CanErrorFrame> for CanError {
         // Any class bits we do not recognise are reported as a single
         // trailing cause carrying just those bits.
         let unknown = bits & !KNOWN_ERR_CLASSES;
+
         if unknown != 0 {
             causes.push(ErrorCause::Unknown(unknown));
         }
