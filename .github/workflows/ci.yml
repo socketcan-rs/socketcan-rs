@@ -4,11 +4,16 @@
 # - Format check of the sources using nightly
 # - Build check using the current stable compiler and the MSRV version.
 #   - Check library, utils, examples, and tests
-# - Clippy check using the MSRV compiler
+#   - Check each optional feature that brings in its own code: tokio, smol,
+#     serde, enumerate. A feature that is never built here is a feature that
+#     can rot: 'tests/serde.rs' declares required-features = ["serde"], so a
+#     bare 'cargo test' silently skips every one of its tests.
+# - Doc generation with all features, denying broken intra-doc links
+# - Clippy check using the MSRV compiler, with all features
 #
-# Note that the current MSRV predates the new cargo resolver, v3, so we go
-# out of our way to use it from stable to create a Cargo.lock file that
-# properly resolves dependencies for the MSRV.
+# Note that Cargo.lock is not committed, so each run resolves dependencies
+# afresh and a new upstream release can break the MSRV leg without anything
+# in this repository changing.
 #
 
 on: [push, pull_request]
@@ -46,6 +51,10 @@ jobs:
           profile: minimal
           toolchain: ${{ matrix.rust }}
 
+      # The 'enumerate' feature binds to libudev through the 'udev' crate.
+      - name: Install libudev
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+
       - name: Library default build check
         run: cargo +${{ matrix.rust }} check
 
@@ -55,11 +64,27 @@ jobs:
       - name: smol build check
         run: cargo +${{ matrix.rust }} check --all-targets --features=smol,utils
 
+      - name: serde build check
+        run: cargo +${{ matrix.rust }} check --all-targets --features=serde
+
+      - name: enumerate build check
+        run: cargo +${{ matrix.rust }} check --all-targets --features=enumerate
+
       - name: Doc generation
-        run: cargo +${{ matrix.rust }} doc --no-deps
+        run: cargo +${{ matrix.rust }} doc --all-features --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
 
       - name: Run tests
         run: cargo +${{ matrix.rust }} test
+
+      # Separate run: 'tests/serde.rs' requires the feature, so the default
+      # test run above does not execute any of it. Note that the feature list
+      # stays explicit rather than '--all-features', which would switch on
+      # 'vcan_tests' and 'netlink_tests' — those need a vcan0 interface and
+      # root, neither of which a runner has.
+      - name: Run serde tests
+        run: cargo +${{ matrix.rust }} test --features=serde
 
   clippy:
     name: Clippy
@@ -72,5 +97,9 @@ jobs:
           toolchain: 1.89.0
           components: clippy
 
+      # '--all-features' switches on 'enumerate', which needs libudev.
+      - name: Install libudev
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+
       - name: Run clippy
-        run: cargo +1.89.0 clippy -- -D warnings
+        run: cargo +1.89.0 clippy --all-features --all-targets -- -D warnings
