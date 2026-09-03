@@ -282,10 +282,28 @@ pub type IoResult<T> = io::Result<T>;
 
 // --------------------------------------------------------------------------
 
-/// Inline capacity for the cause list. Real frames report 1–3 causes; the
-/// theoretical maximum (~13) is synthetic, so anything larger spills to the
-/// heap. The common single-cause case never allocates.
-const NUM_INLINE_CAUSES: usize = 4;
+/// Inline capacity for the cause list.
+///
+/// Two, and the value is load-bearing in both directions.
+///
+/// [`enum@Error`] sits in every [`Result`] this crate returns — including
+/// `read_frame()` on the receive hot path — and its width is set by this
+/// array. With `smallvec`'s `union` feature a `SmallVec` costs
+/// `max(8 * N, 16) + 8` bytes, so one and two inline causes are both 24,
+/// three is 32, four is 40. Two is therefore the largest capacity that is
+/// free relative to one.
+///
+/// It is also the capacity that matters: the routine controller-state-change
+/// frame sets `CAN_ERR_CRTL | CAN_ERR_CNT` and decodes to exactly two causes
+/// (see the [module documentation](self)), so a capacity of one would put an
+/// allocation in the path of the most common error frame there is. Frames
+/// reporting three or more — `sja1000` can set five classes at once — do
+/// allocate, which is the right trade when the alternative is a wider
+/// `Result` on every success.
+///
+/// The theoretical maximum is ~13 (ten class bits, an `Unknown`, and two
+/// decoding failures) and is synthetic.
+const NUM_INLINE_CAUSES: usize = 2;
 
 /// The backing storage for a [`CanError`]'s causes.
 type Causes = SmallVec<[ErrorCause; NUM_INLINE_CAUSES]>;
@@ -312,8 +330,10 @@ type Causes = SmallVec<[ErrorCause; NUM_INLINE_CAUSES]>;
 ///
 /// # Implementation
 ///
-/// The causes are held inline for the common small case, so decoding a
-/// single- or few-cause frame does not allocate.
+/// Up to two causes are held inline, so decoding either a single-cause frame
+/// or the routine two-cause controller state change does not allocate. A
+/// frame reporting more than that spills to the heap, which keeps this type
+/// — and therefore every `Result` in the crate — narrow.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(
     feature = "serde",
@@ -1635,6 +1655,37 @@ mod tests {
         );
     }
 
+    /// Pins the actual width of the error types, not just an upper bound.
+    ///
+    /// `Error` is returned by every fallible call in the crate, so its size
+    /// is paid on success as well as failure. The bound in
+    /// `error_stays_smaller_than_a_router_error` is 128 bytes, loose enough
+    /// to let a regression through unnoticed — `CanError` was 48 bytes, and
+    /// therefore `Error` was too, purely because the inline cause array was
+    /// larger than it needed to be.
+    ///
+    /// If this fails, something changed the storage layout. Check
+    /// [`NUM_INLINE_CAUSES`] and that `smallvec`'s `union` feature is still
+    /// enabled in `Cargo.toml`; without it the array and the heap pointer
+    /// carry a separate discriminant and every size here grows by 8.
+    #[test]
+    fn error_types_stay_narrow() {
+        use std::mem::size_of;
+
+        assert_eq!(size_of::<ErrorCause>(), 8, "ErrorCause");
+        assert_eq!(size_of::<CanError>(), 24, "CanError");
+        assert_eq!(size_of::<Error>(), 32, "Error");
+        assert_eq!(size_of::<Result<()>>(), 32, "Result<()>");
+
+        // Two inline causes must be free relative to one; that is the whole
+        // reason the capacity is 2 rather than 1.
+        assert_eq!(
+            size_of::<SmallVec<[ErrorCause; 1]>>(),
+            size_of::<SmallVec<[ErrorCause; 2]>>(),
+            "capacity 2 should cost the same as capacity 1"
+        );
+    }
+
     /// A dump parse error keeps its identity now that it has a variant of its
     /// own, rather than collapsing into an `Io` error, and stays `?`-able into
     /// the crate-level error.
@@ -1678,6 +1729,46 @@ mod tests {
     fn single_cause_does_not_allocate() {
         let err = CanError::new(ErrorCause::BusOff);
         assert!(!err.causes.spilled());
+    }
+
+    /// The routine controller-state-change frame does not allocate either.
+    ///
+    /// `CAN_ERR_CRTL | CAN_ERR_CNT` accompanies essentially every controller
+    /// state change and decodes to two causes, so it — not the single-cause
+    /// frame — is the case worth keeping off the heap. See
+    /// [`NUM_INLINE_CAUSES`].
+    #[test]
+    fn two_causes_do_not_allocate() {
+        let state_change = frame(
+            CAN_ERR_CRTL | CAN_ERR_CNT,
+            [
+                0,
+                ControllerProblems::RX_WARNING.bits(),
+                0,
+                0,
+                0,
+                0,
+                112,
+                96,
+            ],
+        );
+        let err = CanError::from(state_change);
+
+        assert_eq!(err.len(), 2, "decoded: {}", err);
+        assert!(
+            !err.causes.spilled(),
+            "the most common error frame must not allocate"
+        );
+
+        // Beyond the inline capacity it does spill, which is the documented
+        // trade. `sja1000` really does set five classes on one frame.
+        let five = frame(
+            CAN_ERR_LOSTARB | CAN_ERR_CRTL | CAN_ERR_PROT | CAN_ERR_BUSERROR | CAN_ERR_CNT,
+            [3, 0x0D, 0x86, 0x1C, 0, 0, 200, 190],
+        );
+        let err = CanError::from(five);
+        assert_eq!(err.len(), 5, "decoded: {}", err);
+        assert!(err.causes.spilled());
     }
 
     // ----- level 1: multiple classes per frame -----

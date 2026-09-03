@@ -73,7 +73,9 @@ The number of hex digits in `can-id` distinguishes the frame format:
 - **3 digits** — Standard Frame Format (SFF), an 11-bit identifier (`0x000`..`0x7FF`).
 - **8 digits** — Extended Frame Format (EFF), a 29-bit identifier (`0x00000000`..`0x1FFFFFFF`), **or** an error frame (see below).
 
-There is no syntactic difference between an extended data/remote frame and an error frame; they are distinguished only by the `CAN_ERR_FLAG` bit in the parsed numeric identifier.
+The width decides, never the numeric value, and the two spellings are not nested: `123#01` is a standard frame with ID `0x123`, while `00000123#01` is an *extended* frame with the same numeric ID. A value that does not fit the width it was written in — `800#01`, which is not a legal 11-bit identifier — is an error rather than being reinterpreted as the other format.
+
+There is no syntactic difference between an extended data/remote frame and an error frame; those two are distinguished only by the `CAN_ERR_FLAG` bit in the parsed numeric identifier.
 
 ## Frame body forms
 
@@ -160,6 +162,7 @@ The reader in `src/dump.rs` follows the grammar above, with these deliberate cho
 
 - The microsecond field must be **exactly six digits**; other lengths are rejected (`ParseError::InvalidTimestamp`). candump always emits six, so this is stricter than the permissive C parser but correct for real candump output.
 - Each line is read through a 64 KiB cap so a corrupt log cannot exhaust memory; an over-long line yields `ParseError::InvalidCanFrame`.
+- The identifier field must be **exactly three or exactly eight** hex digits, matching `parse_canframe()`. Up to and including v3.x this crate instead inferred the format from the parsed value — `<= CAN_SFF_MASK` meant standard — which was wrong in both directions, since neither format's range is a subset of the other's spelling: `00000123#01` was read as a *standard* frame and re-emitted as `123#01`, while `800#AA` was read as an *extended* frame and re-emitted as `00000800#AA`, having accepted a value that is not a legal 11-bit identifier. As a side effect the old behaviour also accepted widths candump never emits, such as six digits; those are now rejected.
 - Remote-frame DLC handling is stricter than `parse_canframe()`'s in two ways: a nibble that does not parse as hex is an error rather than a silent 0, and a nibble above 8 is rejected with `ParseError::InvalidCanFrame` rather than discarded. `CanRemoteFrame` caps its DLC at `CAN_MAX_DLEN` because that is the kernel's own send-side limit, so a line like `123#RF` describes a frame this crate could not transmit in any case, and rejecting it beats reinterpreting it as its opposite, DLC 0. No captured log is affected, since candump cannot emit such a line. An empty DLC still parses as 0.
 - Error frames are supported in both directions as of v4.0. The parser branches on `CAN_ERR_FLAG` before decoding the identifier, because the error-class bits sit above `CAN_EFF_MASK` and would otherwise be rejected as an out-of-range extended ID. `Display` emits the identifier **with** `CAN_ERR_FLAG` included, matching candump, so a line round-trips exactly; emitting the bare class bits would produce output that re-parsed as a standard data frame.
 - A short error-frame payload is zero-padded out to the full eight bytes, since that is what the kernel always delivers. A hand-written log line with fewer than eight data bytes therefore does not round-trip byte-for-byte.

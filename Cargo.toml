@@ -56,7 +56,12 @@ hex = "0.4"
 libc = { version = "0.2", features = ["extra_traits"] }
 nix = { version="0.31", features = ["poll", "net"] }
 bitflags = "2.6"
-smallvec = "1"
+# The "union" feature stores the inline array and the heap pointer in a
+# union rather than an enum, dropping the separate discriminant: SmallVec
+# tells the two apart from `capacity` instead. That makes two inline causes
+# cost the same 24 bytes as one, which matters because `Error` sits in every
+# `Result` this crate returns. See `NUM_INLINE_CAUSES` in src/errors.rs.
+smallvec = { version = "1", features = ["union"] }
 thiserror = "2"
 socket2 = { version = "0.6", features = ["all"] }
 clap = { version = "4.6", optional = true }

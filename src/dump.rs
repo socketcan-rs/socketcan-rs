@@ -55,6 +55,22 @@
 //! dlc8      = HEXDIG           ; "len8 DLC" escape; see the caveat below
 //! ```
 //!
+//! # The identifier's width picks the format
+//!
+//! Three hex digits means a standard (SFF) identifier and eight means an
+//! extended (EFF) one — the *width* decides, never the numeric value. The two
+//! spellings are not nested, so both of these are meaningful and distinct:
+//!
+//! ```text
+//! 123#01        standard frame, ID 0x123
+//! 00000123#01   extended frame, ID 0x123
+//! ```
+//!
+//! A value that does not fit the width it was written in — `800#01`, which is
+//! not a legal 11-bit identifier — is rejected rather than reinterpreted as
+//! the other format. Any other width is rejected too; candump emits only
+//! these two.
+//!
 //! # The eight-digit identifier is ambiguous
 //!
 //! An eight-digit identifier is **either** an extended (29-bit) data or
@@ -83,12 +99,12 @@
 //! the raw DLC, which [`CanDataFrame`] does not currently have.
 
 use crate::{
-    CanAnyFrame, CanDataFrame, CanErrorFrame, CanFdFrame, CanFrame, CanRemoteFrame,
+    CanAnyFrame, CanDataFrame, CanErrorFrame, CanFdFrame, CanFrame, CanId, CanRemoteFrame,
     ConstructionError,
     frame::Frame,
-    id::{CAN_ERR_FLAG, CAN_ERR_MASK, FdFlags, id_from_raw},
+    id::{CAN_ERR_FLAG, CAN_ERR_MASK, FdFlags},
 };
-use embedded_can::Frame as EmbeddedFrame;
+use embedded_can::{Frame as EmbeddedFrame, Id};
 use hex::FromHex;
 use libc::canid_t;
 use std::{
@@ -391,14 +407,24 @@ impl<R: BufRead> Reader<R> {
             _ => return Err(ParseError::InvalidCanFrame),
         };
 
-        // Parse the raw ID word.
+        // The *width* of the ID field selects the frame format, not the
+        // numeric value: candump writes exactly three hex digits for a
+        // standard (SFF) identifier and exactly eight for an extended (EFF)
+        // one, and can-utils' `parse_canframe()` decides the same way.
         //
-        // An eight-digit ID field is ambiguous on its face: it is an error
-        // frame if CAN_ERR_FLAG is set and an extended data frame otherwise.
-        // Resolve that before anything else, mirroring how can-utils'
-        // `parse_canframe()` decides (it only adds CAN_EFF_FLAG when
-        // CAN_ERR_FLAG is absent). The error-class bits live above
-        // CAN_EFF_MASK, so `id_from_raw` would reject them outright.
+        // Reading the value instead got this wrong in both directions, since
+        // neither format's range is a subset of the other's spelling: an
+        // eight-digit identifier of 0x7FF or less came back as a *standard*
+        // frame, and a three-digit one above 0x7FF was promoted to an
+        // *extended* frame — accepting an identifier that is not a legal
+        // 11-bit ID at all. Neither round-tripped, because `Display` picks
+        // the width back from the frame's own EFF flag.
+        let is_extended = match can_id_str.len() {
+            3 => false,
+            8 => true,
+            _ => return Err(ParseError::InvalidCanFrame),
+        };
+
         let raw_id =
             canid_t::from_str_radix(can_id_str, 16).map_err(|_| ParseError::InvalidCanFrame)?;
 
@@ -408,6 +434,11 @@ impl<R: BufRead> Reader<R> {
         //   CAN FD: "<canid>##<flags>[data]"
         //   Remote: "<canid>#R[len]"
         //   Data;   "<canid>#[data]"
+        //
+        // An eight-digit field is still ambiguous between an extended data
+        // frame and an error frame; only CAN_ERR_FLAG tells those apart. The
+        // error-class bits live above CAN_EFF_MASK, so the identifier
+        // constructors below would reject them outright.
 
         let frame: CanAnyFrame = if raw_id & CAN_ERR_FLAG != 0 {
             // The payload is the error-class data bytes. Error frames are
@@ -419,7 +450,16 @@ impl<R: BufRead> Reader<R> {
                 .and_then(|data| CanErrorFrame::new_error(raw_id & CAN_ERR_MASK, &data).ok())
                 .map(CanAnyFrame::Error)
         } else {
-            let can_id = id_from_raw(raw_id).ok_or(ParseError::InvalidCanFrame)?;
+            // Each constructor range-checks its own format, so an
+            // out-of-range value for the width that was written is rejected
+            // rather than silently reinterpreted as the other format.
+            let can_id: Id = if is_extended {
+                CanId::extended(raw_id)
+            } else {
+                CanId::standard(raw_id as u16)
+            }
+            .ok_or(ParseError::InvalidCanFrame)?
+            .into();
 
             if can_data.starts_with('#') {
                 let fd_flags = can_data
@@ -521,10 +561,16 @@ mod test {
         assert!(reader.next_record().unwrap().is_none());
     }
 
+    /// Extended identifiers, written the eight-digit way candump writes them.
+    ///
+    /// These lines used to carry six-digit identifiers, which no candump
+    /// emits — the parser reached "extended" from the numeric value rather
+    /// than the field width, so any width happened to work. It decides on
+    /// width now, so the canonical spelling is what is exercised.
     #[test]
     fn test_extended_example() {
-        let input: &[u8] = b"(1469439874.299591) can1 080080#\n\
-                             (1469439874.299654) can1 053701#7F";
+        let input: &[u8] = b"(1469439874.299591) can1 00080080#\n\
+                             (1469439874.299654) can1 00053701#7F";
 
         let mut reader = Reader::from_reader(input);
 
@@ -562,8 +608,8 @@ mod test {
 
     #[test]
     fn test_remote() {
-        let input: &[u8] = b"(1469439874.299591) can0 080080#R\n\
-                             (1469439874.299654) can0 053701#R4";
+        let input: &[u8] = b"(1469439874.299591) can0 00080080#R\n\
+                             (1469439874.299654) can0 00053701#R4";
 
         let mut reader = Reader::from_reader(input);
 
@@ -804,6 +850,73 @@ mod test {
 
             assert_eq!(rec.t_us, t_us, "{line}");
             assert_eq!(rec.to_string(), line, "round-trip changed the line");
+        }
+    }
+
+    /// The identifier's *width* picks the frame format, not its value.
+    ///
+    /// The two formats' spellings are not nested, so deciding on the value
+    /// was wrong in both directions: an eight-digit identifier of `0x7FF` or
+    /// less came back standard (`00000123#01` re-emitted as `123#01`), and a
+    /// three-digit one above `0x7FF` came back extended (`800#AA` re-emitted
+    /// as `00000800#AA`) — the latter accepting a value that is not a legal
+    /// 11-bit identifier at all.
+    #[test]
+    fn test_id_width_selects_the_format() {
+        // (line body, extended?) — every one of these round-trips.
+        let cases: &[(&str, bool)] = &[
+            ("123#01", false),
+            ("7FF#01", false),
+            ("000#01", false),
+            ("00000123#01", true), // low value, still extended
+            ("00000000#01", true),
+            ("000007FF#01", true), // exactly at the SFF boundary
+            ("1FFFFFFF#0102", true),
+            ("00000123#R4", true), // and for remote frames
+            ("123#R4", false),
+            ("00000123##500112233", true), // and FD
+            ("123##500112233", false),
+        ];
+
+        for (body, extended) in cases {
+            let line = format!("(1469439874.299591) can0 {body}");
+            let mut reader = Reader::from_reader(line.as_bytes());
+            let rec = reader
+                .next_record()
+                .unwrap_or_else(|e| panic!("{line}: {e}"))
+                .expect("a record");
+
+            let got = match &rec.frame {
+                CanAnyFrame::Normal(f) => f.is_extended(),
+                CanAnyFrame::Remote(f) => f.is_extended(),
+                CanAnyFrame::Fd(f) => f.is_extended(),
+                other => panic!("{line}: unexpected {other:?}"),
+            };
+            assert_eq!(got, *extended, "{line}: wrong format");
+            assert_eq!(rec.to_string(), line, "round-trip changed the line");
+        }
+
+        // A three-digit field cannot hold an identifier above CAN_SFF_MASK,
+        // and is rejected rather than quietly promoted to extended.
+        // Likewise an eight-digit one above CAN_EFF_MASK, once the error
+        // flag is excluded.
+        for body in ["800#AA", "FFF#AA", "1FFFFFFF0#01"] {
+            let line = format!("(1469439874.299591) can0 {body}");
+            let mut reader = Reader::from_reader(line.as_bytes());
+            assert!(
+                matches!(reader.next_record(), Err(ParseError::InvalidCanFrame)),
+                "{line} should be rejected"
+            );
+        }
+
+        // Only 3 and 8 are identifier widths; candump emits nothing else.
+        for width in [1usize, 2, 4, 5, 6, 7, 9] {
+            let line = format!("(1469439874.299591) can0 {}#01", "0".repeat(width));
+            let mut reader = Reader::from_reader(line.as_bytes());
+            assert!(
+                matches!(reader.next_record(), Err(ParseError::InvalidCanFrame)),
+                "{width}-digit identifier should be rejected"
+            );
         }
     }
 
