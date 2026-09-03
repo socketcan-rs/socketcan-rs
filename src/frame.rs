@@ -1264,9 +1264,12 @@ impl fmt::Debug for CanErrorFrame {
 impl fmt::UpperHex for CanErrorFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         // Render the full 29-bit error-class field so future kernel additions
-        // outside CAN_SFF_MASK stay readable. `error_bits()` already strips
-        // CAN_ERR_FLAG and any other non-class bits.
-        write!(f, "{:08X}#", self.error_bits())?;
+        // outside CAN_SFF_MASK stay readable, with CAN_ERR_FLAG included the
+        // way candump writes it. The flag is what tells an eight-digit field
+        // apart from an extended ID, so leaving it off would produce output
+        // that reads back as a standard *data* frame. `error_bits()` strips
+        // it along with any other non-class bits, so it goes back on here.
+        write!(f, "{:08X}#", self.error_bits() | CAN_ERR_FLAG)?;
         for byte in self.data() {
             write!(f, "{:02X}", byte)?;
         }
@@ -1954,6 +1957,35 @@ mod tests {
             assert_eq!(frame.len(), CAN_MAX_DLEN);
             assert_eq!(frame.data().len(), CAN_MAX_DLEN);
         }
+    }
+
+    /// An error frame renders with `CAN_ERR_FLAG` set, so its own output
+    /// identifies it as an error frame rather than as a data frame.
+    ///
+    /// The eight-digit identifier field is ambiguous on its face — it is an
+    /// extended ID or an error frame, told apart only by this bit. Rendering
+    /// the bare class bits produced `00000004#…`, which reads back as a
+    /// *standard data frame* with ID 0x004. `CanDumpRecord`'s `Display`
+    /// already got this right; these two now agree.
+    #[test]
+    fn error_frame_renders_with_the_err_flag() {
+        let frame = CanErrorFrame::new_error(0x04, &[0, 0x0C, 0, 0, 0, 0, 0, 0]).unwrap();
+
+        assert_eq!(
+            format!("{:X}", frame),
+            "20000004#000C000000000000",
+            "the error flag must survive into the rendering"
+        );
+        // The enclosing enum delegates, so it must not lose the flag either.
+        assert_eq!(
+            format!("{:X}", CanFrame::Error(frame)),
+            "20000004#000C000000000000"
+        );
+        assert!(format!("{:?}", frame).contains("20000004#"));
+
+        // A class bit above CAN_SFF_MASK still renders in full.
+        let wide = CanErrorFrame::new_error(CAN_ERR_MASK, &[0; 8]).unwrap();
+        assert_eq!(format!("{:X}", wide), "3FFFFFFF#0000000000000000");
     }
 
     #[test]

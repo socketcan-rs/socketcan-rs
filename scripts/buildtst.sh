@@ -38,11 +38,6 @@ fi
 get_crate_msrv
 printf "\nUsing MSRV %s\n" "${MSRV}"
 
-# Get the MSRV from Cargo.toml
-MSRV=$(awk '/rust-version/ { print substr($3, 2, length($3)-2) }' Cargo.toml)
-N_DOT=$(echo "${MSRV}" | grep -o "\." | wc -l | xargs)
-[[ ${N_DOT} == 1 ]] && MSRV="${MSRV}".0
-
 for VER in stable ${MSRV} ; do
     printf "\n\nBuilding with default features for %s...\n" "${VER}"
 

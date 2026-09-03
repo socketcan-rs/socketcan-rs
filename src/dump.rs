@@ -222,10 +222,24 @@ pub struct CanDumpRecord {
 
 impl fmt::Display for CanDumpRecord {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Split the microseconds with integer arithmetic rather than scaling
+        // into an f64. candump's field is exactly six fractional digits and
+        // the parser insists on that, so the seconds and the remainder are
+        // written separately. Going through a float was exact only up to
+        // about 4.29e15 µs (~year 2106); above that the last digit could
+        // come back wrong, which a type that promises a byte-exact
+        // round-trip cannot afford.
+        write!(
+            f,
+            "({}.{:06}) {} ",
+            self.t_us / 1_000_000,
+            self.t_us % 1_000_000,
+            self.device
+        )?;
+
         // Width of the ID field matches candump's log format: 3 hex chars
         // for SFF, 8 for EFF. Error frames use the full 29-bit error mask
         // width so future kernel additions outside CAN_SFF_MASK still render.
-        write!(f, "({:.6}) {} ", 1.0e-6 * self.t_us as f64, self.device)?;
         use CanAnyFrame::*;
         match self.frame {
             Remote(frame) if frame.len() == 0 => {
@@ -757,6 +771,40 @@ mod test {
             panic!("Expected Normal frame, got {:?}", rec.frame);
         }
         assert_eq!(rec.to_string(), "(1785099856.241425) vcan0 1FFFFFFF#0102");
+    }
+
+    /// Every microsecond timestamp survives `Display` exactly, including
+    /// values a float could not carry.
+    ///
+    /// The rendering used to scale `t_us` into an `f64`, which was exact only
+    /// below about 4.29e15 µs (~year 2106): `8014677457392536` came back as
+    /// `8014677457392535`. Well past any real capture, but the parser demands
+    /// exactly six fractional digits and this type promises a byte-exact
+    /// round-trip, so the arithmetic is done in integers.
+    #[test]
+    fn test_timestamp_round_trip_is_exact() {
+        const CASES: &[u64] = &[
+            0,
+            1,
+            999_999,
+            1_000_000,
+            1_785_099_856_242_430, // a present-day capture
+            4_294_967_295_004_142, // where the float path first broke
+            8_014_677_457_392_536, // and well beyond it
+            u64::MAX / 2,
+        ];
+
+        for &t_us in CASES {
+            let line = format!("({}.{:06}) can0 123#01", t_us / 1_000_000, t_us % 1_000_000);
+            let mut reader = Reader::from_reader(line.as_bytes());
+            let rec = reader
+                .next_record()
+                .unwrap_or_else(|e| panic!("{line}: {e}"))
+                .expect("a record");
+
+            assert_eq!(rec.t_us, t_us, "{line}");
+            assert_eq!(rec.to_string(), line, "round-trip changed the line");
+        }
     }
 
     /// Pins the documented limitation that the `_len8_dlc` suffix is not
