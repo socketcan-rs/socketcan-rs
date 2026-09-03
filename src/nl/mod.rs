@@ -98,7 +98,7 @@ use rt::can_ctrlmode;
 pub enum NlError {
     /// The kernel rejected the request, returning this errno.
     ///
-    /// Held positive, the way [`io::Error::from_raw_os_error()`] expects,
+    /// Held positive, the way `from_raw_os_error()` on [`io::Error`] expects,
     /// although netlink sends it negated on the wire.
     #[error("netlink error: {}", io::Error::from_raw_os_error(*errno))]
     Netlink {

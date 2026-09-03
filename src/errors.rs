@@ -118,9 +118,9 @@ const KNOWN_ERR_CLASSES: u32 = CAN_ERR_TX_TIMEOUT
 /// This can be any of the underlying errors from this library. The two main
 /// error sources when interacting with the bus are:
 /// - CAN errors detected on the bus or in the kernel driver. These are
-/// reported up to the application through error frames and can be extracted
-/// into a composite `CanError`
-/// - Typical system I/O errors as `std::io::Error`
+///   reported up to the application through error frames and can be extracted
+///   into a composite [`CanError`].
+/// - Typical system I/O errors as [`io::Error`].
 ///
 /// The parser and netlink error only occur when dealing with those specific
 /// modules.
