@@ -1,7 +1,7 @@
 //! # tokio-socketcan
 //!
-//! Connective plumbing between the socketcan crate
-//! and the tokio asynchronous I/O system
+//! Connective plumbing between the socketcan crate and the tokio
+//! asynchronous I/O system.
 //!
 //! # Usage
 //!
@@ -26,6 +26,7 @@
 //!     Ok(())
 //! }
 //! ```
+
 use crate::{
     CanAddr, CanAnyFrame, CanFrame, Error, IoResult, Result, Socket, SocketOptions, frame::AsPtr,
     timestamp::CanTimestamps,

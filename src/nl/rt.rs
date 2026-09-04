@@ -47,7 +47,7 @@ pub const EXT_FILTER_MST: c_uint = 1 << 7;
 ///
 /// For further information, please read chapter "8 BIT TIMING
 /// REQUIREMENTS" of the "Bosch CAN Specification version 2.0"
-/// at http://www.semiconductors.bosch.de/pdf/can2spec.pdf.
+/// at <http://www.semiconductors.bosch.de/pdf/can2spec.pdf>.
 ///
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, FromBytes, ToBytes, Size)]
