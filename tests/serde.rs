@@ -433,20 +433,37 @@ fn timestamps_round_trip() {
 #[cfg(feature = "dump")]
 #[test]
 fn dump_record_round_trips() {
-    use socketcan::dump::CanDumpRecord;
+    use socketcan::dump::{CanDumpRecord, Direction};
 
     let frame = CanDataFrame::new(StandardId::new(0x123).unwrap(), &[0xDE, 0xAD]).unwrap();
     let rec = CanDumpRecord {
         t_us: 1_785_099_856_242_430,
         device: "vcan0".into(),
         frame: CanFrame::Data(frame).into(),
+        direction: None,
     };
     let json = serde_json::to_string(&rec).unwrap();
+    // A record with no direction does not carry the field at all.
+    assert!(!json.contains("direction"), "{json}");
+
     let back: CanDumpRecord = serde_json::from_str(&json).unwrap();
     // CanDumpRecord is not PartialEq, so compare the rendered candump line.
     assert_eq!(back.to_string(), rec.to_string());
     assert_eq!(back.t_us, rec.t_us);
     assert_eq!(back.device, rec.device);
+    assert_eq!(back.direction, None);
+
+    // With one, it round-trips as a named variant.
+    let rec = CanDumpRecord {
+        direction: Some(Direction::Transmitted),
+        ..rec
+    };
+    let json = serde_json::to_string(&rec).unwrap();
+    assert!(json.contains(r#""direction":"Transmitted""#), "{json}");
+
+    let back: CanDumpRecord = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.direction, Some(Direction::Transmitted));
+    assert_eq!(back.to_string(), rec.to_string());
 }
 
 /// `dump::ParseError` gets the same treatment as the crate-level `Error`, so
@@ -463,6 +480,15 @@ fn parse_error_round_trips() {
     assert!(matches!(
         serde_json::from_str::<ParseError>(&json).unwrap(),
         ParseError::InvalidCanFrame
+    ));
+
+    // The direction variant goes through the same repr conversions.
+    let e = ParseError::InvalidFrameDirection;
+    let json = serde_json::to_string(&e).unwrap();
+    assert_eq!(json, r#""InvalidFrameDirection""#);
+    assert!(matches!(
+        serde_json::from_str::<ParseError>(&json).unwrap(),
+        ParseError::InvalidFrameDirection
     ));
 
     let e = ParseError::Io(std::io::Error::from_raw_os_error(libc::ENOENT));

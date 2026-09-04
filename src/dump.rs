@@ -41,7 +41,7 @@
 //! crate repository.
 //!
 //! ```text
-//! record    = "(" sec "." usec ")" SP iface SP frame
+//! record    = "(" sec "." usec ")" SP iface SP frame [ SP direction ]
 //! usec      = 6DIGIT           ; exactly six digits
 //! frame     = can_id ( classical / canfd )
 //! can_id    = 3HEXDIG          ; SFF — standard 11-bit identifier
@@ -53,6 +53,7 @@
 //! data      = *(2HEXDIG)       ; 0..8 bytes classical, 0..64 bytes FD
 //! flags     = HEXDIG           ; canfd_frame.flags: BRS=0x1 ESI=0x2 FDF=0x4
 //! dlc8      = HEXDIG           ; "len8 DLC" escape; see the caveat below
+//! direction = "R" / "T"        ; only with 'candump -x'; see `Direction`
 //! ```
 //!
 //! # The identifier's width picks the format
@@ -89,6 +90,15 @@
 //! usually reports several causes at once. Error frames are always
 //! classical, so neither the FD nor the remote form applies to them.
 //!
+//! # The optional direction field
+//!
+//! `candump -x` appends a fourth field to each line, `R` or `T`, saying which
+//! way the frame went on the interface that logged it. A log captured with
+//! that flag parses into a record whose [`CanDumpRecord::direction`] is
+//! `Some`, and renders back with the field; one captured without it leaves
+//! that `None` and renders as three fields. A fourth field that is neither
+//! spelling is rejected with [`ParseError::InvalidFrameDirection`].
+//!
 //! # Unsupported: the `_dlc` suffix
 //!
 //! Classical CAN can carry a raw DLC above 8 while still holding only eight
@@ -111,6 +121,7 @@ use std::{
     fs::File,
     io::{self, BufRead, BufReader},
     path::Path,
+    str::FromStr,
 };
 use thiserror::Error;
 
@@ -136,6 +147,9 @@ pub enum ParseError {
     /// Invalid CAN frame
     #[error("Invalid CAN frame")]
     InvalidCanFrame,
+    /// Invalid frame direction
+    #[error("Invalid frame direction")]
+    InvalidFrameDirection,
     /// Error creating the frame
     #[error(transparent)]
     ConstructionError(#[from] ConstructionError),
@@ -169,6 +183,8 @@ pub enum ParseErrorRepr {
     InvalidDeviceName,
     /// Invalid CAN frame
     InvalidCanFrame,
+    /// Invalid frame direction
+    InvalidFrameDirection,
     /// Error creating the frame
     ConstructionError(ConstructionError),
 }
@@ -192,6 +208,7 @@ impl From<&ParseError> for ParseErrorRepr {
             InvalidTimestamp => Self::InvalidTimestamp,
             InvalidDeviceName => Self::InvalidDeviceName,
             InvalidCanFrame => Self::InvalidCanFrame,
+            InvalidFrameDirection => Self::InvalidFrameDirection,
             ConstructionError(e) => Self::ConstructionError(*e),
         }
     }
@@ -218,8 +235,50 @@ impl From<ParseErrorRepr> for ParseError {
             ParseErrorRepr::InvalidTimestamp => Self::InvalidTimestamp,
             ParseErrorRepr::InvalidDeviceName => Self::InvalidDeviceName,
             ParseErrorRepr::InvalidCanFrame => Self::InvalidCanFrame,
+            ParseErrorRepr::InvalidFrameDirection => Self::InvalidFrameDirection,
             ParseErrorRepr::ConstructionError(e) => Self::ConstructionError(e),
         }
+    }
+}
+
+/// Which way a frame went on the interface that logged it.
+///
+/// `candump -x` appends this to each line as a trailing `R` or `T` field —
+/// "print extra message infos, rx/tx brs esi" — so a log captured with that
+/// flag carries a direction and one captured without it does not. Frames a
+/// program sent itself appear as `Transmitted` when they come back through
+/// the socket's loopback.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum Direction {
+    /// The frame was received on this interface (`R`).
+    Received,
+    /// The frame was transmitted from this interface (`T`).
+    Transmitted,
+}
+
+impl FromStr for Direction {
+    type Err = ParseError;
+
+    /// Parses the `R`/`T` field, in either case.
+    ///
+    /// candump writes it uppercase; lowercase is accepted so a hand-written
+    /// log is not rejected over letter case alone.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "R" | "r" => Ok(Self::Received),
+            "T" | "t" => Ok(Self::Transmitted),
+            _ => Err(ParseError::InvalidFrameDirection),
+        }
+    }
+}
+
+impl fmt::Display for Direction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Received => "R",
+            Self::Transmitted => "T",
+        })
     }
 }
 
@@ -234,6 +293,14 @@ pub struct CanDumpRecord {
     pub device: String,
     /// The parsed frame
     pub frame: CanAnyFrame,
+    /// Which way the frame went, when the log records it.
+    ///
+    /// `Some` only for a log captured with `candump -x`; see [`Direction`].
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    pub direction: Option<Direction>,
 }
 
 impl fmt::Display for CanDumpRecord {
@@ -250,7 +317,14 @@ impl fmt::Display for CanDumpRecord {
 
         // The frame body is rendered by the frame types themselves: their
         // `UpperHex` *is* the candump spelling.
-        fmt::UpperHex::fmt(&self.frame, f)
+        fmt::UpperHex::fmt(&self.frame, f)?;
+
+        // A direction, when the record has one, trails the frame as its own
+        // space-separated field, the way `candump -x` writes it.
+        match self.direction {
+            Some(dir) => write!(f, " {dir}"),
+            None => Ok(()),
+        }
     }
 }
 
@@ -426,10 +500,16 @@ impl<R: BufRead> Reader<R> {
         }
         .ok_or(ParseError::InvalidCanFrame)?;
 
+        // An optional fourth field: the direction, present only when the log
+        // was captured with `candump -x`. It follows every frame form, error
+        // frames included.
+        let direction = field_iter.next().map(Direction::from_str).transpose()?;
+
         Ok(Some(CanDumpRecord {
             t_us,
             device,
             frame,
+            direction,
         }))
     }
 }
@@ -579,6 +659,75 @@ mod test {
         }
 
         assert!(reader.next_record().unwrap().is_none());
+    }
+
+    /// Lines from a log captured with `candump -x` carry a trailing
+    /// direction field, and round-trip with it.
+    ///
+    /// These are verbatim `candump -L -x vcan0` output, covering every frame
+    /// form the parser accepts — including an error frame, which candump does
+    /// annotate.
+    #[test]
+    fn test_direction_round_trip() {
+        const LINES: &[&str] = &[
+            "(1788557985.236417) vcan0 123#DEADBEEF T",
+            "(1788557985.239414) vcan0 456#R T",
+            "(1788557985.242030) vcan0 789#R5 T",
+            "(1788557985.244919) vcan0 1F334455##5112233 T",
+            "(1788557985.247474) vcan0 20000004#000C000000000000 T",
+            "(1788557985.250307) vcan0 321# T",
+        ];
+
+        for line in LINES {
+            let mut reader = Reader::from_reader(line.as_bytes());
+            let rec = reader.next_record().unwrap().unwrap();
+
+            assert_eq!(rec.direction, Some(Direction::Transmitted), "{line}");
+            assert_eq!(rec.to_string(), *line, "round-trip changed the line");
+        }
+
+        // The received spelling, and lower case, which candump never writes
+        // but a hand-written log might.
+        for (line, rendered) in [
+            ("(1.000000) can0 123#01 R", "(1.000000) can0 123#01 R"),
+            ("(1.000000) can0 123#01 r", "(1.000000) can0 123#01 R"),
+        ] {
+            let mut reader = Reader::from_reader(line.as_bytes());
+            let rec = reader.next_record().unwrap().unwrap();
+            assert_eq!(rec.direction, Some(Direction::Received), "{line}");
+            assert_eq!(rec.to_string(), rendered);
+        }
+    }
+
+    /// A log captured without `-x` has no direction, and does not grow one.
+    #[test]
+    fn test_direction_absent() {
+        let line = "(1469439874.299591) can1 080#";
+
+        let mut reader = Reader::from_reader(line.as_bytes());
+        let rec = reader.next_record().unwrap().unwrap();
+
+        assert_eq!(rec.direction, None);
+        assert_eq!(rec.to_string(), line);
+    }
+
+    /// A fourth field that is not a direction is an error rather than a
+    /// silently dropped one.
+    #[test]
+    fn test_invalid_direction_is_rejected() {
+        for line in ["(1.000000) can0 123#01 X", "(1.000000) can0 123#01 RX"] {
+            let mut reader = Reader::from_reader(line.as_bytes());
+            assert!(
+                matches!(reader.next_record(), Err(ParseError::InvalidFrameDirection)),
+                "{line:?} should be rejected"
+            );
+        }
+
+        // Trailing whitespace is not a fourth field: the line is trimmed
+        // before it is split, so this is a record without a direction.
+        let mut reader = Reader::from_reader(&b"(1.000000) can0 123#01 "[..]);
+        let rec = reader.next_record().unwrap().unwrap();
+        assert_eq!(rec.direction, None);
     }
 
     /// The usable remote DLC range is `0..=8`, and every value in it

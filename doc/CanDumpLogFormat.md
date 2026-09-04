@@ -10,10 +10,10 @@ There is no formal specification. The closest thing to an authoritative grammar 
 
 ## Line structure
 
-Each line is three space-separated fields:
+Each line is three space-separated fields, plus an optional fourth when the log was captured with `candump -x`:
 
 ```text
-(<sec>.<usec>) <iface> <frame>
+(<sec>.<usec>) <iface> <frame> [<direction>]
 ```
 
 Example lines:
@@ -29,7 +29,7 @@ Example lines:
 ## Grammar (ABNF-style)
 
 ```abnf
-record     = "(" sec "." usec ")" SP iface SP frame
+record     = "(" sec "." usec ")" SP iface SP frame [ SP direction ]
 
 sec        = 1*DIGIT              ; whole seconds since the epoch
 usec       = 6DIGIT               ; microseconds, always exactly 6 digits
@@ -49,6 +49,8 @@ data       = *( 2HEXDIG )         ; payload bytes; 0..8 for classical, 0..64 for
 flags      = HEXDIG               ; single nibble mapped onto canfd_frame.flags
 dlc8       = HEXDIG               ; "len8 DLC" escape; only meaningful when data is 8 bytes
 
+direction  = "R" / "T"            ; only present with 'candump -x'
+
 HEXDIG     = DIGIT / "A".."F" / "a".."f"
 ```
 
@@ -65,6 +67,18 @@ The CAN interface name the frame was captured on (e.g. `can0`, `vcan1`, `slcan0`
 ### Frame — `<can-id><body>`
 
 A CAN identifier in hexadecimal, immediately followed by a body whose leading character(s) select the frame kind.
+
+### Direction — `R` / `T`
+
+Present only when the log was captured with `candump -x` ("print extra message infos, rx/tx brs esi"): a single letter saying which way the frame went on the interface that logged it — `R` received, `T` transmitted. Frames a program sent itself read back as `T` through the socket's loopback.
+
+```text
+(1788557985.236417) vcan0 123#DEADBEEF T
+(1788557985.239414) vcan0 456#R T
+(1788557985.247474) vcan0 20000004#000C000000000000 T
+```
+
+It follows every frame form, error frames included, and `canplayer` accepts a line that carries it. This crate parses it into `CanDumpRecord::direction` and writes it back out, so such a line round-trips; a log without the field parses to `None` and renders as three fields.
 
 ## Identifier width
 
@@ -155,6 +169,8 @@ Classical CAN can encode a raw DLC value greater than 8 while still carrying onl
 | `123##0112233`     | CAN FD, flags=0, 3 data bytes                        |
 | `123##5112233`     | CAN FD, flags=BRS\|FDF, 3 data bytes                 |
 | `20000004#0000000000000000` | error frame, error class 0x4                |
+| `123#DEADBEEF T`   | SFF, 4 data bytes, transmitted (`candump -x`)         |
+| `123#DEADBEEF R`   | SFF, 4 data bytes, received (`candump -x`)            |
 
 ## Notes on this crate's parser
 
@@ -168,4 +184,5 @@ The reader in `src/dump.rs` follows the grammar above, with these deliberate cho
   Note that the library takes the *opposite* action on the same out-of-range value when it arrives as a raw C `can_frame` rather than as log text: `From<can_frame>`/`TryFrom<can_frame>` clamp the length to `CAN_MAX_DLEN` instead of rejecting. A struct handed over by the kernel is data to sanitize — and `From` cannot fail — whereas log text is untrusted input that this parser can and should refuse. See the `normalize_dlc()` doc comment in `src/frame.rs` for the full split.
 - Error frames are supported in both directions as of v4.0. The parser branches on `CAN_ERR_FLAG` before decoding the identifier, because the error-class bits sit above `CAN_EFF_MASK` and would otherwise be rejected as an out-of-range extended ID. `Display` emits the identifier **with** `CAN_ERR_FLAG` included, matching candump, so a line round-trips exactly; emitting the bare class bits would produce output that re-parsed as a standard data frame.
 - A short error-frame payload is zero-padded out to the full eight bytes, since that is what the kernel always delivers. A hand-written log line with fewer than eight data bytes therefore does not round-trip byte-for-byte.
+- The direction field is parsed when present and rejected with `ParseError::InvalidFrameDirection` when the fourth field is neither `R` nor `T`. Lowercase is accepted, although candump only writes uppercase. A fifth field, which candump does not emit, is ignored.
 - **The `_dlc` suffix is not supported.** A line containing it is rejected with `ParseError::InvalidCanFrame`. `CanDataFrame` has nowhere to store a raw DLC greater than its data length — `libc::can_frame::len8_dlc` exists in the wrapped struct but is unused by this crate — so accepting the suffix would mean either silently discarding it (making that one field lossy while every other round-trips) or widening the frame type's public API. Deferred pending a decision on `CAN_RAW_CC_LEN8_DLC` support for sockets generally.
