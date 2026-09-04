@@ -69,25 +69,38 @@ pub(crate) struct EthtoolTsInfo {
     pub rx_reserved: [u32; 3],
 }
 
-// ===== Private conversion helpers =====
+// ===== Conversion helpers =====
 
-/// Convert a `libc::timespec` to a `SystemTime`.
+/// Converts a `libc::timespec` to a `SystemTime`.
 ///
-/// Assumes the timespec is a non-negative UNIX timestamp, which is always
-/// the case for kernel-generated socket timestamps.
+/// This is what the socket read methods apply to the `timespec` in an
+/// `SCM_TIMESTAMPNS` control message, and to the software timestamp in an
+/// `SCM_TIMESTAMPING` one. It is public so that code implementing another CAN
+/// protocol — J1939 or ISO-TP, on a socket this crate does not open — can
+/// reuse it when parsing those same control messages off its own
+/// `recvmsg()`.
+///
+/// The `timespec` is taken to be a non-negative offset from the UNIX epoch,
+/// which is what the kernel reports for `CLOCK_REALTIME` socket timestamps.
+/// Out-of-range values are clamped the same way
+/// [`timespec_to_duration()`] clamps them, so this never panics.
 #[inline]
-pub(crate) fn timespec_to_system_time(ts: libc::timespec) -> SystemTime {
+pub fn timespec_to_system_time(ts: libc::timespec) -> SystemTime {
     SystemTime::UNIX_EPOCH + timespec_to_duration(ts)
 }
 
-/// Convert a `libc::timespec` to a `Duration`.
+/// Converts a `libc::timespec` to a `Duration`.
 ///
 /// Used for hardware timestamps, which are reported in the adapter's own
-/// clock domain rather than as wall-clock time. Negative `tv_sec` or
-/// `tv_nsec` values (which the kernel should never produce here) are
-/// clamped to zero so the function never panics on `Duration::new`.
+/// clock domain rather than as wall-clock time, so a bare `Duration` is the
+/// honest type: it is a counter reading, not a point in time. Public for the
+/// same reason as [`timespec_to_system_time()`].
+///
+/// Negative `tv_sec` or `tv_nsec` values — which the kernel should never
+/// produce here — are clamped to zero, and `tv_nsec` above one second is
+/// clamped down, so the conversion never panics on `Duration::new()`.
 #[inline]
-pub(crate) fn timespec_to_duration(ts: libc::timespec) -> Duration {
+pub fn timespec_to_duration(ts: libc::timespec) -> Duration {
     let secs = ts.tv_sec.max(0) as u64;
     let nsec = ts.tv_nsec.clamp(0, 999_999_999) as u32;
     Duration::new(secs, nsec)
@@ -113,6 +126,14 @@ pub(crate) fn timespec_to_duration(ts: libc::timespec) -> Duration {
 /// read zero. In practice this is only ambiguous in the first nanosecond
 /// after a hardware clock starts up.
 ///
+/// # Filling this in yourself
+///
+/// The fields are public and the type is `Default`, so code that runs its own
+/// `recvmsg()` — for a protocol this crate does not open a socket for — can
+/// build one from the control messages it parsed, using
+/// [`timespec_to_system_time()`] and [`timespec_to_duration()`] for the
+/// conversions.
+///
 /// [`SocketOptions::set_recv_timestamp`]: crate::SocketOptions::set_recv_timestamp
 /// [`SocketOptions::set_timestamping`]: crate::SocketOptions::set_timestamping
 #[derive(Debug, Clone, Copy, Default)]
@@ -127,4 +148,41 @@ pub struct CanTimestamps {
     /// Reported as nanoseconds in the adapter's own clock domain.
     /// This is not a wall-clock time!
     pub hw: Option<Duration>,
+}
+
+/////////////////////////////////////////////////////////////////////////////
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ts(tv_sec: libc::time_t, tv_nsec: libc::c_long) -> libc::timespec {
+        libc::timespec { tv_sec, tv_nsec }
+    }
+
+    #[test]
+    fn timespec_conversions() {
+        assert_eq!(timespec_to_duration(ts(0, 0)), Duration::ZERO);
+        assert_eq!(
+            timespec_to_duration(ts(3, 500_000_000)),
+            Duration::new(3, 500_000_000)
+        );
+        assert_eq!(
+            timespec_to_system_time(ts(1_785_099_856, 242_430_000)),
+            SystemTime::UNIX_EPOCH + Duration::new(1_785_099_856, 242_430_000)
+        );
+    }
+
+    /// A value the kernel should never report must not panic `Duration::new()`
+    /// now that these conversions are public.
+    #[test]
+    fn out_of_range_values_are_clamped() {
+        assert_eq!(timespec_to_duration(ts(-5, 0)), Duration::ZERO);
+        assert_eq!(timespec_to_duration(ts(1, -1)), Duration::new(1, 0));
+        assert_eq!(
+            timespec_to_duration(ts(1, 2_000_000_000)),
+            Duration::new(1, 999_999_999)
+        );
+        assert_eq!(timespec_to_system_time(ts(-1, -1)), SystemTime::UNIX_EPOCH);
+    }
 }
