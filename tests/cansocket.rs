@@ -59,6 +59,42 @@ fn vcan_set_error_mask() {
     sock.set_error_mask(ERR_MASK_NONE).unwrap();
 }
 
+/// A CAN socket option round-trips through the setter and the new getter.
+///
+/// This is the shape a crate implementing another CAN protocol needs: set an
+/// option, then read back what the kernel actually holds.
+#[test]
+#[cfg(feature = "vcan_tests")]
+#[serial]
+fn vcan_socket_option_round_trip() {
+    use socketcan::socket::{CAN_RAW_LOOPBACK, CAN_RAW_RECV_OWN_MSGS, SOL_CAN_RAW};
+
+    let sock = CanSocket::open(VCAN).unwrap();
+
+    for (name, opt) in [
+        ("CAN_RAW_LOOPBACK", CAN_RAW_LOOPBACK),
+        ("CAN_RAW_RECV_OWN_MSGS", CAN_RAW_RECV_OWN_MSGS),
+    ] {
+        for on in [true, false] {
+            match opt {
+                CAN_RAW_LOOPBACK => sock.set_loopback(on).unwrap(),
+                _ => sock.set_recv_own_msgs(on).unwrap(),
+            }
+            let got = sock.get_socket_option_int(SOL_CAN_RAW, opt).unwrap();
+            assert_eq!(got, i32::from(on), "{name} set to {on}");
+        }
+    }
+
+    // The error mask is a 32-bit value, read here through the byte form.
+    sock.set_error_mask(ERR_MASK_ALL).unwrap();
+    let mut buf = [0u8; 4];
+    let n = sock
+        .get_socket_option_bytes(SOL_CAN_RAW, socketcan::socket::CAN_RAW_ERR_FILTER, &mut buf)
+        .unwrap();
+    assert_eq!(n, 4);
+    assert_eq!(u32::from_ne_bytes(buf), ERR_MASK_ALL);
+}
+
 /// Round-trips a multi-bit error frame through the kernel and checks that
 /// every condition it describes survives.
 ///

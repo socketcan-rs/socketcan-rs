@@ -318,6 +318,82 @@ pub trait SocketOptions: AsRawFd {
         }
     }
 
+    /// Reads back a socket option that holds a single integer.
+    ///
+    /// This is the `getsockopt()` counterpart to
+    /// [`set_socket_option()`](Self::set_socket_option), for the scalar case
+    /// that covers nearly every CAN option — `CAN_RAW_LOOPBACK`,
+    /// `CAN_RAW_RECV_OWN_MSGS`, `CAN_RAW_FD_FRAMES`, `CAN_RAW_JOIN_FILTERS`,
+    /// and the J1939 options such as `SO_J1939_PROMISC`.
+    ///
+    /// Unlike the setter this is not generic: reading into an arbitrary `T`
+    /// would mean creating one from whatever bytes the kernel wrote, which is
+    /// only sound for plain-data types. Use
+    /// [`get_socket_option_bytes()`](Self::get_socket_option_bytes) for an
+    /// option that is a struct or an array.
+    ///
+    /// Returns `InvalidData` if the option turned out not to be integer-sized.
+    fn get_socket_option_int(&self, level: c_int, name: c_int) -> IoResult<c_int> {
+        let mut val: c_int = 0;
+        let mut len = size_of::<c_int>() as socklen_t;
+
+        let ret = unsafe {
+            libc::getsockopt(
+                self.as_raw_fd(),
+                level,
+                name,
+                &mut val as *mut _ as *mut c_void,
+                &mut len,
+            )
+        };
+
+        if ret != 0 {
+            return Err(IoError::last_os_error());
+        }
+        if len as usize != size_of::<c_int>() {
+            return Err(IoError::new(
+                IoErrorKind::InvalidData,
+                format!("socket option is {len} bytes, not an integer"),
+            ));
+        }
+        Ok(val)
+    }
+
+    /// Reads back a socket option of any size, into a caller-provided buffer.
+    ///
+    /// Returns the number of bytes the kernel wrote, which for a
+    /// variable-length option — a filter list, say — is how the caller learns
+    /// how much came back. Interpreting those bytes as a struct is left to
+    /// the caller, since only it knows what the option holds.
+    ///
+    /// A buffer shorter than the option is not an error for every option:
+    /// some truncate and report the length written, others fail with
+    /// `EINVAL`. That is the kernel's behavior for the option in question,
+    /// not this crate's.
+    fn get_socket_option_bytes(
+        &self,
+        level: c_int,
+        name: c_int,
+        buf: &mut [u8],
+    ) -> IoResult<usize> {
+        let mut len = buf.len() as socklen_t;
+
+        let ret = unsafe {
+            libc::getsockopt(
+                self.as_raw_fd(),
+                level,
+                name,
+                buf.as_mut_ptr().cast::<c_void>(),
+                &mut len,
+            )
+        };
+
+        match ret {
+            0 => Ok(len as usize),
+            _ => Err(IoError::last_os_error()),
+        }
+    }
+
     /// Sets CAN ID filters on the socket.
     ///
     /// CAN packages received by SocketCAN are matched against these filters,
@@ -1222,6 +1298,44 @@ mod tests {
     #[test]
     fn would_block_without_an_errno_is_retried() {
         assert!(IoError::from(IoErrorKind::WouldBlock).should_retry());
+    }
+
+    /// The option getters read back what the kernel holds, in both the
+    /// scalar and the byte-buffer form, and report a failure rather than a
+    /// value for an option that does not exist.
+    ///
+    /// `SO_TYPE` is used as the subject because every socket has it, so the
+    /// test needs neither a CAN interface nor privileges. `tests/cansocket.rs`
+    /// covers a real CAN option round trip on `vcan0`.
+    #[test]
+    fn socket_option_getters() {
+        use std::os::unix::net::UnixDatagram;
+
+        let (sock, _peer) = UnixDatagram::pair().expect("socketpair");
+        let sock = CanSocket::from(OwnedFd::from(sock));
+
+        // Scalar form.
+        let typ = sock
+            .get_socket_option_int(SOL_SOCKET, libc::SO_TYPE)
+            .expect("SO_TYPE");
+        assert_eq!(typ, libc::SOCK_DGRAM);
+
+        // Byte form: the same option, read as its raw four bytes.
+        let mut buf = [0u8; 8];
+        let n = sock
+            .get_socket_option_bytes(SOL_SOCKET, libc::SO_TYPE, &mut buf)
+            .expect("SO_TYPE as bytes");
+        assert_eq!(n, size_of::<c_int>());
+        assert_eq!(
+            c_int::from_ne_bytes(buf[..n].try_into().unwrap()),
+            libc::SOCK_DGRAM
+        );
+
+        // A nonexistent option fails instead of returning a made-up value.
+        let err = sock
+            .get_socket_option_int(SOL_SOCKET, 0x7FFF)
+            .expect_err("bogus option");
+        assert_eq!(err.raw_os_error(), Some(libc::ENOPROTOOPT), "{err}");
     }
 
     /// A datagram that is neither `CAN_MTU` nor `CANFD_MTU` long is reported
