@@ -67,8 +67,7 @@ pub fn canfd_frame_default() -> canfd_frame {
 /// An error frame always carries the full eight-byte payload, so its length
 /// is forced to `CAN_MAX_DLEN`; that keeps `dlc()`, `len()` and `data()` in
 /// agreement whichever conversion built it. Any other frame's length is
-/// clamped to what `can_frame::data` can hold, since `data()` slices by it
-/// and would otherwise panic.
+/// clamped to what `can_frame::data` can hold.
 ///
 /// The kernel never delivers a classical frame with a length above
 /// `CAN_MAX_DLEN` — a len8 frame's raw DLC lives in `len8_dlc`, which this
@@ -76,8 +75,6 @@ pub fn canfd_frame_default() -> canfd_frame {
 /// the conversions from a raw `can_frame` are infallible or check only the
 /// flag bits. Every one of them normalizes here rather than trusting the
 /// field. `CanFdFrame`'s conversion does the equivalent for `canfd_frame`.
-///
-/// # Why this clamps where other entry points reject
 ///
 /// An out-of-range DLC is handled differently depending on where it came
 /// from, and the split is deliberate:

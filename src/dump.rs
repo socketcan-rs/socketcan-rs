@@ -58,8 +58,8 @@
 //! # The identifier's width picks the format
 //!
 //! Three hex digits means a standard (SFF) identifier and eight means an
-//! extended (EFF) one — the *width* decides, never the numeric value. The two
-//! spellings are not nested, so both of these are meaningful and distinct:
+//! extended (EFF) one; it's not decided by the numeric value.
+//! Both of these are meaningful and distinct:
 //!
 //! ```text
 //! 123#01        standard frame, ID 0x123
@@ -182,16 +182,17 @@ pub enum ParseErrorRepr {
 impl From<&ParseError> for ParseErrorRepr {
     fn from(err: &ParseError) -> Self {
         use crate::errors::io_kind_name;
+        use ParseError::*;
         match err {
-            ParseError::Io(e) => Self::Io {
+            Io(e) => Self::Io {
                 kind: io_kind_name(e.kind()).to_string(),
                 message: e.to_string(),
             },
-            ParseError::UnexpectedEndOfLine => Self::UnexpectedEndOfLine,
-            ParseError::InvalidTimestamp => Self::InvalidTimestamp,
-            ParseError::InvalidDeviceName => Self::InvalidDeviceName,
-            ParseError::InvalidCanFrame => Self::InvalidCanFrame,
-            ParseError::ConstructionError(e) => Self::ConstructionError(*e),
+            UnexpectedEndOfLine => Self::UnexpectedEndOfLine,
+            InvalidTimestamp => Self::InvalidTimestamp,
+            InvalidDeviceName => Self::InvalidDeviceName,
+            InvalidCanFrame => Self::InvalidCanFrame,
+            ConstructionError(e) => Self::ConstructionError(*e),
         }
     }
 }
@@ -238,12 +239,7 @@ pub struct CanDumpRecord {
 impl fmt::Display for CanDumpRecord {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Split the microseconds with integer arithmetic rather than scaling
-        // into an f64. candump's field is exactly six fractional digits and
-        // the parser insists on that, so the seconds and the remainder are
-        // written separately. Going through a float was exact only up to
-        // about 4.29e15 µs (~year 2106); above that the last digit could
-        // come back wrong, which a type that promises a byte-exact
-        // round-trip cannot afford.
+        // into an f64 to get exactly six precise fractional digits
         write!(
             f,
             "({}.{:06}) {} ",
@@ -253,15 +249,7 @@ impl fmt::Display for CanDumpRecord {
         )?;
 
         // The frame body is rendered by the frame types themselves: their
-        // `UpperHex` *is* the candump spelling — three hex digits of ID for
-        // SFF and eight for EFF, `#R` for a remote frame, `##` and a flags
-        // nibble for FD, `CAN_ERR_FLAG` included on an error frame — so a
-        // record is just a timestamp, an interface, and `{:X}` of the frame.
-        //
-        // This used to be a second copy of that formatting, and the two drifted:
-        // the copy here dropped `CAN_ERR_FLAG` from error frames, so its own
-        // output read back as a standard data frame. One implementation, in
-        // `frame.rs`, is what keeps `Display` and `{:X}` from disagreeing.
+        // `UpperHex` *is* the candump spelling.
         fmt::UpperHex::fmt(&self.frame, f)
     }
 }
@@ -330,11 +318,8 @@ impl<R: BufRead> Reader<R> {
 
         let t_us = match ts.split_once('.') {
             Some((num, mant)) => {
-                // candump uses microsecond precision: exactly six digits after
-                // the decimal point. Reject anything else rather than silently
-                // misinterpreting the precision. Use checked arithmetic so a
-                // pathological `num` doesn't overflow into a
-                // wrong-but-valid-looking timestamp.
+                // candump uses exact microsecond precision: exactly six
+                // fractional digits. Reject anything else.
                 if mant.len() != 6 {
                     return Err(ParseError::InvalidTimestamp);
                 }
@@ -365,18 +350,7 @@ impl<R: BufRead> Reader<R> {
             _ => return Err(ParseError::InvalidCanFrame),
         };
 
-        // The *width* of the ID field selects the frame format, not the
-        // numeric value: candump writes exactly three hex digits for a
-        // standard (SFF) identifier and exactly eight for an extended (EFF)
-        // one, and can-utils' `parse_canframe()` decides the same way.
-        //
-        // Reading the value instead got this wrong in both directions, since
-        // neither format's range is a subset of the other's spelling: an
-        // eight-digit identifier of 0x7FF or less came back as a *standard*
-        // frame, and a three-digit one above 0x7FF was promoted to an
-        // *extended* frame — accepting an identifier that is not a legal
-        // 11-bit ID at all. Neither round-tripped, because `Display` picks
-        // the width back from the frame's own EFF flag.
+        // The *width* of the ID field selects the frame ID type.
         let is_extended = match can_id_str.len() {
             3 => false,
             8 => true,
@@ -394,23 +368,17 @@ impl<R: BufRead> Reader<R> {
         //   Data;   "<canid>#[data]"
         //
         // An eight-digit field is still ambiguous between an extended data
-        // frame and an error frame; only CAN_ERR_FLAG tells those apart. The
-        // error-class bits live above CAN_EFF_MASK, so the identifier
-        // constructors below would reject them outright.
+        // frame and an error frame; only CAN_ERR_FLAG tells those apart.
 
         let frame: CanAnyFrame = if raw_id & CAN_ERR_FLAG != 0 {
             // The payload is the error-class data bytes. Error frames are
-            // always classical, so neither the FD nor the RTR form applies,
-            // and `new_error` zero-pads a short payload out to the full
-            // eight bytes the kernel always delivers.
+            // always classical, so neither the FD nor the RTR form applies.
             Vec::from_hex(can_data)
                 .ok()
                 .and_then(|data| CanErrorFrame::new_error(raw_id & CAN_ERR_MASK, &data).ok())
                 .map(CanAnyFrame::Error)
         } else {
-            // Each constructor range-checks its own format, so an
-            // out-of-range value for the width that was written is rejected
-            // rather than silently reinterpreted as the other format.
+            // Each constructor range-checks its own format.
             let can_id: Id = if is_extended {
                 CanId::extended(raw_id)
             } else {

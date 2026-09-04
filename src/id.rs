@@ -223,10 +223,7 @@ impl From<CanId> for Id {
 /// Serialized form of a [`CanId`].
 ///
 /// [`CanId`] wraps `embedded_can::StandardId` / `ExtendedId`, neither of which
-/// implements serde, so the conversion goes through this instead. Keeping the
-/// two-variant shape makes the serialized value self-describing — a standard
-/// and an extended identifier with the same numeric value stay distinct — and
-/// routing back through the constructors validates the range on the way in.
+/// implements serde, so the conversion goes through this instead.
 #[cfg(feature = "serde")]
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub enum CanIdRepr {

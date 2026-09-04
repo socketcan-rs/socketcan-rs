@@ -9,19 +9,17 @@ Please see the [documentation](https://docs.rs/socketcan) for details about the 
 
 ## Latest News
 
-Version 3.6 **finally** gets us support for timestamps on incoming frames. This includes software and (where the driver supports it) hardware timestamps that can be delivered alongside each frame via a single `recvmsg()` call. See the "Timestamps" section below.
+A new major version, 4.0 is coming.
 
-### What's New in Version 3.6
+### What's New in Version 4.0
 
-- **Timestamps on Incoming Frames**
-    - Application can chose Software or Hardware timestamps
-        - Software timestamps provide system (wall clock) time at several places in the network stack.
-        - Hardware provides monotonic, nanosecond integer time. Good for precise differencing between frames.
-        - Application can request any combination of possible timestamps.
-- Did an in-depth review of bugs and memory safety issues, with fixes (See the CHANGELOG)
-- Bumped MSRV to v1.75
-    - The older v1.70 was becoming increasingly difficult to maintain.
-- The full list of updates and fixes is in [CHANGELOG.md](./CHANGELOG.md).
+- More complete Error support, including multiple causes for an error.
+- Improved CAN dump support
+- Optional `serde` support for serializing and deserializing frames and other data types.
+- Bumped the MSRV to 1.89, Edition to 2024, and updated a number of dependencies.
+- Several bug fixes and additional improvements
+
+The full list of updates and fixes is in [CHANGELOG.md](./CHANGELOG.md).
 
 ## Minimum Supported Rust Version (MSRV)
 
