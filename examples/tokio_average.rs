@@ -29,6 +29,8 @@ use socketcan::{
 use std::collections::VecDeque;
 use tokio::sync::mpsc;
 
+// --------------------------------------------------------------------------
+
 struct MovingAverage {
     sum: i32,
     data: VecDeque<i32>,
@@ -50,10 +52,12 @@ impl MovingAverage {
     }
 }
 
+// --------------------------------------------------------------------------
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    let mut sock_rx = CanSocket::open("vcan0")?;
-    let sock_tx = CanSocket::open("vcan0")?;
+    let mut sock_rx = CanSocket::open("can0")?;
+    let sock_tx = CanSocket::open("can0")?;
 
     sock_rx.set_filters(&[CanFilter::new(0x100, 0x7FF)])?;
 

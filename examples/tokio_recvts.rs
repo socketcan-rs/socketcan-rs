@@ -21,6 +21,8 @@ use socketcan::{
 };
 use std::{env, time::UNIX_EPOCH};
 
+// --------------------------------------------------------------------------
+
 fn frame_info<F: Frame>(frame: &F) -> String {
     let id = frame.raw_id();
     let data = frame
@@ -42,6 +44,8 @@ fn frame_str(frame: &CanFrame) -> String {
         _ => frame_info(frame),
     }
 }
+
+// --------------------------------------------------------------------------
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {

@@ -19,6 +19,8 @@ use socketcan::{
 };
 use std::env;
 
+// --------------------------------------------------------------------------
+
 /// Prints an error frame and everything it reports.
 ///
 /// A single error frame can describe several distinct conditions at once —
@@ -38,9 +40,11 @@ fn print_error_frame(frame: CanErrorFrame) {
     }
 }
 
+// --------------------------------------------------------------------------
+
 fn main() -> Result<()> {
     smol::block_on(async {
-        let iface = env::args().nth(1).unwrap_or_else(|| "vcan0".into());
+        let iface = env::args().nth(1).unwrap_or_else(|| "can0".into());
         let sock = CanSocket::open(&iface)?;
 
         // Error frames are not delivered by default; ask for all of them.

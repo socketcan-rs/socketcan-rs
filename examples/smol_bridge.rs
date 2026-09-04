@@ -18,8 +18,8 @@ use socketcan::{CanFrame, Error, Result, smol::CanSocket};
 
 fn main() -> Result<()> {
     smol::block_on(async {
-        let sock_rx = CanSocket::open("vcan0")?;
-        let sock_tx = CanSocket::open("can0")?;
+        let sock_rx = CanSocket::open("can0")?;
+        let sock_tx = CanSocket::open("can1")?;
 
         loop {
             let frame = sock_rx.read_frame().await?;

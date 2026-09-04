@@ -22,7 +22,7 @@ use std::{env, time::Duration};
 
 fn main() -> Result<()> {
     smol::block_on(async {
-        let iface = env::args().nth(1).unwrap_or_else(|| "vcan0".into());
+        let iface = env::args().nth(1).unwrap_or_else(|| "can0".into());
         let sock = CanSocket::open(&iface)?;
 
         loop {

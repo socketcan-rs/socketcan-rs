@@ -20,6 +20,8 @@ use futures_util::StreamExt;
 use socketcan::{CanErrorFrame, CanFrame, SocketOptions, id::ERR_MASK_ALL, tokio::CanSocket};
 use std::env;
 
+// --------------------------------------------------------------------------
+
 /// Prints an error frame and everything it reports.
 ///
 /// A single error frame can describe several distinct conditions at once —
@@ -39,9 +41,11 @@ fn print_error_frame(frame: CanErrorFrame) {
     }
 }
 
+// --------------------------------------------------------------------------
+
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    let iface = env::args().nth(1).unwrap_or_else(|| "vcan0".into());
+    let iface = env::args().nth(1).unwrap_or_else(|| "can0".into());
     let mut sock = CanSocket::open(&iface).unwrap();
 
     // Error frames are not delivered by default; ask for all of them.

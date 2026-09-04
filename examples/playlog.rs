@@ -31,6 +31,8 @@ use std::{
 // Make the app version the same as the package.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+// --------------------------------------------------------------------------
+
 // Open the interface, then iterate through the records in the file
 // sending them out to the bus.
 //

@@ -16,6 +16,8 @@ use embedded_can::{Frame as EmbeddedFrame, StandardId, blocking::Can};
 use socketcan::{CanFrame, CanSocket, Frame, Socket};
 use std::env;
 
+// --------------------------------------------------------------------------
+
 fn frame_to_string<F: Frame>(frame: &F) -> String {
     let id = frame.raw_id();
     let data_string = frame
@@ -29,7 +31,7 @@ fn frame_to_string<F: Frame>(frame: &F) -> String {
 // --------------------------------------------------------------------------
 
 fn main() -> anyhow::Result<()> {
-    let iface = env::args().nth(1).unwrap_or_else(|| "vcan0".into());
+    let iface = env::args().nth(1).unwrap_or_else(|| "can0".into());
 
     let mut sock = CanSocket::open(&iface)
         .with_context(|| format!("Failed to open socket on interface {}", iface))?;

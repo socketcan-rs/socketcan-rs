@@ -22,7 +22,7 @@ use std::{env, time::Duration};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let iface = env::args().nth(1).unwrap_or_else(|| "vcan0".into());
+    let iface = env::args().nth(1).unwrap_or_else(|| "can0".into());
     let socket_tx = CanSocket::open(&iface).unwrap();
 
     loop {

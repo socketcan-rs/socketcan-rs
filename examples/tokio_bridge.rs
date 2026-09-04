@@ -19,8 +19,8 @@ use socketcan::{CanFrame, Result, tokio::CanSocket};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let mut sock_rx = CanSocket::open("vcan0")?;
-    let sock_tx = CanSocket::open("can0")?;
+    let mut sock_rx = CanSocket::open("can0")?;
+    let sock_tx = CanSocket::open("can1")?;
 
     while let Some(Ok(frame)) = sock_rx.next().await {
         if matches!(frame, CanFrame::Data(_)) {

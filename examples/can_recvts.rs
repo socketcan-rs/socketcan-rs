@@ -2,7 +2,6 @@
 //
 // Example: receive CAN frames and print their timestamps. Error frames are
 // accepted too, and reported as decoded errors rather than as raw bytes.
-// Mirrors canbusrecvts.cpp from the sockpp C++ library.
 //
 // This file is part of the Rust 'socketcan-rs' library.
 //
@@ -20,6 +19,8 @@ use socketcan::{
     SocketOptions, id::ERR_MASK_ALL,
 };
 use std::{env, time::UNIX_EPOCH};
+
+// --------------------------------------------------------------------------
 
 fn frame_info<F: Frame>(frame: &F) -> String {
     let id = frame.raw_id();
@@ -42,6 +43,8 @@ fn frame_str(frame: &CanFrame) -> String {
         _ => frame_info(frame),
     }
 }
+
+// --------------------------------------------------------------------------
 
 fn main() -> std::io::Result<()> {
     let iface = env::args().nth(1).unwrap_or_else(|| "can0".to_string());

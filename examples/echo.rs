@@ -32,6 +32,8 @@ use std::{
     time::Duration,
 };
 
+// --------------------------------------------------------------------------
+
 fn frame_to_string<F: Frame>(frame: &F) -> String {
     let id = frame.raw_id();
 
@@ -46,7 +48,7 @@ fn frame_to_string<F: Frame>(frame: &F) -> String {
 // --------------------------------------------------------------------------
 
 fn main() -> anyhow::Result<()> {
-    let iface = env::args().nth(1).unwrap_or_else(|| "vcan0".into());
+    let iface = env::args().nth(1).unwrap_or_else(|| "can0".into());
 
     let mut sock = CanSocket::open(&iface)
         .with_context(|| format!("Failed to open socket on interface {}", iface))?;
