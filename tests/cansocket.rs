@@ -59,6 +59,51 @@ fn vcan_set_error_mask() {
     sock.set_error_mask(ERR_MASK_NONE).unwrap();
 }
 
+/// A downstream crate can open a socket for another CAN protocol and bind it
+/// with our address type, using only this crate's re-exports.
+///
+/// This is the path the `nl`- and frame-shaped sockets here deliberately do
+/// not cover: `CAN_J1939` and `CAN_ISOTP` sockets carry reassembled payloads,
+/// so a crate implementing them brings its own socket type and needs from us
+/// only the protocol number, the address, and the option plumbing.
+#[test]
+#[cfg(feature = "vcan_tests")]
+#[serial]
+fn vcan_other_protocols_bind_with_our_addr() {
+    use socket2::{Domain, Protocol, Socket as Sock2, Type};
+    use socketcan::{
+        CanAddr,
+        addr::{AF_CAN, J1939_NO_ADDR, J1939_NO_NAME, J1939_NO_PGN},
+        socket::{CAN_ISOTP, CAN_J1939},
+    };
+
+    // By name, and with no casts: each constant is typed for the parameter it
+    // belongs to.
+    let j1939 =
+        CanAddr::from_iface_j1939(VCAN, J1939_NO_NAME, J1939_NO_PGN, J1939_NO_ADDR).unwrap();
+    let isotp = CanAddr::from_iface_isotp(
+        VCAN,
+        StandardId::new(0x123).unwrap(),
+        StandardId::new(0x321).unwrap(),
+    )
+    .unwrap();
+
+    for (proto, addr) in [(CAN_J1939, j1939), (CAN_ISOTP, isotp)] {
+        let sock = Sock2::new_raw(
+            Domain::from(AF_CAN),
+            Type::DGRAM,
+            Some(Protocol::from(proto)),
+        )
+        .unwrap();
+        sock.bind(&addr.into_sock_addr()).unwrap();
+    }
+
+    // The J1939 sentinels are the "unset" markers, not zero.
+    assert_eq!(j1939.j1939_pgn(), J1939_NO_PGN);
+    assert_eq!(j1939.j1939_addr(), J1939_NO_ADDR);
+    assert_eq!(isotp.tp_rx_id(), 0x123);
+}
+
 /// A CAN socket option round-trips through the setter and the new getter.
 ///
 /// This is the shape a crate implementing another CAN protocol needs: set an

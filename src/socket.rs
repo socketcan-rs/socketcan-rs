@@ -43,6 +43,31 @@ pub use libc::{
     CAN_RAW_LOOPBACK, CAN_RAW_RECV_OWN_MSGS, CANFD_MTU, SOL_CAN_BASE, SOL_CAN_RAW,
 };
 
+/// The CAN protocol numbers from `linux/can.h`, for the `protocol` argument
+/// of `socket(2)`.
+///
+/// The socket types in this module speak [`CAN_RAW`], the only one they open.
+/// The rest are re-exported for code implementing another protocol on top of
+/// this crate: create the socket yourself with the protocol you want — as
+/// `SOCK_DGRAM` for [`CAN_BCM`], [`CAN_ISOTP`] and [`CAN_J1939`] — and bind
+/// it with [`CanAddr::into_sock_addr()`](crate::CanAddr::into_sock_addr).
+/// Those sockets carry reassembled payloads, or the protocol's own message
+/// structs, rather than `can_frame`s, so the frame-shaped socket types here
+/// do not apply to them.
+///
+/// Not every number is a usable protocol. [`CAN_TP16`], [`CAN_TP20`] and
+/// [`CAN_MCNET`] are reserved in the header with no in-tree implementation,
+/// so `socket()` reports `EPROTONOSUPPORT` for them, and [`CAN_NPROTO`] is
+/// the count of protocol numbers rather than one of them.
+pub use libc::{CAN_BCM, CAN_ISOTP, CAN_J1939, CAN_MCNET, CAN_NPROTO, CAN_TP16, CAN_TP20};
+
+/// The `setsockopt`/`getsockopt` level for J1939 socket options.
+///
+/// Pair it with the `SO_J1939_*` option names from `libc` and the
+/// [`SocketOptions`] methods. The option names themselves are not re-exported
+/// here: they belong to the protocol, not to this crate.
+pub use libc::SOL_CAN_J1939;
+
 /// Check an error return value for timeouts.
 ///
 /// Due to the fact that timeouts are reported as errors, calling `read_frame`

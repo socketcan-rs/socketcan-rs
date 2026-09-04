@@ -20,6 +20,37 @@ use std::{fmt, io, mem, mem::size_of, os::raw::c_int};
 
 pub use libc::{AF_CAN, CAN_RAW, PF_CAN};
 
+// The J1939 "unset" markers and address limits, for use with
+// `CanAddr::new_j1939()` and `CanAddr::from_iface_j1939()`.
+//
+// A J1939 address field left at zero is not "unspecified" — zero is a valid
+// name, PGN and node address — so a socket that means "any" has to say so
+// with these.
+//
+// Each is typed to match the `CanAddr::new_j1939()` parameter it belongs to,
+// rather than being re-exported from libc: `libc::J1939_NO_NAME` is a
+// `c_ulong`, which is 32 bits wide on a 32-bit target although the kernel
+// field is a `__u64`, so a re-export would force a cast on some targets and
+// warn about a needless one on others.
+
+/// A J1939 node name meaning "unset" (`J1939_NO_NAME`).
+// The cast is a no-op on a 64-bit target and a widening one on a 32-bit
+// target, where `c_ulong` is 32 bits wide; clippy only ever sees the former.
+#[allow(clippy::unnecessary_cast)]
+pub const J1939_NO_NAME: u64 = libc::J1939_NO_NAME as u64;
+
+/// A J1939 Parameter Group Number meaning "unset" (`J1939_NO_PGN`).
+pub const J1939_NO_PGN: u32 = libc::J1939_NO_PGN;
+
+/// A J1939 node address meaning "unset" (`J1939_NO_ADDR`).
+pub const J1939_NO_ADDR: u8 = libc::J1939_NO_ADDR;
+
+/// The J1939 idle node address (`J1939_IDLE_ADDR`).
+pub const J1939_IDLE_ADDR: u8 = libc::J1939_IDLE_ADDR;
+
+/// The highest node address usable for unicast (`J1939_MAX_UNICAST_ADDR`).
+pub const J1939_MAX_UNICAST_ADDR: u8 = libc::J1939_MAX_UNICAST_ADDR;
+
 /// CAN socket address.
 ///
 /// This is the address for use with CAN sockets. It is simply an address to
@@ -31,6 +62,11 @@ pub use libc::{AF_CAN, CAN_RAW, PF_CAN};
 /// This is based on, and compatible with, the `sockaddr_can` struct from
 /// libc.
 /// [ref](https://docs.rs/libc/latest/libc/struct.sockaddr_can.html)
+///
+/// The J1939 and ISO-TP constructors below build an address for a socket of
+/// that protocol, which this crate does not open: its socket types speak
+/// `CAN_RAW`. See the *Other CAN protocols* section of the [crate
+/// documentation](crate) for what to do with such an address.
 ///
 /// Equality and hashing consider only `can_family` and `can_ifindex`. The
 /// `can_addr` union (J1939 / ISO-TP fields) is not compared: there is no
@@ -53,6 +89,12 @@ impl CanAddr {
 
     /// Creates a new CAN J1939 socket address for the specified interface
     /// by index.
+    ///
+    /// For a socket you open yourself with the `CAN_J1939` protocol — see the
+    /// *Other CAN protocols* section of the [crate documentation](crate).
+    /// Use [`J1939_NO_NAME`], [`J1939_NO_PGN`] and [`J1939_NO_ADDR`] for the
+    /// fields you mean to leave unspecified; zero is a valid value for all
+    /// three, so it does not mean "any".
     pub fn new_j1939(ifindex: u32, name: u64, pgn: u32, jaddr: u8) -> Self {
         let mut addr = Self::new(ifindex);
         addr.0.can_addr.j1939.name = name;
@@ -63,6 +105,9 @@ impl CanAddr {
 
     /// Creates a new CAN ISO-TP socket address for the specified interface
     /// by index.
+    ///
+    /// For a socket you open yourself with the `CAN_ISOTP` protocol — see the
+    /// *Other CAN protocols* section of the [crate documentation](crate).
     pub fn new_isotp<R, T>(ifindex: u32, rx_id: R, tx_id: T) -> Self
     where
         R: Into<Id>,

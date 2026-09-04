@@ -58,6 +58,69 @@
 //! is available through the `AsRawFd`, `IntoRawFd` and `FromRawFd`, and
 //! similar implementations.
 //!
+//! # Other CAN protocols: J1939, ISO-TP, BCM
+//!
+//! The socket types here speak `CAN_RAW`, reading and writing whole CAN
+//! frames. The kernel's other CAN protocols are not frame-shaped — an ISO-TP
+//! or J1939 socket carries a reassembled payload, a BCM socket its own
+//! message structs — so this crate does not wrap them: a socket type built
+//! around [`CanFrame`] would misread every message.
+//!
+//! What it does provide is the pieces a separate crate needs to implement
+//! one of them:
+//!
+//! * [`CanAddr`] builds any `sockaddr_can`, the J1939 and ISO-TP fields
+//!   included, and hands it to the kernel as a `socket2::SockAddr`
+//!   ([`into_sock_addr()`](CanAddr::into_sock_addr)), a pointer
+//!   ([`as_sockaddr_ptr()`](CanAddr::as_sockaddr_ptr)) or a byte slice
+//!   ([`as_bytes()`](CanAddr::as_bytes)).
+//! * Accessors — [`j1939_name()`](CanAddr::j1939_name),
+//!   [`tp_rx_id()`](CanAddr::tp_rx_id) and friends — read an address back
+//!   without touching the union yourself, which is what inspecting a
+//!   `recvfrom()` peer needs.
+//! * The protocol numbers ([`CAN_J1939`](socket::CAN_J1939),
+//!   [`CAN_ISOTP`](socket::CAN_ISOTP), [`CAN_BCM`](socket::CAN_BCM)), the
+//!   [`SOL_CAN_J1939`](socket::SOL_CAN_J1939) option level, and the J1939
+//!   "unset" markers ([`J1939_NO_ADDR`](addr::J1939_NO_ADDR) and company).
+//! * [`SocketOptions`] is implementable by your own socket type — one empty
+//!   `impl` given [`AsRawFd`](std::os::unix::io::AsRawFd) — for
+//!   `setsockopt`/`getsockopt` on the protocol's own options.
+//! * [`timespec_to_system_time()`](timestamp::timespec_to_system_time) and
+//!   [`timespec_to_duration()`](timestamp::timespec_to_duration) convert the
+//!   timestamps in an `SCM_TIMESTAMPNS`/`SCM_TIMESTAMPING` control message,
+//!   for code running its own `recvmsg()`, into a [`CanTimestamps`].
+//! * And if you implement the transport over `CAN_RAW` yourself rather than
+//!   using the kernel module — a common choice for J1939, since it puts the
+//!   segmentation under your control — then the frame, identifier, filter
+//!   and error-decoding types here are the whole toolkit already.
+//!
+//! Opening such a socket is three steps: create it with the protocol you
+//! want, as a datagram socket, and bind the address.
+//!
+//! ```no_run
+//! use socket2::{Domain, Protocol, Socket, Type};
+//! use socketcan::{
+//!     CanAddr,
+//!     addr::{AF_CAN, J1939_NO_ADDR, J1939_NO_NAME, J1939_NO_PGN},
+//!     socket::CAN_J1939,
+//! };
+//!
+//! # fn main() -> std::io::Result<()> {
+//! let addr = CanAddr::from_iface_j1939("can0", J1939_NO_NAME, J1939_NO_PGN, J1939_NO_ADDR)?;
+//!
+//! let sock = Socket::new_raw(
+//!     Domain::from(AF_CAN),
+//!     Type::DGRAM,
+//!     Some(Protocol::from(CAN_J1939)),
+//! )?;
+//! sock.bind(&addr.into_sock_addr())?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! From there the protocol is yours: its socket options, its ancillary data,
+//! and reads that yield payloads rather than frames.
+//!
 //! # Crate Features
 //!
 //! ### Default
