@@ -13,7 +13,7 @@
 
 use crate::id::id_to_canid_t;
 use embedded_can::Id;
-use libc::{sa_family_t, sockaddr, sockaddr_can, sockaddr_storage, socklen_t};
+use libc::{canid_t, sa_family_t, sockaddr, sockaddr_can, sockaddr_storage, socklen_t};
 use nix::net::if_::if_nametoindex;
 use socket2::{SockAddr, SockAddrStorage};
 use std::{fmt, io, mem, mem::size_of, os::raw::c_int};
@@ -101,6 +101,67 @@ impl CanAddr {
         Ok(addr)
     }
 
+    /// Gets the interface index.
+    ///
+    /// Zero means "all interfaces" for a raw socket.
+    pub fn ifindex(&self) -> u32 {
+        self.0.can_ifindex as u32
+    }
+
+    /// Gets the J1939 node name, from the `can_addr.j1939` fields.
+    ///
+    /// `sockaddr_can` holds the J1939 and ISO-TP fields in a union, and
+    /// carries no discriminator for which is in use.
+    ///
+    /// [`J1939_NO_NAME`](libc::J1939_NO_NAME) means "unset".
+    pub fn j1939_name(&self) -> u64 {
+        // SAFETY: every field of both union variants is an integer, so any
+        // bit pattern is a valid value of the type being read. The struct is
+        // fully initialised by every constructor. See the note above on
+        // reading the variant that was not written.
+        unsafe { self.0.can_addr.j1939.name }
+    }
+
+    /// Gets the J1939 Parameter Group Number, from the `can_addr.j1939`
+    /// fields.
+    ///
+    /// [`J1939_NO_PGN`](libc::J1939_NO_PGN) means "unset". See
+    /// [`j1939_name()`](Self::j1939_name) on reading the union.
+    pub fn j1939_pgn(&self) -> u32 {
+        // SAFETY: as in `j1939_name()`.
+        unsafe { self.0.can_addr.j1939.pgn }
+    }
+
+    /// Gets the J1939 source/destination address, from the `can_addr.j1939`
+    /// fields.
+    ///
+    /// [`J1939_NO_ADDR`](libc::J1939_NO_ADDR) means "unset". See
+    /// [`j1939_name()`](Self::j1939_name) on reading the union.
+    pub fn j1939_addr(&self) -> u8 {
+        // SAFETY: as in `j1939_name()`.
+        unsafe { self.0.can_addr.j1939.addr }
+    }
+
+    /// Gets the ISO-TP receive identifier, from the `can_addr.tp` fields.
+    ///
+    /// This is the raw composite ID word, so an extended identifier carries
+    /// [`CAN_EFF_FLAG`](crate::id::CAN_EFF_FLAG); pass it through
+    /// [`id_from_raw()`](crate::id::id_from_raw) for a typed identifier. See
+    /// [`j1939_name()`](Self::j1939_name) on reading the union.
+    pub fn tp_rx_id(&self) -> canid_t {
+        // SAFETY: as in `j1939_name()`.
+        unsafe { self.0.can_addr.tp.rx_id }
+    }
+
+    /// Gets the ISO-TP transmit identifier, from the `can_addr.tp` fields.
+    ///
+    /// This is the raw composite ID word, as with
+    /// [`tp_rx_id()`](Self::tp_rx_id).
+    pub fn tp_tx_id(&self) -> canid_t {
+        // SAFETY: as in `j1939_name()`.
+        unsafe { self.0.can_addr.tp.tx_id }
+    }
+
     /// Gets the address of the structure as a `sockaddr_can` pointer.
     pub fn as_ptr(&self) -> *const sockaddr_can {
         &self.0
@@ -155,7 +216,7 @@ impl Default for CanAddr {
 
 impl fmt::Debug for CanAddr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // Render the can_addr union as raw bytes — there is no discriminator
+        // Render the can_addr union as raw bytes. There is no discriminator
         // for which union variant is active, so the bytes are the best we can
         // safely show. Callers know the variant from their socket type.
         // SAFETY: `CanAddr` is constructed only through `new`/`new_j1939`/
@@ -232,6 +293,7 @@ impl AsRef<sockaddr_can> for CanAddr {
 mod tests {
     use super::*;
     use crate::as_bytes;
+    use embedded_can::{ExtendedId, StandardId};
 
     const IDX: u32 = 42;
 
@@ -254,5 +316,62 @@ mod tests {
         // `sockaddr_storage` before copying.
         let (lhs, rhs) = unsafe { (as_bytes(&addr), as_bytes(&sock_addr)) };
         assert_eq!(lhs, &rhs[0..len as usize]);
+    }
+
+    /// Every field a constructor writes can be read back, without the caller
+    /// reaching into the union itself.
+    #[test]
+    fn fields_read_back() {
+        let raw = CanAddr::new(IDX);
+        assert_eq!(raw.ifindex(), IDX);
+
+        let j = CanAddr::new_j1939(IDX, 0x1234_5678_9ABC_DEF0, 0x0EA00, 0x42);
+        assert_eq!(j.ifindex(), IDX);
+        assert_eq!(j.j1939_name(), 0x1234_5678_9ABC_DEF0);
+        assert_eq!(j.j1939_pgn(), 0x0EA00);
+        assert_eq!(j.j1939_addr(), 0x42);
+
+        let tp = CanAddr::new_isotp(
+            IDX,
+            StandardId::new(0x123).unwrap(),
+            ExtendedId::new(0x1F00_4711).unwrap(),
+        );
+        assert_eq!(tp.ifindex(), IDX);
+        assert_eq!(tp.tp_rx_id(), 0x123);
+        // An extended identifier keeps its EFF flag in the raw ID word.
+        assert_eq!(tp.tp_tx_id(), 0x1F00_4711 | crate::id::CAN_EFF_FLAG);
+        assert_eq!(
+            crate::id::id_from_raw(tp.tp_rx_id()),
+            Some(Id::Standard(StandardId::new(0x123).unwrap()))
+        );
+    }
+
+    /// An address that arrives from the kernel — a `recvfrom()` peer, say —
+    /// reads back the same way.
+    #[test]
+    fn fields_read_back_through_from_sockaddr() {
+        let sent = CanAddr::new_j1939(IDX, 0xAAAA_BBBB_CCCC_DDDD, 0x0EE00, 0x21);
+        let received = CanAddr::from(*sent.as_ref());
+
+        assert_eq!(received.ifindex(), IDX);
+        assert_eq!(received.j1939_name(), 0xAAAA_BBBB_CCCC_DDDD);
+        assert_eq!(received.j1939_pgn(), 0x0EE00);
+        assert_eq!(received.j1939_addr(), 0x21);
+    }
+
+    /// The union has no discriminator, so reading the variant that was not
+    /// written reinterprets bytes rather than failing. Documented on
+    /// `j1939_name()`; pinned here so the behaviour is not mistaken for a bug.
+    #[test]
+    fn reading_the_other_variant_reinterprets() {
+        let tp = CanAddr::new_isotp(
+            IDX,
+            StandardId::new(0x123).unwrap(),
+            StandardId::new(0x321).unwrap(),
+        );
+
+        // rx_id and tx_id occupy the same eight bytes as the J1939 name.
+        let expected = u64::from(0x123u32) | (u64::from(0x321u32) << 32);
+        assert_eq!(tp.j1939_name(), expected);
     }
 }
