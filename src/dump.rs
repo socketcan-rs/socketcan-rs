@@ -101,7 +101,6 @@
 use crate::{
     CanAnyFrame, CanDataFrame, CanErrorFrame, CanFdFrame, CanFrame, CanId, CanRemoteFrame,
     ConstructionError,
-    frame::Frame,
     id::{CAN_ERR_FLAG, CAN_ERR_MASK, FdFlags},
 };
 use embedded_can::{Frame as EmbeddedFrame, Id};
@@ -253,58 +252,17 @@ impl fmt::Display for CanDumpRecord {
             self.device
         )?;
 
-        // Width of the ID field matches candump's log format: 3 hex chars
-        // for SFF, 8 for EFF. Error frames use the full 29-bit error mask
-        // width so future kernel additions outside CAN_SFF_MASK still render.
-        use CanAnyFrame::*;
-        match self.frame {
-            Remote(frame) if frame.len() == 0 => {
-                Self::fmt_id(f, &frame)?;
-                f.write_str("#R")
-            }
-            Remote(frame) => {
-                Self::fmt_id(f, &frame)?;
-                write!(f, "#R{:X}", frame.dlc())
-            }
-            Error(frame) => {
-                // candump logs error frames with CAN_ERR_FLAG *included*, so
-                // the eight-digit field reads e.g. `20000004#…` and feeds
-                // straight back through the parser. Emitting the bare class
-                // bits instead would re-parse as a standard data frame.
-                write!(f, "{:08X}#", frame.error_bits() | CAN_ERR_FLAG)?;
-                Self::fmt_data(f, frame.data())
-            }
-            Normal(frame) => {
-                Self::fmt_id(f, &frame)?;
-                f.write_str("#")?;
-                Self::fmt_data(f, frame.data())
-            }
-            Fd(frame) => {
-                Self::fmt_id(f, &frame)?;
-                // Single-hex-nibble flags between `##` and the payload, matching
-                // candump's `.log` format so this output round-trips through
-                // the parser.
-                write!(f, "##{:X}", frame.flags().bits() & 0x0F)?;
-                Self::fmt_data(f, frame.data())
-            }
-        }
-    }
-}
-
-impl CanDumpRecord {
-    /// Writes the CAN ID with candump-style zero padding: 3 hex chars for
-    /// standard IDs, 8 for extended.
-    fn fmt_id<F: Frame>(f: &mut fmt::Formatter<'_>, frame: &F) -> fmt::Result {
-        if frame.is_extended() {
-            write!(f, "{:08X}", frame.raw_id())
-        } else {
-            write!(f, "{:03X}", frame.raw_id())
-        }
-    }
-
-    /// Writes a payload as candump's unseparated, uppercase hex.
-    fn fmt_data(f: &mut fmt::Formatter<'_>, data: &[u8]) -> fmt::Result {
-        data.iter().try_for_each(|b| write!(f, "{:02X}", b))
+        // The frame body is rendered by the frame types themselves: their
+        // `UpperHex` *is* the candump spelling — three hex digits of ID for
+        // SFF and eight for EFF, `#R` for a remote frame, `##` and a flags
+        // nibble for FD, `CAN_ERR_FLAG` included on an error frame — so a
+        // record is just a timestamp, an interface, and `{:X}` of the frame.
+        //
+        // This used to be a second copy of that formatting, and the two drifted:
+        // the copy here dropped `CAN_ERR_FLAG` from error frames, so its own
+        // output read back as a standard data frame. One implementation, in
+        // `frame.rs`, is what keeps `Display` and `{:X}` from disagreeing.
+        fmt::UpperHex::fmt(&self.frame, f)
     }
 }
 
@@ -462,10 +420,17 @@ impl<R: BufRead> Reader<R> {
             .into();
 
             if can_data.starts_with('#') {
+                // `from_bits_retain`, not `from_bits_truncate`: the nibble
+                // goes into `canfd_frame.flags` verbatim, the way can-utils
+                // hands it over. Only three of the four bits have a name
+                // today, and dropping the fourth would silently rewrite a
+                // logged frame — `##F` would read back as `##7` and stop
+                // round-tripping. An unnamed bit is preserved rather than
+                // interpreted, as with `Location::Reserved`.
                 let fd_flags = can_data
                     .get(1..2)
                     .and_then(|s| u8::from_str_radix(s, 16).ok())
-                    .map(FdFlags::from_bits_truncate)
+                    .map(FdFlags::from_bits_retain)
                     .ok_or(ParseError::InvalidCanFrame)?;
                 Vec::from_hex(&can_data[2..])
                     .ok()
@@ -850,6 +815,94 @@ mod test {
 
             assert_eq!(rec.t_us, t_us, "{line}");
             assert_eq!(rec.to_string(), line, "round-trip changed the line");
+        }
+    }
+
+    /// A record's frame body is exactly `{:X}` of the frame.
+    ///
+    /// `Display` delegates to the frame types' `UpperHex` rather than keeping
+    /// a second copy of the candump formatting. The two used to be separate
+    /// implementations and drifted: the copy in this module dropped
+    /// `CAN_ERR_FLAG` from error frames. This pins the relationship so a
+    /// re-split would have to break a test to happen quietly.
+    #[test]
+    fn test_record_body_is_frame_upper_hex() {
+        const BODIES: &[&str] = &[
+            "123#",
+            "123#01",
+            "7FF#1122334455667788",
+            "00000123#01",
+            "1FFFFFFF#0102",
+            "123#R",
+            "123#R4",
+            "00000123#R8",
+            // The FDF bit (0x4) is set in each of these: `CanFdFrame` forces
+            // it on at construction, so a nibble without it does not survive
+            // the trip. See `test_fd_flag_nibble_is_preserved`.
+            "123##4",
+            "123##500112233",
+            "00000123##F00",
+            "20000004#000C000000000000",
+            "200003FF#070C9E08440A7060",
+        ];
+
+        for body in BODIES {
+            let line = format!("(1469439874.299591) can0 {body}");
+            let mut reader = Reader::from_reader(line.as_bytes());
+            let rec = reader
+                .next_record()
+                .unwrap_or_else(|e| panic!("{line}: {e}"))
+                .expect("a record");
+
+            assert_eq!(
+                format!("{:X}", rec.frame),
+                *body,
+                "{line}: frame's own rendering"
+            );
+            assert_eq!(rec.to_string(), line, "{line}: record rendering");
+        }
+    }
+
+    /// The FD flags nibble reaches the frame intact, including the bit with
+    /// no name.
+    ///
+    /// Only `BRS` (0x1), `ESI` (0x2) and `FDF` (0x4) are defined; the fourth
+    /// bit of the nibble is unassigned. Decoding it with
+    /// `FdFlags::from_bits_truncate` silently dropped it, so a logged `##F`
+    /// came back as `##7` — a different frame. No kernel sets that bit today,
+    /// which is exactly why it would have gone unnoticed.
+    ///
+    /// The one bit that does *not* survive untouched is `FDF`, which
+    /// [`CanFdFrame`] forces on at construction, as its type documentation
+    /// states. A nibble that already carries it therefore round-trips
+    /// exactly; one that does not comes back with it added.
+    ///
+    /// The raw `canfd_frame.flags` byte is what gets asserted here, because
+    /// the [`CanFdFrame::flags()`] getter runs `from_bits_truncate` and so
+    /// under-reports the unnamed bit that the frame is in fact carrying.
+    #[test]
+    fn test_fd_flag_nibble_is_preserved() {
+        const FDF: u8 = 0x4;
+
+        for nibble in 0..=0xFu8 {
+            let line = format!("(1469439874.299591) can0 123##{nibble:X}00");
+
+            let mut reader = Reader::from_reader(line.as_bytes());
+            let rec = reader.next_record().unwrap().expect("a record");
+
+            match &rec.frame {
+                CanAnyFrame::Fd(frame) => {
+                    assert_eq!(
+                        frame.as_ref().flags,
+                        nibble | FDF,
+                        "{line}: every bit but the forced FDF must survive"
+                    );
+                }
+                other => panic!("{line}: expected an FD frame, got {other:?}"),
+            }
+
+            let expected = format!("(1469439874.299591) can0 123##{:X}00", nibble | FDF);
+            assert_eq!(rec.to_string(), expected, "{line}");
         }
     }
 

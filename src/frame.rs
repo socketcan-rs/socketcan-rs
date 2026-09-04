@@ -76,6 +76,21 @@ pub fn canfd_frame_default() -> canfd_frame {
 /// the conversions from a raw `can_frame` are infallible or check only the
 /// flag bits. Every one of them normalizes here rather than trusting the
 /// field. `CanFdFrame`'s conversion does the equivalent for `canfd_frame`.
+///
+/// # Why this clamps where other entry points reject
+///
+/// An out-of-range DLC is handled differently depending on where it came
+/// from, and the split is deliberate:
+///
+/// | Entry point | Out-of-range DLC | Why |
+/// |---|---|---|
+/// | `From<can_frame>`, `TryFrom<can_frame>` | clamped here | A raw C struct is data to sanitize, not a request to validate. `From` cannot fail at all, and having `TryFrom` reject what `From` accepts would make two conversions disagree about the same struct. |
+/// | [`CanRemoteFrame::new_remote()`] and the other constructors | `None` | A caller passing 9 has made a programming error; there is a return value to say so. |
+/// | [`dump::Reader`](crate::dump::Reader) | [`ParseError::InvalidCanFrame`](crate::dump::ParseError::InvalidCanFrame) | Log text is untrusted input, and silently rewriting `123#RF` to `123#R8` would misreport what the log said. |
+///
+/// So: sanitize a struct, reject a request. `out_of_range_dlc_policy` in this
+/// module's tests pins the first two, and `test_remote_dlc_range` in `dump`
+/// pins the third.
 #[inline]
 fn normalize_dlc(mut frame: can_frame) -> can_frame {
     frame.can_dlc = if frame.can_id & CAN_ERR_FLAG != 0 {
@@ -353,6 +368,14 @@ impl EmbeddedFrame for CanAnyFrame {
 }
 
 impl fmt::UpperHex for CanAnyFrame {
+    /// Renders the frame in candump's `-L` log spelling.
+    ///
+    /// This and the per-variant impls it delegates to are the crate's single
+    /// definition of that format: `dump::CanDumpRecord`'s `Display` writes a
+    /// timestamp and an interface and then defers to this, so a change here
+    /// changes the log format the `dump` module reads and writes. Keep the
+    /// output round-trippable through `dump::Reader`; the tests in that
+    /// module assert it.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use CanAnyFrame::*;
         match self {
@@ -1935,6 +1958,43 @@ mod tests {
         assert!(frame.set_data(&[0xFF; 9]).is_err());
         assert_eq!(frame.data(), &[7, 7]);
         assert_eq!(frame.as_ref().data, [7, 7, 0, 0, 0, 0, 0, 0]);
+    }
+
+    /// The two policies for an out-of-range DLC, side by side.
+    ///
+    /// A raw `can_frame` is sanitized — its length is clamped, because
+    /// `From` cannot fail and `TryFrom` rejecting what `From` accepts would
+    /// make the two disagree about the same struct. A *request* built through
+    /// a constructor is rejected instead, because there is a return value to
+    /// say so with. `dump::Reader` rejects too, for the same reason; see
+    /// `test_remote_dlc_range` there.
+    ///
+    /// This is pinned in one place so the split reads as intentional rather
+    /// than as an oversight in whichever path is looked at first.
+    #[test]
+    fn out_of_range_dlc_policy() {
+        let mut raw = can_frame_default();
+        raw.can_id = 0x123 | CAN_RTR_FLAG;
+        raw.can_dlc = 15;
+
+        // A struct gets sanitized, by every conversion that accepts one.
+        assert_eq!(CanFrame::from(raw).dlc(), CAN_MAX_DLEN);
+        assert_eq!(CanRemoteFrame::try_from(raw).unwrap().dlc(), CAN_MAX_DLEN);
+
+        let mut data_raw = can_frame_default();
+        data_raw.can_id = 0x123;
+        data_raw.can_dlc = 9;
+        assert_eq!(CanFrame::from(data_raw).dlc(), CAN_MAX_DLEN);
+        assert_eq!(
+            CanDataFrame::try_from(data_raw).unwrap().dlc(),
+            CAN_MAX_DLEN
+        );
+
+        // A request gets rejected.
+        assert!(CanRemoteFrame::new_remote(STD_ID, CAN_MAX_DLEN).is_some());
+        assert!(CanRemoteFrame::new_remote(STD_ID, CAN_MAX_DLEN + 1).is_none());
+        assert!(CanRemoteFrame::remote_from_raw_id(0x123, CAN_MAX_DLEN + 1).is_none());
+        assert!(CanDataFrame::new(STD_ID, &[0u8; CAN_MAX_DLEN + 1]).is_none());
     }
 
     /// An error frame reports the full payload however it was built.
