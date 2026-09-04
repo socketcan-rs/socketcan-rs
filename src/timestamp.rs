@@ -24,6 +24,8 @@
 //! [`SocketOptions::set_recv_timestamp`]: crate::SocketOptions::set_recv_timestamp
 //! [`SocketOptions::set_timestamping`]: crate::SocketOptions::set_timestamping
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 use std::time::{Duration, SystemTime};
 
 // --------------------------------------------------------------------------
@@ -114,6 +116,7 @@ pub(crate) fn timespec_to_duration(ts: libc::timespec) -> Duration {
 /// [`SocketOptions::set_recv_timestamp`]: crate::SocketOptions::set_recv_timestamp
 /// [`SocketOptions::set_timestamping`]: crate::SocketOptions::set_timestamping
 #[derive(Debug, Clone, Copy, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct CanTimestamps {
     /// `SO_TIMESTAMPNS` — socket-layer arrival time (wall clock).
     pub socket: Option<SystemTime>,

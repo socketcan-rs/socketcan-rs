@@ -12,7 +12,7 @@
 //
 
 use anyhow::Context;
-use embedded_can::{nb::Can, Frame as EmbeddedFrame, StandardId};
+use embedded_can::{Frame as EmbeddedFrame, StandardId, nb::Can};
 use nb::block;
 use socketcan::{CanFrame, CanSocket, Frame, Socket};
 use std::env;

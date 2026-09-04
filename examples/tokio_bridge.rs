@@ -15,7 +15,7 @@
 //!
 
 use futures_util::StreamExt;
-use socketcan::{tokio::CanSocket, CanFrame, Result};
+use socketcan::{CanFrame, Result, tokio::CanSocket};
 
 #[tokio::main]
 async fn main() -> Result<()> {

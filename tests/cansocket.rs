@@ -11,10 +11,18 @@
 
 #[cfg(feature = "vcan_tests")]
 use socketcan::{
+    CanErrorFrame, CanFrame, CanSocket, EmbeddedFrame, ErrorCause, SOF_TIMESTAMPING_OPT_CMSG,
+    SOF_TIMESTAMPING_RX_SOFTWARE, SOF_TIMESTAMPING_SOFTWARE, ShouldRetry, Socket, SocketOptions,
+    StandardId,
+    errors::{
+        CAN_ERR_ACK, CAN_ERR_BUSERROR, CAN_ERR_CNT, CAN_ERR_CRTL, CAN_ERR_PROT, ControllerProblems,
+        Location, ViolationTypes,
+    },
     id::{ERR_MASK_ALL, ERR_MASK_NONE},
-    CanFrame, CanSocket, EmbeddedFrame, ShouldRetry, Socket, SocketOptions, StandardId,
-    SOF_TIMESTAMPING_OPT_CMSG, SOF_TIMESTAMPING_RX_SOFTWARE, SOF_TIMESTAMPING_SOFTWARE,
 };
+
+#[cfg(feature = "vcan_tests")]
+use serial_test::serial;
 
 #[cfg(feature = "vcan_tests")]
 use std::time::{self, SystemTime};
@@ -31,6 +39,7 @@ fn test_nonexistent_device() {
 
 #[test]
 #[cfg(feature = "vcan_tests")]
+#[serial]
 fn vcan_timeout() {
     let sock = CanSocket::open(VCAN).unwrap();
     // Filter out _any_ traffic
@@ -43,14 +52,105 @@ fn vcan_timeout() {
 
 #[test]
 #[cfg(feature = "vcan_tests")]
+#[serial]
 fn vcan_set_error_mask() {
     let sock = CanSocket::open(VCAN).unwrap();
     sock.set_error_mask(ERR_MASK_ALL).unwrap();
     sock.set_error_mask(ERR_MASK_NONE).unwrap();
 }
 
+/// Round-trips a multi-bit error frame through the kernel and checks that
+/// every condition it describes survives.
+///
+/// The frame mirrors what `mcp251xfd_handle_ivmif()` emits: three error
+/// classes at once, with five protocol violation bits packed into `data[2]`
+/// and one location in `data[3]`. Before the v4 errors rework this decoded
+/// to a single `Unknown(0xA8)`, discarding everything.
 #[test]
 #[cfg(feature = "vcan_tests")]
+#[serial]
+fn vcan_multi_bit_error_frame_round_trip() {
+    let sock = CanSocket::open(VCAN).unwrap();
+    sock.set_loopback(true).unwrap();
+    sock.set_recv_own_msgs(true).unwrap();
+    sock.set_error_mask(ERR_MASK_ALL).unwrap();
+
+    // data[2] = STUFF|FORM|TX|BIT1|BIT0, data[3] = CRC sequence.
+    let bits = CAN_ERR_PROT | CAN_ERR_BUSERROR | CAN_ERR_ACK;
+    let data = [0u8, 0, 0x9E, 0x08, 0, 0, 0, 0];
+    let frame = CanErrorFrame::new_error(bits, &data).unwrap();
+
+    sock.write_frame(&frame).unwrap();
+
+    // The receive path converts an error frame into an Err(Error::Can(..)),
+    // so read the raw frame back instead and decode it explicitly.
+    let echoed = sock.read_frame().unwrap();
+    let echoed = match echoed {
+        CanFrame::Error(f) => f,
+        other => panic!("expected an error frame, got {:?}", other),
+    };
+    assert_eq!(echoed.error_bits(), bits);
+
+    let err = echoed.into_error();
+    // The five protocol violations fold into one Protocol cause, so the frame
+    // decodes to Protocol + NoAck + BusError.
+    assert_eq!(err.len(), 3, "decoded: {}", err);
+
+    let (types, location) = err.protocol().expect("a protocol violation");
+    assert_eq!(location, Location::CrcSequence);
+    assert_eq!(
+        types,
+        ViolationTypes::FORM
+            | ViolationTypes::STUFF
+            | ViolationTypes::BIT0
+            | ViolationTypes::BIT1
+            | ViolationTypes::TX,
+    );
+    assert!(err.is_no_ack());
+    assert!(err.is_bus_error());
+
+    // And it re-encodes to the exact bytes the kernel handed us.
+    assert_eq!(CanErrorFrame::from(err), echoed);
+}
+
+/// Checks the `CAN_ERR_CRTL | CAN_ERR_CNT` frame that accompanies every
+/// controller state change, with both TX and RX warning bits set in
+/// `data[1]` the way the kernel's shared `can_change_state()` does.
+#[test]
+#[cfg(feature = "vcan_tests")]
+#[serial]
+fn vcan_controller_state_change_error_frame() {
+    let sock = CanSocket::open(VCAN).unwrap();
+    sock.set_loopback(true).unwrap();
+    sock.set_recv_own_msgs(true).unwrap();
+    sock.set_error_mask(ERR_MASK_ALL).unwrap();
+
+    let bits = CAN_ERR_CRTL | CAN_ERR_CNT;
+    let data = [0u8, 0x0C, 0, 0, 0, 0, 112, 96];
+    sock.write_frame(&CanErrorFrame::new_error(bits, &data).unwrap())
+        .unwrap();
+
+    let echoed = match sock.read_frame().unwrap() {
+        CanFrame::Error(f) => f,
+        other => panic!("expected an error frame, got {:?}", other),
+    };
+
+    let err = echoed.into_error();
+    let all: Vec<ErrorCause> = err.causes().copied().collect();
+    assert_eq!(
+        all,
+        vec![
+            ErrorCause::Controller(ControllerProblems::RX_WARNING | ControllerProblems::TX_WARNING),
+            ErrorCause::Counters { tx: 112, rx: 96 },
+        ],
+        "decoded: {}",
+        err
+    );
+}
+
+#[test]
+#[cfg(feature = "vcan_tests")]
+#[serial]
 fn vcan_enable_own_loopback() {
     let sock = CanSocket::open(VCAN).unwrap();
     sock.set_loopback(true).unwrap();
@@ -71,6 +171,7 @@ fn vcan_enable_own_loopback() {
 
 #[test]
 #[cfg(feature = "vcan_tests")]
+#[serial]
 fn vcan_test_nonblocking() {
     let sock = CanSocket::open(VCAN).unwrap();
     // Filter out _any_ traffic
@@ -83,6 +184,7 @@ fn vcan_test_nonblocking() {
 
 #[test]
 #[cfg(feature = "vcan_tests")]
+#[serial]
 fn vcan_has_hw_timestamps_returns_false() {
     // vcan is a software-only driver, so it must never claim HW timestamp
     // support — and the query must not panic on an unbound/SW interface.
@@ -92,6 +194,7 @@ fn vcan_has_hw_timestamps_returns_false() {
 
 #[test]
 #[cfg(feature = "vcan_tests")]
+#[serial]
 fn vcan_read_frame_with_timestamp() {
     let sock = CanSocket::open(VCAN).unwrap();
     sock.set_loopback(true).unwrap();
@@ -119,6 +222,7 @@ fn vcan_read_frame_with_timestamp() {
 
 #[test]
 #[cfg(feature = "vcan_tests")]
+#[serial]
 fn vcan_read_frame_with_timestamps_populates_sw() {
     let sock = CanSocket::open(VCAN).unwrap();
     sock.set_loopback(true).unwrap();

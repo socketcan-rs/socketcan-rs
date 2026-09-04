@@ -17,7 +17,7 @@
 
 use embedded_can::{Frame, StandardId};
 use futures_timer::Delay;
-use socketcan::{tokio::CanSocket, CanFrame, Result};
+use socketcan::{CanFrame, Result, tokio::CanSocket};
 use std::{env, time::Duration};
 
 #[tokio::main]
@@ -33,6 +33,6 @@ async fn main() -> Result<()> {
         socket_tx.write_frame(frame).await?;
 
         println!("Waiting 3 seconds");
-        Delay::new(Duration::from_secs(3)).await?;
+        Delay::new(Duration::from_secs(3)).await;
     }
 }

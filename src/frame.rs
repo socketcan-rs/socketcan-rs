@@ -30,20 +30,20 @@
 //!   [Error](https://doc.rust-lang.org/std/error/trait.Error.html) types.
 //!
 
-use crate::{id::CanId, CanError, ConstructionError};
+use crate::{CanError, ConstructionError, ErrorCause, id::CanId};
 use embedded_can::{ExtendedId, Frame as EmbeddedFrame, Id, StandardId};
 use libc::{can_frame, canfd_frame, canid_t};
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 use std::{
     ffi::c_void,
     mem::size_of,
     {convert::TryFrom, fmt, matches, mem},
 };
 
-// TODO: Remove these on the next major ver update.
-pub use crate::id::{
-    id_from_raw, id_is_extended, id_to_canid_t, FdFlags, IdFlags, CANFD_BRS, CANFD_ESI, CANFD_FDF,
-    CANFD_MAX_DLEN, CAN_EFF_FLAG, CAN_EFF_MASK, CAN_ERR_FLAG, CAN_ERR_MASK, CAN_MAX_DLEN,
-    CAN_RTR_FLAG, CAN_SFF_MASK, ERR_MASK_ALL, ERR_MASK_NONE,
+use crate::id::{
+    CAN_EFF_MASK, CAN_ERR_FLAG, CAN_ERR_MASK, CAN_MAX_DLEN, CAN_RTR_FLAG, CAN_SFF_MASK, CANFD_BRS,
+    CANFD_ESI, CANFD_FDF, CANFD_MAX_DLEN, FdFlags, IdFlags, id_from_raw, id_to_canid_t,
 };
 
 // ===== can_frame =====
@@ -60,6 +60,42 @@ pub fn can_frame_default() -> can_frame {
 #[inline(always)]
 pub fn canfd_frame_default() -> canfd_frame {
     unsafe { mem::zeroed() }
+}
+
+/// Normalizes the length field of a raw C `can_frame`.
+///
+/// An error frame always carries the full eight-byte payload, so its length
+/// is forced to `CAN_MAX_DLEN`; that keeps `dlc()`, `len()` and `data()` in
+/// agreement whichever conversion built it. Any other frame's length is
+/// clamped to what `can_frame::data` can hold.
+///
+/// The kernel never delivers a classical frame with a length above
+/// `CAN_MAX_DLEN` — a len8 frame's raw DLC lives in `len8_dlc`, which this
+/// crate does not use — but a caller-supplied struct can hold anything, and
+/// the conversions from a raw `can_frame` are infallible or check only the
+/// flag bits. Every one of them normalizes here rather than trusting the
+/// field. `CanFdFrame`'s conversion does the equivalent for `canfd_frame`.
+///
+/// An out-of-range DLC is handled differently depending on where it came
+/// from, and the split is deliberate:
+///
+/// | Entry point | Out-of-range DLC | Why |
+/// |---|---|---|
+/// | `From<can_frame>`, `TryFrom<can_frame>` | clamped here | A raw C struct is data to sanitize, not a request to validate. `From` cannot fail at all, and having `TryFrom` reject what `From` accepts would make two conversions disagree about the same struct. |
+/// | [`CanRemoteFrame::new_remote()`] and the other constructors | `None` | A caller passing 9 has made a programming error; there is a return value to say so. |
+/// | [`dump::Reader`](crate::dump::Reader) | [`ParseError::InvalidCanFrame`](crate::dump::ParseError::InvalidCanFrame) | Log text is untrusted input, and silently rewriting `123#RF` to `123#R8` would misreport what the log said. |
+///
+/// So: sanitize a struct, reject a request. `out_of_range_dlc_policy` in this
+/// module's tests pins the first two, and `test_remote_dlc_range` in `dump`
+/// pins the third.
+#[inline]
+fn normalize_dlc(mut frame: can_frame) -> can_frame {
+    frame.can_dlc = if frame.can_id & CAN_ERR_FLAG != 0 {
+        CAN_MAX_DLEN as u8
+    } else {
+        frame.can_dlc.min(CAN_MAX_DLEN as u8)
+    };
+    frame
 }
 
 // ===== AsPtr trait =====
@@ -81,7 +117,15 @@ pub trait AsPtr {
     }
 
     /// Gets a byte slice to the inner type
-    fn as_bytes(&self) -> &[u8] {
+    ///
+    /// # Safety
+    ///
+    /// All `self.size()` bytes of the inner value — including any padding —
+    /// must be initialised at the time of this call. Reading the returned
+    /// slice is undefined behaviour otherwise. This crate's frame types
+    /// satisfy that by construction: they start from a zeroed struct and
+    /// every setter that shortens the payload zeroes the bytes it vacates.
+    unsafe fn as_bytes(&self) -> &[u8] {
         unsafe {
             std::slice::from_raw_parts::<'_, u8>(
                 self.as_ptr() as *const _ as *const u8,
@@ -91,7 +135,14 @@ pub trait AsPtr {
     }
 
     /// Gets a mutable byte slice to the inner type
-    fn as_bytes_mut(&mut self) -> &mut [u8] {
+    ///
+    /// # Safety
+    ///
+    /// Either all `self.size()` bytes of the inner value must be initialised
+    /// at the time of the call, OR the caller must overwrite the entire slice
+    /// before reading from it. Constructing the slice is sound, but reading
+    /// uninitialised bytes through it is undefined behaviour.
+    unsafe fn as_bytes_mut(&mut self) -> &mut [u8] {
         unsafe { std::slice::from_raw_parts_mut(self.as_mut_ptr() as *mut u8, self.size()) }
     }
 }
@@ -176,8 +227,7 @@ pub trait Frame: EmbeddedFrame {
 // ===== CanAnyFrame =====
 
 /// An FD socket can read a raw classic 2.0 or FD frame.
-#[allow(missing_debug_implementations)]
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CanRawFrame {
     /// A classic CAN 2.0 frame, with up to 8-bytes of data
     Classic(can_frame),
@@ -199,6 +249,7 @@ impl From<canfd_frame> for CanRawFrame {
 
 /// Any frame type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum CanAnyFrame {
     /// A classic CAN 2.0 frame, with up to 8-bytes of data
     Normal(CanDataFrame),
@@ -314,6 +365,14 @@ impl EmbeddedFrame for CanAnyFrame {
 }
 
 impl fmt::UpperHex for CanAnyFrame {
+    /// Renders the frame in candump's `-L` log spelling.
+    ///
+    /// This and the per-variant impls it delegates to are the crate's single
+    /// definition of that format: `dump::CanDumpRecord`'s `Display` writes a
+    /// timestamp and an interface and then defers to this, so a change here
+    /// changes the log format the `dump` module reads and writes. Keep the
+    /// output round-trippable through `dump::Reader`; the tests in that
+    /// module assert it.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use CanAnyFrame::*;
         match self {
@@ -466,6 +525,7 @@ impl TryFrom<CanAnyFrame> for CanFdFrame {
 
 /// The classic CAN 2.0 frame with up to 8-bytes of data.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum CanFrame {
     /// A data frame
     Data(CanDataFrame),
@@ -611,7 +671,16 @@ impl fmt::UpperHex for CanFrame {
 
 impl From<can_frame> for CanFrame {
     /// Create a `CanFrame` from a C `can_frame` struct.
+    ///
+    /// The flag bits in the ID word pick the variant. The length field is
+    /// normalized on the way in: an error frame is given the full eight-byte
+    /// payload it always carries, and any other length is clamped to the
+    /// eight bytes `can_frame::data` can hold, so that `dlc()`, `len()` and
+    /// `data()` always agree. The kernel never delivers anything else, but
+    /// this conversion cannot fail, so it cannot reject a caller-built struct
+    /// either.
     fn from(frame: can_frame) -> Self {
+        let frame = normalize_dlc(frame);
         if frame.can_id & CAN_ERR_FLAG != 0 {
             CanFrame::Error(CanErrorFrame(frame))
         } else if frame.can_id & CAN_RTR_FLAG != 0 {
@@ -705,6 +774,11 @@ impl TryFrom<CanFdFrame> for CanFrame {
 /// This is highly compatible with the `can_frame` from libc.
 /// ([ref](https://docs.rs/libc/latest/libc/struct.can_frame.html))
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(into = "CanDataFrameRepr", try_from = "CanDataFrameRepr")
+)]
 pub struct CanDataFrame(can_frame);
 
 impl CanDataFrame {
@@ -794,11 +868,16 @@ impl Frame for CanDataFrame {
     }
 
     /// Sets the data payload of the frame.
+    ///
+    /// The bytes beyond the new payload are zeroed, so a shorter payload does
+    /// not leave part of a longer one behind for the kernel to receive in the
+    /// unused tail of the frame struct.
     fn set_data(&mut self, data: &[u8]) -> Result<(), ConstructionError> {
         match data.len() {
             n if n <= CAN_MAX_DLEN => {
                 self.0.can_dlc = n as u8;
                 self.0.data[..n].copy_from_slice(data);
+                self.0.data[n..].fill(0);
                 Ok(())
             }
             _ => Err(ConstructionError::TooMuchData),
@@ -841,10 +920,11 @@ impl TryFrom<can_frame> for CanDataFrame {
     /// Try to create a `CanDataFrame` from a C `can_frame`
     ///
     /// This will succeed as long as the C frame is not marked as an error
-    /// or remote frame.
+    /// or remote frame. The payload length is clamped to the eight bytes
+    /// `can_frame::data` can hold.
     fn try_from(frame: can_frame) -> Result<Self, Self::Error> {
         if frame.can_id & (CAN_ERR_FLAG | CAN_RTR_FLAG) == 0 {
-            Ok(Self(frame))
+            Ok(Self(normalize_dlc(frame)))
         } else {
             Err(ConstructionError::WrongFrameType)
         }
@@ -878,6 +958,11 @@ impl AsRef<can_frame> for CanDataFrame {
 /// This is highly compatible with the `can_frame` from libc.
 /// ([ref](https://docs.rs/libc/latest/libc/struct.can_frame.html))
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(into = "CanRemoteFrameRepr", try_from = "CanRemoteFrameRepr")
+)]
 pub struct CanRemoteFrame(can_frame);
 
 impl CanRemoteFrame {
@@ -1024,10 +1109,12 @@ impl TryFrom<can_frame> for CanRemoteFrame {
 
     /// Try to create a `CanRemoteFrame` from a C `can_frame`
     ///
-    /// This will only succeed the C frame is marked as a remote frame.
+    /// This will only succeed the C frame is marked as a remote frame. The
+    /// requested length is clamped to `CAN_MAX_DLEN`, so a raw struct cannot
+    /// smuggle in a DLC that the type's own constructors reject.
     fn try_from(frame: can_frame) -> Result<Self, Self::Error> {
         if frame.can_id & CAN_RTR_FLAG != 0 {
-            Ok(Self(frame))
+            Ok(Self(normalize_dlc(frame)))
         } else {
             Err(ConstructionError::WrongFrameType)
         }
@@ -1052,6 +1139,11 @@ impl AsRef<can_frame> for CanRemoteFrame {
 /// This is highly compatible with the `can_frame` from libc.
 /// ([ref](https://docs.rs/libc/latest/libc/struct.can_frame.html))
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(into = "CanErrorFrameRepr", try_from = "CanErrorFrameRepr")
+)]
 pub struct CanErrorFrame(can_frame);
 
 impl CanErrorFrame {
@@ -1087,7 +1179,11 @@ impl CanErrorFrame {
         self.id_word() & CAN_ERR_MASK
     }
 
-    /// Converts this error frame into a `CanError`
+    /// Decodes this error frame into the error it describes.
+    ///
+    /// A single error frame reports one error event, though it commonly has
+    /// several distinct causes, so this yields a non-empty [`CanError`]. See
+    /// the [errors module](crate::errors) for the layout.
     pub fn into_error(self) -> CanError {
         CanError::from(self)
     }
@@ -1188,9 +1284,12 @@ impl fmt::Debug for CanErrorFrame {
 impl fmt::UpperHex for CanErrorFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         // Render the full 29-bit error-class field so future kernel additions
-        // outside CAN_SFF_MASK stay readable. `error_bits()` already strips
-        // CAN_ERR_FLAG and any other non-class bits.
-        write!(f, "{:08X}#", self.error_bits())?;
+        // outside CAN_SFF_MASK stay readable, with CAN_ERR_FLAG included the
+        // way candump writes it. The flag is what tells an eight-digit field
+        // apart from an extended ID, so leaving it off would produce output
+        // that reads back as a standard *data* frame. `error_bits()` strips
+        // it along with any other non-class bits, so it goes back on here.
+        write!(f, "{:08X}#", self.error_bits() | CAN_ERR_FLAG)?;
         for byte in self.data() {
             write!(f, "{:02X}", byte)?;
         }
@@ -1203,13 +1302,12 @@ impl TryFrom<can_frame> for CanErrorFrame {
 
     /// Try to create a `CanErrorFrame` from a C `can_frame`
     ///
-    /// This will only succeed the C frame is marked as an error frame.
-    fn try_from(mut frame: can_frame) -> Result<Self, Self::Error> {
+    /// This will only succeed the C frame is marked as an error frame. Error
+    /// frames carry the full 8-byte payload by convention, so the length is
+    /// forced to that, keeping `dlc()`, `len()` and `data()` in agreement.
+    fn try_from(frame: can_frame) -> Result<Self, Self::Error> {
         if frame.can_id & CAN_ERR_FLAG != 0 {
-            // Error frames carry the full 8-byte payload by convention; force
-            // can_dlc so that `dlc()`, `len()` and `data()` agree.
-            frame.can_dlc = CAN_MAX_DLEN as u8;
-            Ok(Self(frame))
+            Ok(Self(normalize_dlc(frame)))
         } else {
             Err(ConstructionError::WrongFrameType)
         }
@@ -1217,34 +1315,77 @@ impl TryFrom<can_frame> for CanErrorFrame {
 }
 
 impl From<CanError> for CanErrorFrame {
+    /// Encodes a decoded error back into a single error frame.
+    ///
+    /// This is the inverse of [`CanErrorFrame::into_error()`] and round-trips
+    /// byte-for-byte for anything that has a wire representation. Class bits
+    /// and the bitfield data bytes accumulate, so a folded set of controller
+    /// problems or violation types writes straight back into the one byte it
+    /// came from.
+    ///
+    /// The one lossy case is [`ErrorCause::DecodingFailure`], which describes
+    /// a byte pattern we could not interpret rather than a condition the bus
+    /// reported; it has no encoding and is skipped. Note also that a
+    /// (hand-built) error holding several [`ErrorCause::Protocol`] causes with
+    /// *differing* locations cannot be represented — the last one written
+    /// wins, since the frame has only one location byte.
     fn from(err: CanError) -> Self {
-        use CanError::*;
+        use ErrorCause::*;
 
         let mut data = [0u8; CAN_MAX_DLEN];
-        let id: canid_t = match err {
-            TransmitTimeout => 0x0001,
-            LostArbitration(bit) => {
-                data[0] = bit;
-                0x0002
+        let mut id: canid_t = 0;
+
+        for cause in &err {
+            match *cause {
+                TransmitTimeout => id |= libc::CAN_ERR_TX_TIMEOUT,
+                LostArbitration(bit) => {
+                    id |= libc::CAN_ERR_LOSTARB;
+                    data[0] = bit;
+                }
+                Controller(problems) => {
+                    id |= libc::CAN_ERR_CRTL;
+                    // OR, not assign: data[1] is a bitfield and a frame can
+                    // report several problems at once.
+                    data[1] |= problems.bits();
+                }
+                Protocol { types, location } => {
+                    id |= libc::CAN_ERR_PROT;
+                    data[2] |= types.bits();
+                    data[3] = location.as_raw();
+                }
+                Transceiver { canh, canl } => {
+                    id |= libc::CAN_ERR_TRX;
+                    // Two independent nibbles: CAN High in the low half,
+                    // CAN Low in the high half.
+                    if let Some(h) = canh {
+                        data[4] |= h as u8;
+                    }
+                    if let Some(l) = canl {
+                        data[4] |= l as u8;
+                    }
+                }
+                NoAck => id |= libc::CAN_ERR_ACK,
+                BusOff => id |= libc::CAN_ERR_BUSOFF,
+                BusError => id |= libc::CAN_ERR_BUSERROR,
+                Restarted => id |= libc::CAN_ERR_RESTARTED,
+                Counters { tx, rx } => {
+                    id |= libc::CAN_ERR_CNT;
+                    data[6] = tx;
+                    data[7] = rx;
+                }
+                // No wire representation; see the note above.
+                DecodingFailure(_) => (),
+                Unknown(bits) => id |= bits,
             }
-            ControllerProblem(prob) => {
-                data[1] = prob as u8;
-                0x0004
-            }
-            ProtocolViolation { vtype, location } => {
-                data[2] = vtype as u8;
-                data[3] = location as u8;
-                0x0008
-            }
-            TransceiverError => 0x0010,
-            NoAck => 0x0020,
-            BusOff => 0x0040,
-            BusError => 0x0080,
-            Restarted => 0x0100,
-            DecodingFailure(_failure) => 0,
-            Unknown(e) => e,
-        };
+        }
         Self::new_error(id, &data).unwrap()
+    }
+}
+
+impl From<ErrorCause> for CanErrorFrame {
+    /// Encodes a single error cause into an error frame.
+    fn from(cause: ErrorCause) -> Self {
+        Self::from(CanError::new(cause))
     }
 }
 
@@ -1271,6 +1412,11 @@ const VALID_EXT_DLENGTHS: [usize; 7] = [12, 16, 20, 24, 32, 48, 64];
 /// Note:
 ///   - The FDF flag is forced on when created.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(into = "CanFdFrameRepr", try_from = "CanFdFrameRepr")
+)]
 pub struct CanFdFrame(canfd_frame);
 
 impl CanFdFrame {
@@ -1531,11 +1677,201 @@ impl AsRef<canfd_frame> for CanFdFrame {
 }
 
 /////////////////////////////////////////////////////////////////////////////
+// serde support
+//
+// The frame types are newtypes over the C `can_frame` / `canfd_frame`, neither
+// of which implements serde, so a plain derive is not possible. Each type
+// converts through a logical repr instead, which also gets validation on
+// deserialize for free by routing back through the normal constructors.
+//
+// Note that the raw C structs are deliberately *not* serialized: they contain
+// padding and potentially-uninitialised bytes (the same reason `as_bytes` is
+// `unsafe`), and their layout is not portable.
+
+/// `serialize_with` / `deserialize_with` for frame payload fields.
+///
+/// Goes through `serialize_bytes` so formats with a native byte-string type
+/// (MessagePack `bin`, CBOR byte strings, bincode) use it rather than encoding
+/// a sequence of integers. Text formats such as JSON have no byte-string type
+/// and fall back to a sequence, which is why the visitor accepts both.
+#[cfg(feature = "serde")]
+mod payload {
+    use serde::{
+        Deserializer, Serializer,
+        de::{Error, SeqAccess, Visitor},
+    };
+    use std::fmt;
+
+    pub fn serialize<S: Serializer>(data: &[u8], ser: S) -> Result<S::Ok, S::Error> {
+        ser.serialize_bytes(data)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(de: D) -> Result<Vec<u8>, D::Error> {
+        struct V;
+
+        impl<'de> Visitor<'de> for V {
+            type Value = Vec<u8>;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a byte string or a sequence of bytes")
+            }
+
+            fn visit_bytes<E: Error>(self, v: &[u8]) -> Result<Self::Value, E> {
+                Ok(v.to_vec())
+            }
+
+            fn visit_byte_buf<E: Error>(self, v: Vec<u8>) -> Result<Self::Value, E> {
+                Ok(v)
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                let mut out = Vec::with_capacity(seq.size_hint().unwrap_or(0));
+                while let Some(b) = seq.next_element()? {
+                    out.push(b);
+                }
+                Ok(out)
+            }
+        }
+
+        de.deserialize_bytes(V)
+    }
+}
+
+/// Serialized form of a [`CanDataFrame`].
+#[cfg(feature = "serde")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CanDataFrameRepr {
+    /// The frame identifier
+    pub id: CanId,
+    /// The payload, 0..=8 bytes
+    #[serde(default, with = "payload", skip_serializing_if = "Vec::is_empty")]
+    pub data: Vec<u8>,
+}
+
+#[cfg(feature = "serde")]
+impl From<CanDataFrame> for CanDataFrameRepr {
+    fn from(frame: CanDataFrame) -> Self {
+        Self {
+            id: frame.can_id(),
+            data: frame.data().to_vec(),
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl TryFrom<CanDataFrameRepr> for CanDataFrame {
+    type Error = ConstructionError;
+
+    fn try_from(repr: CanDataFrameRepr) -> Result<Self, Self::Error> {
+        Self::new(repr.id, &repr.data).ok_or(ConstructionError::TooMuchData)
+    }
+}
+
+/// Serialized form of a [`CanRemoteFrame`].
+///
+/// A remote frame carries no payload; only the requested length is meaningful.
+#[cfg(feature = "serde")]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct CanRemoteFrameRepr {
+    /// The frame identifier
+    pub id: CanId,
+    /// The requested data length code
+    #[serde(default)]
+    pub dlc: usize,
+}
+
+#[cfg(feature = "serde")]
+impl From<CanRemoteFrame> for CanRemoteFrameRepr {
+    fn from(frame: CanRemoteFrame) -> Self {
+        Self {
+            id: frame.can_id(),
+            dlc: frame.dlc(),
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl TryFrom<CanRemoteFrameRepr> for CanRemoteFrame {
+    type Error = ConstructionError;
+
+    fn try_from(repr: CanRemoteFrameRepr) -> Result<Self, Self::Error> {
+        Self::new_remote(repr.id, repr.dlc).ok_or(ConstructionError::TooMuchData)
+    }
+}
+
+/// Serialized form of a [`CanErrorFrame`].
+///
+/// The identifier of an error frame is a set of error-class bits rather than a
+/// bus address, and the payload is always the full eight class-detail bytes.
+/// See the [errors module](crate::errors) for their meaning.
+#[cfg(feature = "serde")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CanErrorFrameRepr {
+    /// The error class bits, without `CAN_ERR_FLAG`
+    pub error_bits: u32,
+    /// The eight error-detail bytes
+    #[serde(default, with = "payload", skip_serializing_if = "Vec::is_empty")]
+    pub data: Vec<u8>,
+}
+
+#[cfg(feature = "serde")]
+impl From<CanErrorFrame> for CanErrorFrameRepr {
+    fn from(frame: CanErrorFrame) -> Self {
+        Self {
+            error_bits: frame.error_bits(),
+            data: frame.data().to_vec(),
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl TryFrom<CanErrorFrameRepr> for CanErrorFrame {
+    type Error = ConstructionError;
+
+    fn try_from(repr: CanErrorFrameRepr) -> Result<Self, Self::Error> {
+        Self::new_error(repr.error_bits, &repr.data)
+    }
+}
+
+/// Serialized form of a [`CanFdFrame`].
+#[cfg(feature = "serde")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CanFdFrameRepr {
+    /// The frame identifier
+    pub id: CanId,
+    /// The FD flags (BRS / ESI / FDF)
+    pub flags: FdFlags,
+    /// The payload, 0..=64 bytes
+    #[serde(default, with = "payload", skip_serializing_if = "Vec::is_empty")]
+    pub data: Vec<u8>,
+}
+
+#[cfg(feature = "serde")]
+impl From<CanFdFrame> for CanFdFrameRepr {
+    fn from(frame: CanFdFrame) -> Self {
+        Self {
+            id: frame.can_id(),
+            flags: frame.flags(),
+            data: frame.data().to_vec(),
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl TryFrom<CanFdFrameRepr> for CanFdFrame {
+    type Error = ConstructionError;
+
+    fn try_from(repr: CanFdFrameRepr) -> Result<Self, Self::Error> {
+        Self::with_flags(repr.id, &repr.data, repr.flags).ok_or(ConstructionError::TooMuchData)
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::errors;
+    use crate::{errors, id::CAN_EFF_FLAG};
 
     const STD_ID: Id = Id::Standard(StandardId::MAX);
     const EXT_ID: Id = Id::Extended(ExtendedId::MAX);
@@ -1562,6 +1898,151 @@ mod tests {
             Id::Standard(id) => id.as_raw() as u32,
             Id::Extended(id) => id.as_raw(),
         }
+    }
+
+    /// A raw `can_frame` whose length exceeds the payload array is clamped on
+    /// the way in, on every conversion that accepts one.
+    ///
+    /// The kernel cannot deliver such a frame, but a caller-supplied struct
+    /// can hold anything, and `data()` slices by the length — so before this
+    /// was normalized, `data()`, `Debug` and `UpperHex` all panicked on the
+    /// resulting frame.
+    #[test]
+    fn raw_frame_length_is_clamped() {
+        let mut raw = can_frame_default();
+        raw.can_id = 0x123;
+        raw.can_dlc = 9;
+        raw.data = [1, 2, 3, 4, 5, 6, 7, 8];
+
+        let frame = CanFrame::from(raw);
+        assert_eq!(frame.dlc(), CAN_MAX_DLEN);
+        assert_eq!(frame.len(), CAN_MAX_DLEN);
+        assert_eq!(frame.data(), &raw.data[..]);
+        // These panicked before the clamp.
+        assert_eq!(format!("{:X}", frame), "123#0102030405060708");
+        let _ = format!("{:?}", frame);
+
+        // Every other entry point for a raw frame agrees.
+        assert_eq!(CanDataFrame::try_from(raw).unwrap().dlc(), CAN_MAX_DLEN);
+
+        let mut rtr = raw;
+        rtr.can_id |= CAN_RTR_FLAG;
+        rtr.can_dlc = 15;
+        assert_eq!(CanRemoteFrame::try_from(rtr).unwrap().dlc(), CAN_MAX_DLEN);
+        assert_eq!(CanFrame::from(rtr).dlc(), CAN_MAX_DLEN);
+    }
+
+    /// Shortening a payload clears the bytes it vacates.
+    ///
+    /// `data()` slices by the length either way, so the stale tail was
+    /// invisible through the API — but `write_frame()` hands the whole struct
+    /// to the kernel, and `AsPtr::as_bytes()` promises every byte is written.
+    #[test]
+    fn set_data_clears_the_tail() {
+        let mut frame = CanDataFrame::new(STD_ID, &[1, 2, 3, 4, 5, 6, 7, 8]).unwrap();
+        assert_eq!(frame.as_ref().data, [1, 2, 3, 4, 5, 6, 7, 8]);
+
+        frame.set_data(&[9]).unwrap();
+        assert_eq!(frame.data(), &[9]);
+        assert_eq!(frame.as_ref().data, [9, 0, 0, 0, 0, 0, 0, 0]);
+
+        frame.set_data(EMPTY_DATA).unwrap();
+        assert_eq!(frame.data(), EMPTY_DATA);
+        assert_eq!(frame.as_ref().data, [0; CAN_MAX_DLEN]);
+
+        // A rejected call leaves the frame alone.
+        frame.set_data(&[7, 7]).unwrap();
+        assert!(frame.set_data(&[0xFF; 9]).is_err());
+        assert_eq!(frame.data(), &[7, 7]);
+        assert_eq!(frame.as_ref().data, [7, 7, 0, 0, 0, 0, 0, 0]);
+    }
+
+    /// The two policies for an out-of-range DLC, side by side.
+    ///
+    /// A raw `can_frame` is sanitized — its length is clamped, because
+    /// `From` cannot fail and `TryFrom` rejecting what `From` accepts would
+    /// make the two disagree about the same struct. A *request* built through
+    /// a constructor is rejected instead, because there is a return value to
+    /// say so with. `dump::Reader` rejects too, for the same reason; see
+    /// `test_remote_dlc_range` there.
+    ///
+    /// This is pinned in one place so the split reads as intentional rather
+    /// than as an oversight in whichever path is looked at first.
+    #[test]
+    fn out_of_range_dlc_policy() {
+        let mut raw = can_frame_default();
+        raw.can_id = 0x123 | CAN_RTR_FLAG;
+        raw.can_dlc = 15;
+
+        // A struct gets sanitized, by every conversion that accepts one.
+        assert_eq!(CanFrame::from(raw).dlc(), CAN_MAX_DLEN);
+        assert_eq!(CanRemoteFrame::try_from(raw).unwrap().dlc(), CAN_MAX_DLEN);
+
+        let mut data_raw = can_frame_default();
+        data_raw.can_id = 0x123;
+        data_raw.can_dlc = 9;
+        assert_eq!(CanFrame::from(data_raw).dlc(), CAN_MAX_DLEN);
+        assert_eq!(
+            CanDataFrame::try_from(data_raw).unwrap().dlc(),
+            CAN_MAX_DLEN
+        );
+
+        // A request gets rejected.
+        assert!(CanRemoteFrame::new_remote(STD_ID, CAN_MAX_DLEN).is_some());
+        assert!(CanRemoteFrame::new_remote(STD_ID, CAN_MAX_DLEN + 1).is_none());
+        assert!(CanRemoteFrame::remote_from_raw_id(0x123, CAN_MAX_DLEN + 1).is_none());
+        assert!(CanDataFrame::new(STD_ID, &[0u8; CAN_MAX_DLEN + 1]).is_none());
+    }
+
+    /// An error frame reports the full payload however it was built.
+    ///
+    /// `CanErrorFrame::data()` always yields all eight bytes, so a length
+    /// short of that would leave `len()` disagreeing with `data().len()`.
+    /// `TryFrom` always forced the length; `From<can_frame> for CanFrame`
+    /// used to skip it.
+    #[test]
+    fn raw_error_frame_length_is_forced() {
+        let mut raw = can_frame_default();
+        raw.can_id = CAN_ERR_FLAG | 0x04;
+        raw.can_dlc = 0;
+
+        for frame in [
+            CanFrame::from(raw),
+            CanFrame::Error(CanErrorFrame::try_from(raw).unwrap()),
+        ] {
+            assert_eq!(frame.dlc(), CAN_MAX_DLEN);
+            assert_eq!(frame.len(), CAN_MAX_DLEN);
+            assert_eq!(frame.data().len(), CAN_MAX_DLEN);
+        }
+    }
+
+    /// An error frame renders with `CAN_ERR_FLAG` set, so its own output
+    /// identifies it as an error frame rather than as a data frame.
+    ///
+    /// The eight-digit identifier field is ambiguous on its face — it is an
+    /// extended ID or an error frame, told apart only by this bit. Rendering
+    /// the bare class bits produced `00000004#…`, which reads back as a
+    /// *standard data frame* with ID 0x004. `CanDumpRecord`'s `Display`
+    /// already got this right; these two now agree.
+    #[test]
+    fn error_frame_renders_with_the_err_flag() {
+        let frame = CanErrorFrame::new_error(0x04, &[0, 0x0C, 0, 0, 0, 0, 0, 0]).unwrap();
+
+        assert_eq!(
+            format!("{:X}", frame),
+            "20000004#000C000000000000",
+            "the error flag must survive into the rendering"
+        );
+        // The enclosing enum delegates, so it must not lose the flag either.
+        assert_eq!(
+            format!("{:X}", CanFrame::Error(frame)),
+            "20000004#000C000000000000"
+        );
+        assert!(format!("{:?}", frame).contains("20000004#"));
+
+        // A class bit above CAN_SFF_MASK still renders in full.
+        let wide = CanErrorFrame::new_error(CAN_ERR_MASK, &[0; 8]).unwrap();
+        assert_eq!(format!("{:X}", wide), "3FFFFFFF#0000000000000000");
     }
 
     #[test]
@@ -1731,8 +2212,16 @@ mod tests {
         let mut frame = can_frame_default();
         frame.can_id = CAN_ERR_FLAG | 0x0010;
 
+        // A bare CAN_ERR_TRX with data[4] == 0 is an unspecified
+        // transceiver fault (both lines absent).
         let err = CanError::from(CanErrorFrame(frame));
-        assert!(matches!(err, CanError::TransceiverError));
+        assert_eq!(
+            *err.first(),
+            ErrorCause::Transceiver {
+                canh: None,
+                canl: None
+            }
+        );
 
         let id = StandardId::new(0x0010).unwrap();
         let frame = CanErrorFrame::new(id, &[]).unwrap();
@@ -1741,7 +2230,13 @@ mod tests {
         assert!(frame.is_error_frame());
 
         let err = CanError::from(frame);
-        assert!(matches!(err, CanError::TransceiverError));
+        assert_eq!(
+            *err.first(),
+            ErrorCause::Transceiver {
+                canh: None,
+                canl: None
+            }
+        );
 
         let id = ExtendedId::new(0x0020).unwrap();
         let frame = CanErrorFrame::new(id, &[]).unwrap();
@@ -1750,34 +2245,122 @@ mod tests {
         assert!(frame.is_error_frame());
 
         let err = CanError::from(frame);
-        assert!(matches!(err, CanError::NoAck));
+        assert_eq!(*err.first(), ErrorCause::NoAck);
+        assert!(err.is_single());
 
-        // From CanErrors
+        // From a single cause
 
-        let frame = CanErrorFrame::from(CanError::TransmitTimeout);
+        let frame = CanErrorFrame::from(ErrorCause::TransmitTimeout);
         assert!(!frame.is_data_frame());
         assert!(!frame.is_remote_frame());
         assert!(frame.is_error_frame());
 
         let err = frame.into_error();
-        assert!(matches!(err, CanError::TransmitTimeout));
+        assert!(err.is_single());
+        assert_eq!(*err.first(), ErrorCause::TransmitTimeout);
 
-        let err = CanError::ProtocolViolation {
-            vtype: errors::ViolationType::BitStuffingError,
+        let cause = ErrorCause::Protocol {
+            types: errors::ViolationTypes::STUFF,
             location: errors::Location::Id0400,
         };
-        let frame = CanErrorFrame::from(err);
+        let frame = CanErrorFrame::from(cause);
         assert!(!frame.is_data_frame());
         assert!(!frame.is_remote_frame());
         assert!(frame.is_error_frame());
 
-        match frame.into_error() {
-            CanError::ProtocolViolation { vtype, location } => {
-                assert_eq!(vtype, errors::ViolationType::BitStuffingError);
-                assert_eq!(location, errors::Location::Id0400);
-            }
-            _ => assert!(false),
+        let err = frame.into_error();
+        assert_eq!(err.len(), 1);
+        assert_eq!(*err.first(), cause);
+    }
+
+    /// Encoding a decoded frame must reproduce it byte for byte.
+    ///
+    /// This is the guard against the family of encode bugs where a bitfield
+    /// byte is assigned rather than OR'd, a class bit is written without its
+    /// data byte (or the reverse), or a whole field is dropped.
+    #[test]
+    fn test_error_frame_round_trip() {
+        use crate::errors::{CanLowFault, ControllerProblems, Location, ViolationTypes};
+        use libc::{
+            CAN_ERR_ACK, CAN_ERR_BUSERROR, CAN_ERR_BUSOFF, CAN_ERR_CNT, CAN_ERR_CRTL,
+            CAN_ERR_LOSTARB, CAN_ERR_PROT, CAN_ERR_RESTARTED, CAN_ERR_TRX, CAN_ERR_TX_TIMEOUT,
+        };
+
+        // (class bits, data) pairs drawn from real driver behaviour.
+        let cases: &[(u32, [u8; 8])] = &[
+            // Single classes.
+            (CAN_ERR_TX_TIMEOUT, [0; 8]),
+            (CAN_ERR_BUSOFF, [0; 8]),
+            (CAN_ERR_RESTARTED, [0; 8]),
+            (CAN_ERR_ACK, [0; 8]),
+            (CAN_ERR_LOSTARB, [7, 0, 0, 0, 0, 0, 0, 0]),
+            // can_change_state(): symmetric warning and passive transitions.
+            (CAN_ERR_CRTL, [0, 0x0C, 0, 0, 0, 0, 0, 0]),
+            (CAN_ERR_CRTL, [0, 0x30, 0, 0, 0, 0, 0, 0]),
+            // sja1000: overrun plus a state change.
+            (CAN_ERR_CRTL, [0, 0x0D, 0, 0, 0, 0, 0, 0]),
+            // m_can / peak_canfd: CRTL|CNT written literally.
+            (CAN_ERR_CRTL | CAN_ERR_CNT, [0, 0x10, 0, 0, 0, 0, 130, 42]),
+            // mcp251xfd_handle_ivmif(): three classes, five data[2] bits.
+            (
+                CAN_ERR_PROT | CAN_ERR_BUSERROR | CAN_ERR_ACK,
+                [0, 0, 0x9E, 0x08, 0, 0, 0, 0],
+            ),
+            // es58x: both transceiver halves set.
+            (CAN_ERR_TRX, [0, 0, 0, 0, 0x44, 0, 0, 0]),
+            (CAN_ERR_TRX, [0, 0, 0, 0, 0x05, 0, 0, 0]),
+            // sja1000 five-class accumulation.
+            (
+                CAN_ERR_CRTL | CAN_ERR_CNT | CAN_ERR_PROT | CAN_ERR_BUSERROR | CAN_ERR_LOSTARB,
+                [3, 0x0D, 0x86, 0x1C, 0, 0, 200, 190],
+            ),
+            // A location with no name, preserved as Location::Reserved.
+            (CAN_ERR_PROT, [0, 0, 0x02, 0x1F, 0, 0, 0, 0]),
+            // Unspecified sub-codes.
+            (CAN_ERR_CRTL, [0; 8]),
+            (CAN_ERR_PROT, [0, 0, 0, 0x03, 0, 0, 0, 0]),
+            (CAN_ERR_TRX, [0; 8]),
+        ];
+
+        for (bits, data) in cases {
+            let orig = CanErrorFrame::new_error(*bits, data).unwrap();
+            let err = orig.into_error();
+            let again = CanErrorFrame::from(err.clone());
+            assert_eq!(
+                again, orig,
+                "round-trip failed for bits={:#x} data={:02X?}\n  decoded as: {}",
+                bits, data, err
+            );
         }
+
+        // Every value of data[3] survives a round trip, including the seven
+        // in-range codes with no name and everything above 0x1F.
+        for v in 0u8..=0xFF {
+            let orig =
+                CanErrorFrame::new_error(CAN_ERR_PROT, &[0, 0, 0x02, v, 0, 0, 0, 0]).unwrap();
+            assert_eq!(
+                CanErrorFrame::from(orig.into_error()),
+                orig,
+                "data[3]={v:#04x}"
+            );
+        }
+
+        // The documented lossy case: a decoding failure has no encoding.
+        let err = CanError::from_multiple(
+            ErrorCause::BusOff,
+            [ErrorCause::DecodingFailure(
+                errors::CanErrorDecodingFailure::InvalidControllerProblem,
+            )],
+        );
+        let frame = CanErrorFrame::from(err);
+        assert_eq!(frame.error_bits(), CAN_ERR_BUSOFF);
+        assert_eq!(frame.into_error().len(), 1);
+
+        // Sanity: the pieces used above really do carry their raw values.
+        assert_eq!(ControllerProblems::RX_WARNING.bits(), 0x04);
+        assert_eq!(ViolationTypes::TX.bits(), 0x80);
+        assert_eq!(CanLowFault::NoWire as u8, 0x40);
+        assert_eq!(Location::OverloadFlag.as_raw(), 0x1C);
     }
 
     #[test]

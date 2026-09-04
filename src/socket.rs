@@ -12,17 +12,19 @@
 //! Implementation of sockets for CANbus 2.0 and FD for SocketCAN on Linux.
 
 use crate::{
-    as_bytes, as_bytes_mut,
-    frame::{can_frame_default, canfd_frame_default, AsPtr},
+    CanAddr, CanAnyFrame, CanFdFrame, CanFrame, CanRawFrame, Error, IoError, IoErrorKind, IoResult,
+    Result, as_bytes, as_bytes_mut,
+    frame::{AsPtr, can_frame_default, canfd_frame_default},
     id::CAN_ERR_MASK,
     timestamp::CanTimestamps,
-    CanAnyFrame, CanFdFrame, CanFrame, CanRawFrame, Error, IoError, IoErrorKind, IoResult, Result,
 };
 pub use embedded_can::{
-    self, blocking::Can as BlockingCan, nb::Can as NonBlockingCan, ExtendedId,
-    Frame as EmbeddedFrame, Id, StandardId,
+    self, ExtendedId, Frame as EmbeddedFrame, Id, StandardId, blocking::Can as BlockingCan,
+    nb::Can as NonBlockingCan,
 };
-use libc::{canid_t, socklen_t, AF_CAN, EINPROGRESS, SOL_SOCKET};
+use libc::{AF_CAN, EINPROGRESS, SOL_SOCKET, canid_t, socklen_t};
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 use socket2::SockAddr;
 use std::{
     fmt,
@@ -37,12 +39,9 @@ use std::{
 };
 
 pub use libc::{
-    CANFD_MTU, CAN_MTU, CAN_RAW, CAN_RAW_ERR_FILTER, CAN_RAW_FD_FRAMES, CAN_RAW_FILTER,
-    CAN_RAW_JOIN_FILTERS, CAN_RAW_LOOPBACK, CAN_RAW_RECV_OWN_MSGS, SOL_CAN_BASE, SOL_CAN_RAW,
+    CAN_MTU, CAN_RAW, CAN_RAW_ERR_FILTER, CAN_RAW_FD_FRAMES, CAN_RAW_FILTER, CAN_RAW_JOIN_FILTERS,
+    CAN_RAW_LOOPBACK, CAN_RAW_RECV_OWN_MSGS, CANFD_MTU, SOL_CAN_BASE, SOL_CAN_RAW,
 };
-
-// TODO: This can be removed on the next major version update
-pub use crate::CanAddr;
 
 /// Check an error return value for timeouts.
 ///
@@ -59,17 +58,13 @@ pub trait ShouldRetry {
 
 impl ShouldRetry for IoError {
     fn should_retry(&self) -> bool {
-        match self.kind() {
-            // EAGAIN, EINPROGRESS and EWOULDBLOCK are the three possible codes
-            // returned when a timeout occurs. the stdlib already maps EAGAIN
-            // and EWOULDBLOCK os WouldBlock
-            IoErrorKind::WouldBlock => true,
-            // however, EINPROGRESS is also valid
-            IoErrorKind::Other => {
-                matches!(self.raw_os_error(), Some(errno) if errno == EINPROGRESS)
-            }
-            _ => false,
-        }
+        // EAGAIN, EWOULDBLOCK and EINPROGRESS are the three codes that can
+        // come back when a timeout occurs. The stdlib maps the first two onto
+        // `WouldBlock`, but EINPROGRESS has no `ErrorKind` this crate can name:
+        // it decodes to `ErrorKind::InProgress`, which is still unstable. So
+        // that one is matched on the errno itself rather than on the kind.
+        self.kind() == IoErrorKind::WouldBlock
+            || matches!(self.raw_os_error(), Some(errno) if errno == EINPROGRESS)
     }
 }
 
@@ -92,72 +87,6 @@ fn raw_open_socket(addr: &CanAddr) -> IoResult<socket2::Socket> {
     let sock = socket2::Socket::new_raw(af_can, socket2::Type::RAW, Some(can_raw))?;
     sock.bind(&SockAddr::from(*addr))?;
     Ok(sock)
-}
-
-/// `setsockopt` wrapper
-///
-/// The libc `setsockopt` function is set to set various options on a socket.
-/// `set_socket_option` offers a somewhat type-safe wrapper that does not
-/// require messing around with `*const c_void`s.
-///
-/// A proper `std::io::Error` will be returned on failure.
-///
-/// Example use:
-///
-/// ```text
-/// let fd = ...;  // some file descriptor, this will be stdout
-/// set_socket_option(fd, SOL_TCP, TCP_NO_DELAY, 1 as c_int)
-/// ```
-///
-/// Note that the `val` parameter must be specified correctly; if an option
-/// expects an integer, it is advisable to pass in a `c_int`, not the default
-/// of `i32`.
-#[deprecated(since = "3.4.0", note = "Moved into `SocketOptions` trait")]
-#[inline]
-pub fn set_socket_option<T>(fd: c_int, level: c_int, name: c_int, val: &T) -> IoResult<()> {
-    let ret = unsafe {
-        libc::setsockopt(
-            fd,
-            level,
-            name,
-            val as *const _ as *const c_void,
-            size_of::<T>() as socklen_t,
-        )
-    };
-
-    match ret {
-        0 => Ok(()),
-        _ => Err(IoError::last_os_error()),
-    }
-}
-
-/// Sets a collection of multiple socket options with one call.
-#[deprecated(since = "3.4.0", note = "Moved into `SocketOptions` trait")]
-pub fn set_socket_option_mult<T>(
-    fd: c_int,
-    level: c_int,
-    name: c_int,
-    values: &[T],
-) -> IoResult<()> {
-    let ret = if values.is_empty() {
-        // can't pass in a ptr to a 0-len slice, pass a null ptr instead
-        unsafe { libc::setsockopt(fd, level, name, ptr::null(), 0) }
-    } else {
-        unsafe {
-            libc::setsockopt(
-                fd,
-                level,
-                name,
-                values.as_ptr().cast(),
-                size_of_val(values) as socklen_t,
-            )
-        }
-    };
-
-    match ret {
-        0 => Ok(()),
-        _ => Err(IoError::last_os_error()),
-    }
 }
 
 // ===== Common 'Socket' trait =====
@@ -264,7 +193,7 @@ pub trait Socket: AsRawFd {
 
     /// Blocking read a single can frame with timeout.
     fn read_frame_timeout(&self, timeout: Duration) -> IoResult<Self::FrameType> {
-        use nix::poll::{poll, PollFd, PollFlags, PollTimeout};
+        use nix::poll::{PollFd, PollFlags, PollTimeout, poll};
         let pollfd = PollFd::new(
             unsafe { BorrowedFd::borrow_raw(self.as_raw_fd()) },
             PollFlags::POLLIN,
@@ -445,12 +374,12 @@ pub trait SocketOptions: AsRawFd {
 
     /// Sets the error mask on the socket.
     ///
-    /// By default (`ERR_MASK_NONE`) no error conditions are reported as
-    /// special error frames by the socket. Enabling error conditions by
-    /// setting `ERR_MASK_ALL` or another non-empty error mask causes the
-    /// socket to receive notification about the specified conditions.
+    /// This is another name for [`set_error_filter()`](Self::set_error_filter)
+    /// — both set `CAN_RAW_ERR_FILTER` — kept because the mask spelling reads
+    /// naturally alongside the `ERR_MASK_ALL` and `ERR_MASK_NONE` constants.
+    #[inline]
     fn set_error_mask(&self, mask: u32) -> IoResult<()> {
-        self.set_socket_option(SOL_CAN_RAW, CAN_RAW_ERR_FILTER, &mask)
+        self.set_error_filter(mask)
     }
 
     /// Enable or disable loopback.
@@ -542,8 +471,10 @@ pub trait SocketOptions: AsRawFd {
 /// Returns `false` on any error (unbound socket, unsupported ioctl,
 /// unknown interface, etc).
 fn hw_timestamps_supported(fd: RawFd) -> bool {
-    use crate::timestamp::{EthtoolTsInfo, ETHTOOL_GET_TS_INFO, SOF_TIMESTAMPING_RX_HARDWARE};
-    // Ioctl is u64 in glibc and i32 in musl this ensures the correct type is used for both
+    use crate::timestamp::{ETHTOOL_GET_TS_INFO, EthtoolTsInfo, SOF_TIMESTAMPING_RX_HARDWARE};
+
+    // Ioctl is u64 in glibc and i32 in musl.
+    // This ensures the correct type is used for both.
     const SIOCETHTOOL: libc::Ioctl = libc::SIOCETHTOOL as libc::Ioctl;
 
     // Retrieve the interface index from the bound socket address.
@@ -742,7 +673,11 @@ impl Socket for CanSocket {
     where
         F: Into<CanFrame> + AsPtr,
     {
-        self.as_raw_socket().write_all(frame.as_bytes())
+        // SAFETY: the frame's inner `can_frame`/`canfd_frame` is fully
+        // initialised — constructors zero the struct via `*_default()`
+        // (`mem::zeroed`) before writing fields — so reading every byte
+        // (including padding) is sound.
+        self.as_raw_socket().write_all(unsafe { frame.as_bytes() })
     }
 
     /// Reads a normal CAN 2.0 frame from the socket.
@@ -821,7 +756,7 @@ impl embedded_can::nb::Can for CanSocket {
     ///
     /// If an error frame is received, it will be converted to a `CanError`
     /// and returned as an error.
-    /// If no frame is available, it returns a `WouldBlck` error.
+    /// If no frame is available, it returns a `WouldBlock` error.
     fn receive(&mut self) -> nb::Result<Self::Frame, Self::Error> {
         match self.read_frame() {
             Ok(CanFrame::Error(frame)) => Err(Error::from(frame.into_error()).into()),
@@ -945,7 +880,8 @@ impl CanFdSocket {
     /// Reads a raw CAN frame from the socket.
     ///
     /// This might be either type of CAN frame, a classic CAN 2.0 frame
-    /// or an FD frame.
+    /// or an FD frame. A read of any other length is reported as
+    /// `InvalidData`.
     pub fn read_raw_frame(&self) -> IoResult<CanRawFrame> {
         let mut fdframe = canfd_frame_default();
 
@@ -966,7 +902,9 @@ impl CanFdSocket {
                 Ok(frame.into())
             }
             CANFD_MTU => Ok(fdframe.into()),
-            _ => Err(IoError::last_os_error()),
+            // The read succeeded, so `last_os_error()` would report a stale
+            // errno — or none at all. The length is the whole complaint.
+            _ => Err(IoError::from(IoErrorKind::InvalidData)),
         }
     }
 }
@@ -997,7 +935,11 @@ impl Socket for CanFdSocket {
     where
         F: Into<Self::FrameType> + AsPtr,
     {
-        self.as_raw_socket().write_all(frame.as_bytes())
+        // SAFETY: the frame's inner `can_frame`/`canfd_frame` is fully
+        // initialised — constructors zero the struct via `*_default()`
+        // (`mem::zeroed`) before writing fields — so reading every byte
+        // (including padding) is sound.
+        self.as_raw_socket().write_all(unsafe { frame.as_bytes() })
     }
 
     /// Reads either type of CAN frame from the socket.
@@ -1159,7 +1101,44 @@ impl Write for CanFdSocket {
 /// A socket can be given multiple filters, and each one can be inverted
 /// ([ref](https://docs.kernel.org/networking/can.html#raw-protocol-sockets-with-can-filters-sock-raw))
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(into = "CanFilterRepr", from = "CanFilterRepr")
+)]
 pub struct CanFilter(libc::can_filter);
+
+/// Serialized form of a [`CanFilter`].
+///
+/// [`CanFilter`] wraps the C `can_filter`, which has no serde impls, so the
+/// conversion goes through this. Both directions are infallible: any pair of
+/// 32-bit words is a well-formed filter, with the inverted-match flag carried
+/// in the high bit of `id` exactly as the kernel expects.
+#[cfg(feature = "serde")]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+pub struct CanFilterRepr {
+    /// The identifier to match, including any `CAN_INV_FILTER` bit
+    pub id: canid_t,
+    /// The mask selecting which identifier bits must match
+    pub mask: canid_t,
+}
+
+#[cfg(feature = "serde")]
+impl From<CanFilter> for CanFilterRepr {
+    fn from(filter: CanFilter) -> Self {
+        Self {
+            id: filter.0.can_id,
+            mask: filter.0.can_mask,
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl From<CanFilterRepr> for CanFilter {
+    fn from(repr: CanFilterRepr) -> Self {
+        Self::new(repr.id, repr.mask)
+    }
+}
 
 impl CanFilter {
     /// Construct a new CAN filter.
@@ -1191,5 +1170,91 @@ impl From<(u32, u32)> for CanFilter {
 impl AsRef<libc::can_filter> for CanFilter {
     fn as_ref(&self) -> &libc::can_filter {
         &self.0
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every errno that means "the operation would have blocked" is a retry,
+    /// including EINPROGRESS.
+    ///
+    /// EINPROGRESS is the interesting case: it is matched on the errno because
+    /// the `ErrorKind` it decodes to (`InProgress`) is unstable, so this crate
+    /// cannot name it. Testing the kind instead — as this did until it was
+    /// fixed — silently stopped working when the stdlib started mapping the
+    /// errno onto that kind rather than leaving it as `Other`.
+    #[test]
+    fn timeout_errnos_are_retried() {
+        for errno in [libc::EAGAIN, libc::EWOULDBLOCK, EINPROGRESS] {
+            let err = IoError::from_raw_os_error(errno);
+            assert!(
+                err.should_retry(),
+                "errno {errno} ({err}) should be a retry, kind is {:?}",
+                err.kind()
+            );
+            let res: IoResult<()> = Err(err);
+            assert!(res.should_retry());
+        }
+    }
+
+    /// A genuine failure is not a retry, whether it carries an errno or not.
+    #[test]
+    fn real_errors_are_not_retried() {
+        for errno in [libc::EPERM, libc::ENODEV, libc::EINVAL] {
+            let err = IoError::from_raw_os_error(errno);
+            assert!(!err.should_retry(), "errno {errno} ({err}) is not a retry");
+        }
+
+        // No errno at all, so only the kind can be consulted.
+        assert!(!IoError::from(IoErrorKind::InvalidData).should_retry());
+        assert!(!IoError::new(IoErrorKind::Other, "no errno here").should_retry());
+
+        let ok: IoResult<()> = Ok(());
+        assert!(!ok.should_retry());
+    }
+
+    /// The kind path stands on its own: a `WouldBlock` synthesized without an
+    /// errno still retries, which is what the async wrappers hand back.
+    #[test]
+    fn would_block_without_an_errno_is_retried() {
+        assert!(IoError::from(IoErrorKind::WouldBlock).should_retry());
+    }
+
+    /// A datagram that is neither `CAN_MTU` nor `CANFD_MTU` long is reported
+    /// as `InvalidData` by both read paths.
+    ///
+    /// A CAN socket cannot produce such a read, so the length is driven in
+    /// over a Unix datagram pair instead — enough to exercise the arm, which
+    /// used to return `last_os_error()` after a *successful* read and so
+    /// reported a stale errno, or `Success (os error 0)`.
+    #[test]
+    fn odd_read_length_is_invalid_data() {
+        use std::os::unix::net::UnixDatagram;
+
+        for _ in 0..2 {
+            let (tx, rx) = UnixDatagram::pair().expect("socketpair");
+            tx.send(&[0u8; 20]).expect("send");
+            let sock = CanFdSocket::from(OwnedFd::from(rx));
+
+            // `CanRawFrame` has no `Debug`, so no `expect_err()` here.
+            let err = match sock.read_raw_frame() {
+                Err(err) => err,
+                Ok(_) => panic!("20 bytes is not a frame"),
+            };
+            assert_eq!(err.kind(), IoErrorKind::InvalidData, "{err}");
+            assert_eq!(err.raw_os_error(), None, "should not carry an errno");
+        }
+
+        // The typed path already reported this correctly; assert it still does,
+        // so the two stay in step.
+        let (tx, rx) = UnixDatagram::pair().expect("socketpair");
+        tx.send(&[0u8; 20]).expect("send");
+        let sock = CanFdSocket::from(OwnedFd::from(rx));
+        let err = sock.read_frame().expect_err("20 bytes is not a frame");
+        assert_eq!(err.kind(), IoErrorKind::InvalidData, "{err}");
     }
 }

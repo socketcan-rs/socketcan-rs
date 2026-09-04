@@ -11,15 +11,19 @@
 
 //! Implementation of CANbus standard and extended identifiers.
 
+#[cfg(feature = "serde")]
+use crate::ConstructionError;
 use crate::{Error, Result};
 use bitflags::bitflags;
 use embedded_can::{ExtendedId, Id, StandardId};
 use libc::canid_t;
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 use std::{io, ops};
 
 pub use libc::{
-    CANFD_BRS, CANFD_ESI, CANFD_MAX_DLEN, CAN_EFF_FLAG, CAN_EFF_MASK, CAN_ERR_FLAG, CAN_ERR_MASK,
-    CAN_MAX_DLEN, CAN_RTR_FLAG, CAN_SFF_MASK,
+    CAN_EFF_FLAG, CAN_EFF_MASK, CAN_ERR_FLAG, CAN_ERR_MASK, CAN_MAX_DLEN, CAN_RTR_FLAG,
+    CAN_SFF_MASK, CANFD_BRS, CANFD_ESI, CANFD_MAX_DLEN,
 };
 
 /// Mark CAN FD for dual use of struct canfd_frame.
@@ -39,6 +43,11 @@ bitflags! {
     /// Bit flags in the composite SocketCAN ID word.
     #[repr(transparent)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    #[cfg_attr(
+        feature = "serde",
+        derive(Serialize, Deserialize),
+        serde(transparent)
+    )]
     pub struct IdFlags: canid_t {
         /// Indicates frame uses a 29-bit extended ID
         const EFF = CAN_EFF_FLAG;
@@ -51,6 +60,11 @@ bitflags! {
     /// Bit flags for the Flexible Data (FD) frames.
     #[repr(transparent)]
     #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq, Hash)]
+    #[cfg_attr(
+        feature = "serde",
+        derive(Serialize, Deserialize),
+        serde(transparent)
+    )]
     pub struct FdFlags: u8 {
         /// Bit rate switch (second bit rate for payload data)
         const BRS = CANFD_BRS as u8;
@@ -103,6 +117,11 @@ pub fn id_from_raw(id: u32) -> Option<Id> {
 /// This is similar to and generally interchangeable with
 /// [embedded_can::Id](https://docs.rs/embedded-can/latest/embedded_can/enum.Id.html)
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(into = "CanIdRepr", try_from = "CanIdRepr")
+)]
 pub enum CanId {
     /// Standard 11-bit Identifier (`0..=0x7FF`).
     Standard(StandardId),
@@ -201,6 +220,42 @@ impl From<CanId> for Id {
     }
 }
 
+/// Serialized form of a [`CanId`].
+///
+/// [`CanId`] wraps `embedded_can::StandardId` / `ExtendedId`, neither of which
+/// implements serde, so the conversion goes through this instead.
+#[cfg(feature = "serde")]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+pub enum CanIdRepr {
+    /// Standard 11-bit identifier
+    Standard(u16),
+    /// Extended 29-bit identifier
+    Extended(u32),
+}
+
+#[cfg(feature = "serde")]
+impl From<CanId> for CanIdRepr {
+    fn from(id: CanId) -> Self {
+        match id {
+            CanId::Standard(id) => Self::Standard(id.as_raw()),
+            CanId::Extended(id) => Self::Extended(id.as_raw()),
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl TryFrom<CanIdRepr> for CanId {
+    type Error = ConstructionError;
+
+    fn try_from(repr: CanIdRepr) -> std::result::Result<Self, Self::Error> {
+        match repr {
+            CanIdRepr::Standard(id) => Self::standard(id),
+            CanIdRepr::Extended(id) => Self::extended(id),
+        }
+        .ok_or(ConstructionError::IDTooLarge)
+    }
+}
+
 /// Creates a CAN ID from a raw integer value.
 ///
 /// If the `id` is <= 0x7FF, it's assumed to be a standard ID, otherwise
@@ -281,7 +336,7 @@ mod tests {
         assert!(matches!(id, CanId::Standard(_)));
         match sid {
             Id::Standard(sid) => assert_eq!(id.as_raw(), sid.as_raw() as u32),
-            _ => assert!(false),
+            _ => panic!("expected a standard id"),
         };
 
         let eid = Id::from(ExtendedId::MAX);
@@ -291,7 +346,7 @@ mod tests {
         assert!(matches!(id, CanId::Extended(_)));
         match eid {
             Id::Extended(eid) => assert_eq!(id.as_raw(), eid.as_raw()),
-            _ => assert!(false),
+            _ => panic!("expected an extended id"),
         }
     }
 

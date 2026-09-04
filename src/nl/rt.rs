@@ -21,10 +21,13 @@
 use crate::{as_bytes, as_bytes_mut};
 use libc::{c_char, c_uint};
 use neli::{
+    FromBytes, Size, ToBytes,
     consts::rtnl::{RtaType, RtaTypeWrapper},
     err::{DeError, SerError},
-    impl_trait, neli_enum, FromBytes, Size, ToBytes,
+    impl_trait, neli_enum,
 };
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 use std::{
     io::{self, Cursor, Read, Write},
     mem,
@@ -48,6 +51,7 @@ pub const EXT_FILTER_MST: c_uint = 1 << 7;
 ///
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, FromBytes, ToBytes, Size)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct can_bittiming {
     pub bitrate: u32,      // Bit-rate in bits/second
     pub sample_point: u32, // Sample point in one-tenth of a percent
@@ -66,6 +70,7 @@ pub struct can_bittiming {
 ///
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct can_bittiming_const {
     pub name: [c_char; 16], // Name of the CAN controller hardware
     pub tseg1_min: u32,     // Time segment 1 = prop_seg + phase_seg1
@@ -87,8 +92,8 @@ impl ToBytes for can_bittiming_const {
     }
 }
 
-impl<'a> FromBytes<'a> for can_bittiming_const {
-    fn from_bytes(buf: &mut Cursor<&'a [u8]>) -> Result<Self, DeError> {
+impl FromBytes for can_bittiming_const {
+    fn from_bytes(buf: &mut Cursor<impl AsRef<[u8]>>) -> Result<Self, DeError> {
         let mut timing_const: can_bittiming_const = unsafe { mem::zeroed() };
         // SAFETY: `timing_const` is fully zero-initialised on the line above.
         buf.read_exact(unsafe { as_bytes_mut(&mut timing_const) })?;
@@ -106,6 +111,7 @@ impl Size for can_bittiming_const {
 ///
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, FromBytes, ToBytes, Size)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct can_clock {
     pub freq: u32, // CAN system clock frequency in Hz
 }
@@ -114,6 +120,7 @@ pub struct can_clock {
 ///
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum CanState {
     /// RX/TX error count < 96
     ErrorActive,
@@ -151,6 +158,7 @@ impl TryFrom<u32> for CanState {
 ///
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone, FromBytes, ToBytes, Size)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct can_berr_counter {
     pub txerr: u16,
     pub rxerr: u16,
@@ -163,6 +171,7 @@ pub struct can_berr_counter {
 ///
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone, FromBytes, ToBytes, Size)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct can_ctrlmode {
     pub mask: u32,
     pub flags: u32,
@@ -195,6 +204,7 @@ pub const CAN_TERMINATION_DISABLED: u16 = 0;
 ///
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone, FromBytes)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct can_device_stats {
     pub bus_error: u32,        // Bus errors
     pub error_warning: u32,    // Changes to error warning state

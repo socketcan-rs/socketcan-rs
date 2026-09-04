@@ -3,8 +3,8 @@
 //! Simple CLI tool to run basic CAN bus functionality from the Linux
 //! command line, similar to 'can-utils'.
 
-use anyhow::{anyhow, Result};
-use clap::{arg, value_parser, ArgAction, ArgMatches, Command};
+use anyhow::{Result, anyhow};
+use clap::{ArgAction, ArgMatches, Command, arg, value_parser};
 use socketcan::{CanCtrlMode, CanInterface};
 use std::process;
 
@@ -235,7 +235,7 @@ fn main() {
                     Command::new("add")
                         .about("Create and add a new CAN interface")
                         .arg(
-                            arg!(<num> "The interface number (i.e. 0 for 'vcan0')")
+                            arg!(<num> "The kernel interface index to request; omit to let the kernel assign one")
                                 .required(false)
                                 .value_parser(value_parser!(u32)),
                         )

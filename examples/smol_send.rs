@@ -17,7 +17,7 @@
 
 use embedded_can::{Frame, StandardId};
 use futures_timer::Delay;
-use socketcan::{smol::CanSocket, CanFrame, Error, Result};
+use socketcan::{CanFrame, Error, Result, smol::CanSocket};
 use std::{env, time::Duration};
 
 fn main() -> Result<()> {
@@ -33,7 +33,7 @@ fn main() -> Result<()> {
             sock.write_frame(&frame).await?;
 
             println!("Waiting 3 seconds");
-            Delay::new(Duration::from_secs(3)).await?;
+            Delay::new(Duration::from_secs(3)).await;
         }
 
         #[allow(unreachable_code)]

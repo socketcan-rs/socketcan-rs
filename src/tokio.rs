@@ -27,8 +27,8 @@
 //! }
 //! ```
 use crate::{
-    frame::AsPtr, timestamp::CanTimestamps, CanAddr, CanAnyFrame, CanFrame, Error, IoResult,
-    Result, Socket, SocketOptions,
+    CanAddr, CanAnyFrame, CanFrame, Error, IoResult, Result, Socket, SocketOptions, frame::AsPtr,
+    timestamp::CanTimestamps,
 };
 use futures::{prelude::*, ready, task::Context};
 use std::{
@@ -41,8 +41,8 @@ use std::{
     task::Poll,
     time::{Duration, SystemTime},
 };
-use tokio::io::unix::AsyncFd;
 use tokio::io::Interest;
+use tokio::io::unix::AsyncFd;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 /// An asynchronous I/O wrapped CanSocket
@@ -197,9 +197,16 @@ impl Sink<CanFrame> for CanSocket {
         Poll::Ready(Ok(()))
     }
 
+    /// Writes the frame with a single non-blocking write, since `poll_ready()`
+    /// has already established that the socket will accept one.
+    ///
+    /// There is one case the `Sink` contract does not cover: if another task
+    /// or thread sharing this socket fills the send buffer between that
+    /// `poll_ready()` and this call, the readiness relied on here is stale,
+    /// and the frame comes back as an `Io` error of kind `WouldBlock` rather
+    /// than being queued or retried. A single task driving the sink the way
+    /// `Sink` intends — one `poll_ready()` per `start_send()` — never sees it.
     fn start_send(self: Pin<&mut Self>, item: CanFrame) -> Result<()> {
-        // `poll_ready` already cleared write-readiness, so a single
-        // non-blocking write is sufficient — no need to busy-retry.
         self.0.get_ref().write_frame(&item)?;
         Ok(())
     }
@@ -375,9 +382,16 @@ impl Sink<CanAnyFrame> for CanFdSocket {
         Poll::Ready(Ok(()))
     }
 
+    /// Writes the frame with a single non-blocking write, since `poll_ready()`
+    /// has already established that the socket will accept one.
+    ///
+    /// There is one case the `Sink` contract does not cover: if another task
+    /// or thread sharing this socket fills the send buffer between that
+    /// `poll_ready()` and this call, the readiness relied on here is stale,
+    /// and the frame comes back as an `Io` error of kind `WouldBlock` rather
+    /// than being queued or retried. A single task driving the sink the way
+    /// `Sink` intends — one `poll_ready()` per `start_send()` — never sees it.
     fn start_send(self: Pin<&mut Self>, item: CanAnyFrame) -> Result<()> {
-        // `poll_ready` already cleared write-readiness, so a single
-        // non-blocking write is sufficient — no need to busy-retry.
         self.0.get_ref().write_frame(&item)?;
         Ok(())
     }
@@ -437,8 +451,8 @@ impl AsyncWrite for CanFdSocket {
 mod tests {
     use super::*;
     use crate::{
-        frame::{can_frame_default, AsPtr},
         CanFdFrame, CanFrame, Frame, IoErrorKind, StandardId,
+        frame::{AsPtr, can_frame_default},
     };
     use embedded_can::Frame as EmbeddedFrame;
     use futures::{select, try_join};
@@ -491,7 +505,8 @@ mod tests {
     /// Write a test frame to the CanSocket using the `tokio::io::AsyncWrite` trait
     async fn write_frame_with_async_write(socket: &mut CanSocket) -> Result<()> {
         let test_frame = CanFrame::new(StandardId::new(0x1).unwrap(), &[0]).unwrap();
-        socket.write(test_frame.as_bytes()).await?;
+        // SAFETY: `test_frame` is zero-initialised by its constructor, so all bytes are initialised.
+        socket.write_all(unsafe { test_frame.as_bytes() }).await?;
         Ok(())
     }
 
@@ -546,7 +561,8 @@ mod tests {
     /// Write a test frame to the CanSocket using the `tokio::io::AsyncWrite` trait
     async fn write_frame_fd_with_async_write(socket: &mut CanFdSocket) -> Result<()> {
         let test_frame = CanFdFrame::new(StandardId::new(0x1).unwrap(), &[0]).unwrap();
-        socket.write(test_frame.as_bytes()).await?;
+        // SAFETY: `test_frame` is zero-initialised by its constructor, so all bytes are initialised.
+        socket.write_all(unsafe { test_frame.as_bytes() }).await?;
         Ok(())
     }
 
@@ -749,9 +765,9 @@ mod tests {
             .fold(0u8, |acc, _frame| async move { acc + 1 });
 
         let send_frames = async {
-            let _frame_1 = sink.send(frame_id_1).await?;
-            let _frame_2 = sink.send(frame_id_2).await?;
-            let _frame_3 = sink.send(frame_id_3).await?;
+            sink.send(frame_id_1).await?;
+            sink.send(frame_id_2).await?;
+            sink.send(frame_id_3).await?;
             println!("Sent 3 frames");
             Ok::<(), Error>(())
         };
@@ -789,9 +805,9 @@ mod tests {
             .fold(0u8, |acc, _frame| async move { acc + 1 });
 
         let send_frames = async {
-            let _frame_1 = sink.send(frame_id_1.into()).await?;
-            let _frame_2 = sink.send(frame_id_2.into()).await?;
-            let _frame_3 = sink.send(frame_id_3.into()).await?;
+            sink.send(frame_id_1.into()).await?;
+            sink.send(frame_id_2.into()).await?;
+            sink.send(frame_id_3.into()).await?;
             println!("Sent 3 frames");
             Ok::<(), Error>(())
         };
@@ -829,9 +845,9 @@ mod tests {
             .fold(0u8, |acc, _frame| async move { acc + 1 });
 
         let send_frames = async {
-            let _frame_1 = sink.send(frame_id_1.into()).await?;
-            let _frame_2 = sink.send(frame_id_2.into()).await?;
-            let _frame_3 = sink.send(frame_id_3.into()).await?;
+            sink.send(frame_id_1.into()).await?;
+            sink.send(frame_id_2.into()).await?;
+            sink.send(frame_id_3.into()).await?;
             println!("Sent 3 frames");
             Ok::<(), Error>(())
         };
