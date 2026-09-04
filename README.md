@@ -62,7 +62,7 @@ async fn main() -> Result<()> {
 
 ### _smol_
 
-New support was added for the [async-io](https://crates.io/crates/async-io) runtime, supporting [smol](https://crates.io/crates/smol)
+Async support for the [smol](https://crates.io/crates/smol) runtime, built on [async-io](https://crates.io/crates/async-io).
 
 This is enabled with the optional feature, `smol`.
 Additionally, when building examples, the specific examples for the runtime will be built if specifying the `smol` feature.

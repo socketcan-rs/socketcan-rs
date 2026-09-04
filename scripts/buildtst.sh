@@ -66,7 +66,10 @@ for VER in stable ${MSRV} ; do
         cargo +"${VER}" test --features="$FEATURES"
     [ "$?" -ne 0 ] && exit 1
 
-    for FEATURE in "tokio" "smol" "enumerate"; do
+    # 'serde' brings 'dump' along: 'tests/serde.rs' declares
+    # required-features = ["serde"], so a run without the feature skips every
+    # one of its tests, and a few of them are additionally gated on 'dump'.
+    for FEATURE in "tokio" "smol" "enumerate" "serde,dump"; do
         FEATURES="${FEATURE},utils,vcan_tests"
         printf "\n\nBuilding with features [%s] for %s...\n" "${FEATURES}" "${VER}"
         cargo clean && \
