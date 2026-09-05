@@ -116,43 +116,23 @@ pub struct can_clock {
     pub freq: u32, // CAN system clock frequency in Hz
 }
 
-/// CAN operational and error states
-///
-#[repr(u32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub enum CanState {
-    /// RX/TX error count < 96
-    ErrorActive,
-    /// RX/TX error count < 128
-    ErrorWarning,
-    /// RX/TX error count < 256
-    ErrorPassive,
-    /// RX/TX error count >= 256
-    BusOff,
-    /// Device is stopped
-    Stopped,
-    /// Device is sleeping
-    Sleeping,
-}
+// The `enum can_state` values, as the kernel sends them in `IFLA_CAN_STATE`.
+// The Rust-side [`CanState`](super::CanState) maps onto these.
 
-impl TryFrom<u32> for CanState {
-    type Error = io::Error;
-
-    fn try_from(val: u32) -> Result<Self, Self::Error> {
-        use CanState::*;
-
-        match val {
-            0 => Ok(ErrorActive),
-            1 => Ok(ErrorWarning),
-            2 => Ok(ErrorPassive),
-            3 => Ok(BusOff),
-            4 => Ok(Stopped),
-            5 => Ok(Sleeping),
-            _ => Err(io::Error::from(io::ErrorKind::InvalidData)),
-        }
-    }
-}
+/// RX/TX error count < 96
+pub const CAN_STATE_ERROR_ACTIVE: u32 = 0;
+/// RX/TX error count < 128
+pub const CAN_STATE_ERROR_WARNING: u32 = 1;
+/// RX/TX error count < 256
+pub const CAN_STATE_ERROR_PASSIVE: u32 = 2;
+/// RX/TX error count >= 256
+pub const CAN_STATE_BUS_OFF: u32 = 3;
+/// Device is stopped
+pub const CAN_STATE_STOPPED: u32 = 4;
+/// Device is sleeping
+pub const CAN_STATE_SLEEPING: u32 = 5;
+/// One past the last state the kernel defines
+pub const CAN_STATE_MAX: u32 = 6;
 
 /// CAN bus error counters
 ///

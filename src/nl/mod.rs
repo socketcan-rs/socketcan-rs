@@ -78,7 +78,6 @@ use serde::{Deserialize, Serialize};
 /// Low-level Netlink CAN struct bindings.
 mod rt;
 
-pub use rt::CanState;
 use rt::can_ctrlmode;
 
 /// A failure reported by the netlink protocol layer.
@@ -248,6 +247,54 @@ impl TryFrom<u32> for Mtu {
         match val {
             16 => Ok(Mtu::Standard),
             72 => Ok(Mtu::Fd),
+            _ => Err(io::Error::from(io::ErrorKind::InvalidData)),
+        }
+    }
+}
+
+/// CAN operational and error states
+///
+/// This is the Rust form of the kernel's `enum can_state`, reported in the
+/// `IFLA_CAN_STATE` netlink attribute. The wire values it maps are the
+/// crate-internal `CAN_STATE_*` constants, which live with the rest of the
+/// low-level netlink bindings.
+///
+/// A driver is not obliged to report a state — a `vcan` does not — so
+/// [`CanInterface::state()`](CanInterface::state) yields `None` in that case
+/// rather than a state meaning "unknown".
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum CanState {
+    /// RX/TX error count < 96
+    ErrorActive,
+    /// RX/TX error count < 128
+    ErrorWarning,
+    /// RX/TX error count < 256
+    ErrorPassive,
+    /// RX/TX error count >= 256
+    BusOff,
+    /// Device is stopped
+    Stopped,
+    /// Device is sleeping
+    Sleeping,
+}
+
+impl TryFrom<u32> for CanState {
+    type Error = io::Error;
+
+    /// Converts a raw `IFLA_CAN_STATE` value.
+    ///
+    /// A value the kernel does not define — one a later kernel adds, say —
+    /// is `InvalidData` rather than a silent default.
+    fn try_from(val: u32) -> std::result::Result<Self, Self::Error> {
+        match val {
+            rt::CAN_STATE_ERROR_ACTIVE => Ok(Self::ErrorActive),
+            rt::CAN_STATE_ERROR_WARNING => Ok(Self::ErrorWarning),
+            rt::CAN_STATE_ERROR_PASSIVE => Ok(Self::ErrorPassive),
+            rt::CAN_STATE_BUS_OFF => Ok(Self::BusOff),
+            rt::CAN_STATE_STOPPED => Ok(Self::Stopped),
+            rt::CAN_STATE_SLEEPING => Ok(Self::Sleeping),
             _ => Err(io::Error::from(io::ErrorKind::InvalidData)),
         }
     }
