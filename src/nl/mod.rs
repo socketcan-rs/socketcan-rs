@@ -950,14 +950,91 @@ impl CanInterface {
         Self::send_info_msg(Rtm::Newlink, info, NlmF::empty())
     }
 
-    /// Set a CAN-specific parameter.
+    /// Reads one CAN link attribute as raw bytes.
     ///
-    /// This send a netlink message down to the kernel to set an attribute
-    /// in the link info, such as bitrate, control modes, etc
+    /// The escape hatch for an attribute this crate does not wrap. `id` is an
+    /// `IFLA_CAN_*` value, which `libc` defines for every attribute the kernel
+    /// knows:
+    ///
+    /// ```no_run
+    /// # use socketcan::CanInterface;
+    /// # fn main() -> socketcan::Result<()> {
+    /// let iface = CanInterface::open("can0")?;
+    ///
+    /// // The same thing `bit_rate()` reports, read the long way.
+    /// if let Some(bytes) = iface.can_param_bytes(libc::IFLA_CAN_BITRATE_MAX as u16)? {
+    ///     let max = u32::from_ne_bytes(bytes[..4].try_into().unwrap());
+    ///     println!("max bitrate {max}");
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// `None` if the driver does not report that attribute; the payload is
+    /// returned exactly as the kernel sent it, so the caller decodes it — the
+    /// layouts are in `linux/can/netlink.h`, and `libc` mirrors the structs.
+    /// A nested attribute (`IFLA_CAN_TDC`, `IFLA_CAN_CTRLMODE_EXT`) comes back
+    /// as the whole nest, still in netlink attribute form.
+    ///
+    /// Bytes rather than a generic `P` on purpose: decoding through `neli`
+    /// would make that crate's traits part of this one's public API. The typed
+    /// accessors — [`bit_timing()`](Self::bit_timing),
+    /// [`state()`](Self::state) and the rest — cover everything this crate
+    /// models, and [`can_params()`](Self::can_params) reads them all at once.
+    ///
+    /// One netlink round trip per call.
+    pub fn can_param_bytes(&self, id: u16) -> Result<Option<Vec<u8>>> {
+        let Some(hdr) = self.query_details()? else {
+            return Err(NlError::NoAck.into());
+        };
+        let Some(payload) = hdr.get_payload() else {
+            return Ok(None);
+        };
+
+        for top_attr in payload.rtattrs().iter() {
+            if *top_attr.rta_type() != Ifla::Linkinfo {
+                continue;
+            }
+            for info in top_attr.get_attr_handle::<IflaInfo>()?.get_attrs() {
+                if *info.rta_type() != IflaInfo::Data {
+                    continue;
+                }
+                for attr in info.get_attr_handle::<IflaCan>()?.get_attrs() {
+                    // As in `from_link_info()`: the kernel flags a nested
+                    // attribute's type, so the flag comes off before matching.
+                    if u16::from(attr.rta_type()) & !rt::NLA_F_NESTED == id {
+                        return Ok(Some(attr.rta_payload().as_ref().to_vec()));
+                    }
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// Writes one CAN link attribute from raw bytes.
+    ///
+    /// The counterpart to [`can_param_bytes()`](Self::can_param_bytes), and
+    /// the escape hatch for setting an attribute this crate does not wrap.
+    /// `id` is an `IFLA_CAN_*` value and `data` is the payload the kernel
+    /// expects for it — a wrong length is rejected with `EINVAL`.
+    ///
+    /// Most parameters can only be set while the interface is down; the
+    /// kernel answers `EBUSY` otherwise.
+    ///
+    /// PRIVILEGED: This requires root privilege.
+    pub fn set_can_param_bytes(&self, id: u16, data: &[u8]) -> Result<()> {
+        self.set_can_param(IflaCan::from(id), data)
+    }
+
+    /// Sets a CAN-specific parameter, typed.
+    ///
+    /// Internal: `P` is written through `neli`'s `ToBytes`, which would put
+    /// that trait in this crate's public API. The public form is
+    /// [`set_can_param_bytes()`](Self::set_can_param_bytes).
     ///
     /// PRIVILEGED: This requires root privilege.
     ///
-    pub fn set_can_param<P>(&self, param_type: IflaCan, param: P) -> Result<()>
+    pub(crate) fn set_can_param<P>(&self, param_type: IflaCan, param: P) -> Result<()>
     where
         P: ToBytes + Size,
     {
@@ -997,9 +1074,10 @@ impl CanInterface {
     /// This sends a netlink message down to the kernel to set multiple
     /// attributes in the link info, such as bitrate, control modes, etc.
     ///
-    /// If you have many attributes to set this is preferred to calling
-    /// [set_can_params][CanInterface::set_can_param] multiple times, since this only sends a
-    /// single netlink message. Also some CAN drivers might only accept
+    /// If you have many attributes to set this is preferred to setting them
+    /// one at a time — with the typed setters, or
+    /// [`set_can_param_bytes()`](Self::set_can_param_bytes) — since this only
+    /// sends a single netlink message. Also some CAN drivers might only accept
     /// a set of attributes, not over multiple messages.
     ///
     /// PRIVILEGED: This requires root privilege.
@@ -1039,11 +1117,15 @@ impl CanInterface {
         Ok(InterfaceCanParams::default())
     }
 
-    /// Attempt to query an individual CAN parameter on the interface.
+    /// Queries an individual CAN parameter on the interface, typed.
+    ///
+    /// Internal: `P` is read through `neli`'s `FromBytes`, which would put
+    /// that trait in this crate's public API. The public form is
+    /// [`can_param_bytes()`](Self::can_param_bytes).
     ///
     /// One netlink round trip per call; see [`can_params()`](Self::can_params)
     /// to read the whole set at once.
-    pub fn can_param<P>(&self, param: IflaCan) -> Result<Option<P>>
+    pub(crate) fn can_param<P>(&self, param: IflaCan) -> Result<Option<P>>
     where
         P: FromBytes + Clone,
     {

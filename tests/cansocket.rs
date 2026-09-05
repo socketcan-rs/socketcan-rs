@@ -106,6 +106,48 @@ fn vcan_other_protocols_bind_with_our_addr() {
     assert_eq!(isotp.tp_rx_id(), 0x123);
 }
 
+/// The raw-bytes escape hatch reads attributes the crate does not wrap.
+///
+/// Uses only `socketcan` and `libc` — no `neli` — which is the property that
+/// motivated taking bytes rather than a generic decoded through `neli`'s
+/// traits. Needs real hardware, since a `vcan` reports no CAN attributes at
+/// all; set `SOCKETCAN_FD_IFACE` as for the test above.
+#[test]
+#[cfg(feature = "netlink")]
+fn hw_can_param_bytes() {
+    use socketcan::CanInterface;
+
+    let Ok(name) = std::env::var("SOCKETCAN_FD_IFACE") else {
+        eprintln!("skipped: set SOCKETCAN_FD_IFACE to an FD-capable interface");
+        return;
+    };
+
+    let iface = CanInterface::open(&name).expect("interface should exist");
+
+    // A flat attribute, cross-checked against the typed accessor.
+    let bytes = iface
+        .can_param_bytes(libc::IFLA_CAN_CLOCK as u16)
+        .expect("query should succeed")
+        .expect("a real controller reports its clock");
+    assert_eq!(bytes.len(), 4, "IFLA_CAN_CLOCK is a u32");
+    let freq = u32::from_ne_bytes(bytes[..4].try_into().unwrap());
+    assert_eq!(Some(freq), iface.clock().unwrap());
+
+    // A nested one comes back whole, still in attribute form: the header is
+    // four bytes (len, type) followed by the inner payload.
+    let nest = iface
+        .can_param_bytes(libc::IFLA_CAN_CTRLMODE_EXT as u16)
+        .expect("query should succeed")
+        .expect("kernel 6.0+ reports supported modes");
+    assert!(nest.len() >= 8, "nest is {nest:02X?}");
+    let supported = u32::from_ne_bytes(nest[4..8].try_into().unwrap());
+    assert_eq!(Some(supported), iface.supported_ctrlmodes().unwrap());
+
+    // An attribute the crate does not model at all: absent is not an error.
+    let tdc = iface.can_param_bytes(libc::IFLA_CAN_TDC as u16).unwrap();
+    eprintln!("{name}: clock {freq} Hz, supported {supported:#06X}, TDC {tdc:?}");
+}
+
 /// A real CAN controller reports which control modes it supports.
 ///
 /// `IFLA_CAN_CTRLMODE_EXT` needs hardware: a `vcan` sends no CAN link

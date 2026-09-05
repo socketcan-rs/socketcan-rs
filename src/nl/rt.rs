@@ -168,7 +168,11 @@ pub struct can_device_stats {
 /// The attributes nested inside `IFLA_CAN_CTRLMODE_EXT`.
 #[neli_enum(serialized_type = "libc::c_ushort")]
 pub enum IflaCanCtrlModeExt {
+    /// The unspecified attribute, zero. Never sent or matched.
     Unspec = libc::IFLA_CAN_CTRLMODE_UNSPEC as u16,
+    /// The control modes the driver supports, a `u32` mask of `CAN_CTRLMODE_*`
+    /// bits (read-only). Parsed into
+    /// `InterfaceCanParams::ctrl_mode_supported`.
     Supported = libc::IFLA_CAN_CTRLMODE_SUPPORTED as u16,
 }
 
@@ -176,23 +180,73 @@ impl RtaType for IflaCanCtrlModeExt {}
 
 #[neli_enum(serialized_type = "libc::c_ushort")]
 pub enum IflaCan {
+    /// The unspecified attribute, zero. Never sent or matched.
     Unspec = libc::IFLA_CAN_UNSPEC as u16,
+    /// Nominal bit timing, a [`can_bittiming`].
     BitTiming = libc::IFLA_CAN_BITTIMING as u16,
+    /// The controller's nominal bit-timing limits, a
+    /// [`can_bittiming_const`] (read-only).
     BitTimingConst = libc::IFLA_CAN_BITTIMING_CONST as u16,
+    /// The controller's base clock frequency, a [`can_clock`] (read-only).
     Clock = libc::IFLA_CAN_CLOCK as u16,
+    /// The controller's state, a `u32` from the kernel's `enum can_state`.
     State = libc::IFLA_CAN_STATE as u16,
+    /// The control modes currently enabled, a [`can_ctrlmode`] of a mask and
+    /// the flags to apply within it.
     CtrlMode = libc::IFLA_CAN_CTRLMODE as u16,
+    /// The automatic bus-off restart delay in milliseconds, a `u32`; zero
+    /// disables it.
     RestartMs = libc::IFLA_CAN_RESTART_MS as u16,
+    /// Triggers a manual bus-off restart. Write-only, and the kernel ignores
+    /// the payload value; `CanInterface::restart()` sends a `u32`, as
+    /// iproute2 does. Only permitted while automatic restart is disabled and
+    /// the controller is bus-off.
     Restart = libc::IFLA_CAN_RESTART as u16,
+    /// The current TX and RX error counters, a [`can_berr_counter`]
+    /// (read-only).
     BerrCounter = libc::IFLA_CAN_BERR_COUNTER as u16,
+    /// CAN FD data-phase bit timing, a [`can_bittiming`].
     DataBitTiming = libc::IFLA_CAN_DATA_BITTIMING as u16,
+    /// The controller's data-phase bit-timing limits, a
+    /// [`can_bittiming_const`] (read-only).
     DataBitTimingConst = libc::IFLA_CAN_DATA_BITTIMING_CONST as u16,
+    /// The bus termination resistance in ohms, a `u16`; zero is
+    /// [`CAN_TERMINATION_DISABLED`].
     Termination = libc::IFLA_CAN_TERMINATION as u16,
+    /// The termination values the hardware can switch to, a list of `u16`
+    /// (read-only).
+    ///
+    /// **Not parsed**: no accessor reads it, so a reply carrying it falls
+    /// through. Reachable through `CanInterface::can_param_bytes()`.
     TerminationConst = libc::IFLA_CAN_TERMINATION_CONST as u16,
+    /// The fixed nominal bitrates the hardware supports, a list of `u32`
+    /// (read-only). Reported by controllers that cannot derive arbitrary
+    /// rates from a bit-timing calculation.
+    ///
+    /// **Not parsed**, as with [`TerminationConst`](Self::TerminationConst).
     BitRateConst = libc::IFLA_CAN_BITRATE_CONST as u16,
+    /// The fixed data-phase bitrates the hardware supports, a list of `u32`
+    /// (read-only).
+    ///
+    /// **Not parsed**, as with [`TerminationConst`](Self::TerminationConst).
     DataBitRateConst = libc::IFLA_CAN_DATA_BITRATE_CONST as u16,
+    /// The highest bitrate the hardware accepts, a `u32` (read-only).
+    ///
+    /// **Not parsed**, as with [`TerminationConst`](Self::TerminationConst).
     BitRateMax = libc::IFLA_CAN_BITRATE_MAX as u16,
+    /// Transmitter Delay Compensation, a nested attribute carrying the
+    /// TDCV/TDCO/TDCF values and their driver-reported bounds.
+    ///
+    /// Declared so the type mirrors the kernel's attribute list, but **not
+    /// parsed**: nothing reads or writes it, and a reply carrying it falls
+    /// through the match in `InterfaceCanParams::from_link_info()`. Only
+    /// drivers that set `tdc_const` report it — a PEAK PCAN-USB FD, for one,
+    /// does not — so there was no hardware here to verify an implementation
+    /// against. The nested-attribute plumbing added for
+    /// [`IflaCanCtrlModeExt`] is what it would build on.
     Tdc = libc::IFLA_CAN_TDC as u16,
+    /// The supported control modes, nested. Parsed into
+    /// `InterfaceCanParams::ctrl_mode_supported`.
     CtrlModeExt = libc::IFLA_CAN_CTRLMODE_EXT as u16,
 }
 
