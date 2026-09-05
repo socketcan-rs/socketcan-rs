@@ -11,9 +11,19 @@
 
 //! Low-level Netlink SocketCAN data structs, constants, and bindings.
 //!
-//! These are missing from the `libc` and `neli` Rust crates, adding them
-//! here as a stand-in for now. Most of these will be pushed upstream,
-//! if/when possible.
+//! What is left here is what upstream cannot supply:
+//!
+//! * The CAN netlink structs. `libc` has these — `libc::can_bittiming` and
+//!   friends — but they are foreign types, and the `neli` traits that
+//!   serialize them (`FromBytes`, `ToBytes`, `Size`) are foreign traits, so
+//!   the orphan rule forbids implementing the latter for the former. They
+//!   stay defined here so the derives can be applied.
+//! * [`IflaCan`], the `IFLA_CAN_*` attribute type, which `neli` does not
+//!   define. Its variant values come from `libc`.
+//!
+//! Constants that `libc` does provide are used from there rather than
+//! duplicated: `CAN_STATE_*` and `CAN_CTRLMODE_*` (`linux/can/netlink.h`),
+//! and `RTEXT_FILTER_*` (`linux/rtnetlink.h`).
 //!
 
 #![allow(non_camel_case_types, unused)]
@@ -33,15 +43,6 @@ use std::{
     mem,
     mem::size_of,
 };
-
-pub const EXT_FILTER_VF: c_uint = 1 << 0;
-pub const EXT_FILTER_BRVLAN: c_uint = 1 << 1;
-pub const EXT_FILTER_BRVLAN_COMPRESSED: c_uint = 1 << 2;
-pub const EXT_FILTER_SKIP_STATS: c_uint = 1 << 3;
-pub const EXT_FILTER_MRP: c_uint = 1 << 4;
-pub const EXT_FILTER_CFM_CONFIG: c_uint = 1 << 5;
-pub const EXT_FILTER_CFM_STATUS: c_uint = 1 << 6;
-pub const EXT_FILTER_MST: c_uint = 1 << 7;
 
 /// CAN bit-timing parameters
 ///
@@ -116,24 +117,6 @@ pub struct can_clock {
     pub freq: u32, // CAN system clock frequency in Hz
 }
 
-// The `enum can_state` values, as the kernel sends them in `IFLA_CAN_STATE`.
-// The Rust-side [`CanState`](super::CanState) maps onto these.
-
-/// RX/TX error count < 96
-pub const CAN_STATE_ERROR_ACTIVE: u32 = 0;
-/// RX/TX error count < 128
-pub const CAN_STATE_ERROR_WARNING: u32 = 1;
-/// RX/TX error count < 256
-pub const CAN_STATE_ERROR_PASSIVE: u32 = 2;
-/// RX/TX error count >= 256
-pub const CAN_STATE_BUS_OFF: u32 = 3;
-/// Device is stopped
-pub const CAN_STATE_STOPPED: u32 = 4;
-/// Device is sleeping
-pub const CAN_STATE_SLEEPING: u32 = 5;
-/// One past the last state the kernel defines
-pub const CAN_STATE_MAX: u32 = 6;
-
 /// CAN bus error counters
 ///
 #[repr(C)]
@@ -157,25 +140,6 @@ pub struct can_ctrlmode {
     pub flags: u32,
 }
 
-/// Loopback mode
-pub const CAN_CTRLMODE_LOOPBACK: u32 = 0x01;
-/// Listen-only mode
-pub const CAN_CTRLMODE_LISTENONLY: u32 = 0x02;
-/// Triple sampling mode
-pub const CAN_CTRLMODE_3_SAMPLES: u32 = 0x04;
-/// One-Shot mode
-pub const CAN_CTRLMODE_ONE_SHOT: u32 = 0x08;
-/// Bus-error reporting
-pub const CAN_CTRLMODE_BERR_REPORTING: u32 = 0x10;
-/// CAN FD mode
-pub const CAN_CTRLMODE_FD: u32 = 0x20;
-/// Ignore missing CAN ACKs
-pub const CAN_CTRLMODE_PRESUME_ACK: u32 = 0x40;
-/// CAN FD in non-ISO mode
-pub const CAN_CTRLMODE_FD_NON_ISO: u32 = 0x80;
-/// Classic CAN DLC option
-pub const CAN_CTRLMODE_CC_LEN8_DLC: u32 = 0x100;
-
 /// u16 termination range: 1..65535 Ohms
 pub const CAN_TERMINATION_DISABLED: u16 = 0;
 
@@ -194,47 +158,28 @@ pub struct can_device_stats {
     pub restarts: u32,         // CAN controller re-starts
 }
 
-pub const IFLA_CAN_UNSPEC: u16 = 0;
-pub const IFLA_CAN_BITTIMING: u16 = 1;
-pub const IFLA_CAN_BITTIMING_CONST: u16 = 2;
-pub const IFLA_CAN_CLOCK: u16 = 3;
-pub const IFLA_CAN_STATE: u16 = 4;
-pub const IFLA_CAN_CTRLMODE: u16 = 5;
-pub const IFLA_CAN_RESTART_MS: u16 = 6;
-pub const IFLA_CAN_RESTART: u16 = 7;
-pub const IFLA_CAN_BERR_COUNTER: u16 = 8;
-pub const IFLA_CAN_DATA_BITTIMING: u16 = 9;
-pub const IFLA_CAN_DATA_BITTIMING_CONST: u16 = 10;
-pub const IFLA_CAN_TERMINATION: u16 = 11;
-pub const IFLA_CAN_TERMINATION_CONST: u16 = 12;
-pub const IFLA_CAN_BITRATE_CONST: u16 = 13;
-pub const IFLA_CAN_DATA_BITRATE_CONST: u16 = 14;
-pub const IFLA_CAN_BITRATE_MAX: u16 = 15;
-pub const IFLA_CAN_TDC: u16 = 16;
-pub const IFLA_CAN_CTRLMODE_EXT: u16 = 17;
-
 /// CAN netlink interface
 ///
 #[neli_enum(serialized_type = "libc::c_ushort")]
 pub enum IflaCan {
-    Unspec = IFLA_CAN_UNSPEC,
-    BitTiming = IFLA_CAN_BITTIMING,
-    BitTimingConst = IFLA_CAN_BITTIMING_CONST,
-    Clock = IFLA_CAN_CLOCK,
-    State = IFLA_CAN_STATE,
-    CtrlMode = IFLA_CAN_CTRLMODE,
-    RestartMs = IFLA_CAN_RESTART_MS,
-    Restart = IFLA_CAN_RESTART,
-    BerrCounter = IFLA_CAN_BERR_COUNTER,
-    DataBitTiming = IFLA_CAN_DATA_BITTIMING,
-    DataBitTimingConst = IFLA_CAN_DATA_BITTIMING_CONST,
-    Termination = IFLA_CAN_TERMINATION,
-    TerminationConst = IFLA_CAN_TERMINATION_CONST,
-    BitRateConst = IFLA_CAN_BITRATE_CONST,
-    DataBitRateConst = IFLA_CAN_DATA_BITRATE_CONST,
-    BitRateMax = IFLA_CAN_BITRATE_MAX,
-    Tdc = IFLA_CAN_TDC,
-    CtrlModeExt = IFLA_CAN_CTRLMODE_EXT,
+    Unspec = libc::IFLA_CAN_UNSPEC as u16,
+    BitTiming = libc::IFLA_CAN_BITTIMING as u16,
+    BitTimingConst = libc::IFLA_CAN_BITTIMING_CONST as u16,
+    Clock = libc::IFLA_CAN_CLOCK as u16,
+    State = libc::IFLA_CAN_STATE as u16,
+    CtrlMode = libc::IFLA_CAN_CTRLMODE as u16,
+    RestartMs = libc::IFLA_CAN_RESTART_MS as u16,
+    Restart = libc::IFLA_CAN_RESTART as u16,
+    BerrCounter = libc::IFLA_CAN_BERR_COUNTER as u16,
+    DataBitTiming = libc::IFLA_CAN_DATA_BITTIMING as u16,
+    DataBitTimingConst = libc::IFLA_CAN_DATA_BITTIMING_CONST as u16,
+    Termination = libc::IFLA_CAN_TERMINATION as u16,
+    TerminationConst = libc::IFLA_CAN_TERMINATION_CONST as u16,
+    BitRateConst = libc::IFLA_CAN_BITRATE_CONST as u16,
+    DataBitRateConst = libc::IFLA_CAN_DATA_BITRATE_CONST as u16,
+    BitRateMax = libc::IFLA_CAN_BITRATE_MAX as u16,
+    Tdc = libc::IFLA_CAN_TDC as u16,
+    CtrlModeExt = libc::IFLA_CAN_CTRLMODE_EXT as u16,
 }
 
 impl RtaType for IflaCan {}
@@ -244,6 +189,66 @@ impl RtaType for IflaCan {}
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use std::mem::{align_of, offset_of, size_of};
+
+    /// Our mirrors of the `linux/can/netlink.h` structs must match the ones
+    /// `libc` now defines, byte for byte.
+    ///
+    /// They cannot simply *be* libc's: the `neli` traits that serialize them
+    /// are foreign traits, and libc's types are foreign types, so the orphan
+    /// rule forbids the impls. Keeping a copy is only safe while it stays
+    /// identical, which is what this checks — size, alignment and the offset
+    /// of every field.
+    #[test]
+    fn structs_match_libc() {
+        macro_rules! same_layout {
+            ($ours:ty, $theirs:ty, [$($field:ident),+ $(,)?]) => {{
+                assert_eq!(
+                    size_of::<$ours>(),
+                    size_of::<$theirs>(),
+                    concat!(stringify!($ours), ": size")
+                );
+                assert_eq!(
+                    align_of::<$ours>(),
+                    align_of::<$theirs>(),
+                    concat!(stringify!($ours), ": alignment")
+                );
+                $(
+                    assert_eq!(
+                        offset_of!($ours, $field),
+                        offset_of!($theirs, $field),
+                        concat!(stringify!($ours), ".", stringify!($field), ": offset")
+                    );
+                )+
+            }};
+        }
+
+        same_layout!(
+            can_bittiming,
+            libc::can_bittiming,
+            [
+                bitrate,
+                sample_point,
+                tq,
+                prop_seg,
+                phase_seg1,
+                phase_seg2,
+                sjw,
+                brp
+            ]
+        );
+        same_layout!(
+            can_bittiming_const,
+            libc::can_bittiming_const,
+            [
+                name, tseg1_min, tseg1_max, tseg2_min, tseg2_max, sjw_max, brp_min, brp_max,
+                brp_inc
+            ]
+        );
+        same_layout!(can_clock, libc::can_clock, [freq]);
+        same_layout!(can_berr_counter, libc::can_berr_counter, [txerr, rxerr]);
+        same_layout!(can_ctrlmode, libc::can_ctrlmode, [mask, flags]);
+    }
 
     #[test]
     fn test_as_bytes() {

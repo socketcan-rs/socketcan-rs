@@ -255,9 +255,8 @@ impl TryFrom<u32> for Mtu {
 /// CAN operational and error states
 ///
 /// This is the Rust form of the kernel's `enum can_state`, reported in the
-/// `IFLA_CAN_STATE` netlink attribute. The wire values it maps are the
-/// crate-internal `CAN_STATE_*` constants, which live with the rest of the
-/// low-level netlink bindings.
+/// `IFLA_CAN_STATE` netlink attribute. It maps the `libc::CAN_STATE_*`
+/// values, which are that C enum.
 ///
 /// A driver is not obliged to report a state — a `vcan` does not — so
 /// [`CanInterface::state()`](CanInterface::state) yields `None` in that case
@@ -289,12 +288,12 @@ impl TryFrom<u32> for CanState {
     /// is `InvalidData` rather than a silent default.
     fn try_from(val: u32) -> std::result::Result<Self, Self::Error> {
         match val {
-            rt::CAN_STATE_ERROR_ACTIVE => Ok(Self::ErrorActive),
-            rt::CAN_STATE_ERROR_WARNING => Ok(Self::ErrorWarning),
-            rt::CAN_STATE_ERROR_PASSIVE => Ok(Self::ErrorPassive),
-            rt::CAN_STATE_BUS_OFF => Ok(Self::BusOff),
-            rt::CAN_STATE_STOPPED => Ok(Self::Stopped),
-            rt::CAN_STATE_SLEEPING => Ok(Self::Sleeping),
+            libc::CAN_STATE_ERROR_ACTIVE => Ok(Self::ErrorActive),
+            libc::CAN_STATE_ERROR_WARNING => Ok(Self::ErrorWarning),
+            libc::CAN_STATE_ERROR_PASSIVE => Ok(Self::ErrorPassive),
+            libc::CAN_STATE_BUS_OFF => Ok(Self::BusOff),
+            libc::CAN_STATE_STOPPED => Ok(Self::Stopped),
+            libc::CAN_STATE_SLEEPING => Ok(Self::Sleeping),
             _ => Err(io::Error::from(io::ErrorKind::InvalidData)),
         }
     }
@@ -694,7 +693,7 @@ impl CanInterface {
             buffer.push(
                 RtattrBuilder::default()
                     .rta_type(Ifla::ExtMask)
-                    .rta_payload(rt::EXT_FILTER_VF)
+                    .rta_payload(libc::RTEXT_FILTER_VF as c_uint)
                     .build()
                     .unwrap(),
             );
