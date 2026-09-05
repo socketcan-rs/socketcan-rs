@@ -47,8 +47,8 @@ use socketcan::{tokio::CanSocket, CanFrame, Result};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let mut sock_rx = CanSocket::open("vcan0")?;
-    let sock_tx = CanSocket::open("can0")?;
+    let mut sock_rx = CanSocket::open("can0")?;
+    let sock_tx = CanSocket::open("can1")?;
 
     while let Some(Ok(frame)) = sock_rx.next().await {
         if matches!(frame, CanFrame::Data(_)) {
@@ -78,8 +78,8 @@ use socketcan::{smol::CanSocket, CanFrame, Error, Result};
 
 fn main() -> Result<()> {
     smol::block_on(async {
-        let sock_rx = CanSocket::open("vcan0")?;
-        let sock_tx = CanSocket::open("can0")?;
+        let sock_rx = CanSocket::open("can0")?;
+        let sock_tx = CanSocket::open("can1")?;
 
         loop {
             let frame = sock_rx.read_frame().await?;

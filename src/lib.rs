@@ -156,8 +156,7 @@
 //!   `Deserialize` for frames, identifiers, filters, timestamps, the error
 //!   types, candump records, and the netlink interface configuration types.
 //!   Useful in particular for keeping interface configuration in a JSON or
-//!   TOML file. See the [errors module](crate::errors) for what an
-//!   [`io::Error`](std::io::Error) loses on a round trip.
+//!   TOML file.
 //!
 //! ### Test Features
 //!

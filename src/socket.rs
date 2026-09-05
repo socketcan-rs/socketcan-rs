@@ -104,7 +104,8 @@ impl<E: fmt::Debug> ShouldRetry for IoResult<E> {
 
 // ===== Private local helper functions =====
 
-/// Tries to open the CAN socket by the interface number.
+/// Tries to open the CAN socket by the interface number and then vind it
+/// to the address.
 fn raw_open_socket(addr: &CanAddr) -> IoResult<socket2::Socket> {
     let af_can = socket2::Domain::from(AF_CAN);
     let can_raw = socket2::Protocol::from(CAN_RAW);
@@ -286,6 +287,41 @@ pub trait Socket: AsRawFd {
 ///
 /// These are blocking calls, even when implemented on asynchronous sockets.
 pub trait SocketOptions: AsRawFd {
+    /// Sets a socket option from raw bytes.
+    ///
+    /// This is the primitive the other setters go through: everything
+    /// `setsockopt()` accepts is a length-counted byte buffer, whatever type
+    /// the caller started from.
+    ///
+    /// An empty buffer sends a null pointer with a zero length, which is
+    /// usually how an option is cleared.
+    ///
+    /// It is the caller's job to match the option's expected layout; the
+    /// kernel reports `EINVAL` for a length it does not expect.
+    fn set_socket_option_bytes(&self, level: c_int, name: c_int, buf: &[u8]) -> IoResult<()> {
+        // A zero-length slice still has a (dangling) pointer, which the kernel
+        // must not see; send a null one instead.
+        let (val, len) = match buf.is_empty() {
+            true => (ptr::null(), 0),
+            false => (buf.as_ptr().cast::<c_void>(), buf.len() as socklen_t),
+        };
+
+        let ret = unsafe { libc::setsockopt(self.as_raw_fd(), level, name, val, len) };
+
+        match ret {
+            0 => Ok(()),
+            _ => Err(IoError::last_os_error()),
+        }
+    }
+
+    /// Sets a socket option that holds a single integer.
+    ///
+    /// The safe, non-generic setter for the case that covers most CAN
+    /// options.
+    fn set_socket_option_int(&self, level: c_int, name: c_int, val: c_int) -> IoResult<()> {
+        self.set_socket_option_bytes(level, name, &val.to_ne_bytes())
+    }
+
     /// Sets an option on the socket.
     ///
     /// The libc `setsockopt` function is set to set various options on a socket.
@@ -297,50 +333,47 @@ pub trait SocketOptions: AsRawFd {
     /// Example use:
     ///
     /// ```text
-    /// sock.set_socket_option(SOL_TCP, TCP_NO_DELAY, 1 as c_int)
+    /// unsafe { sock.set_socket_option(SOL_CAN_RAW, CAN_RAW_LOOPBACK, &1_i32) }
     /// ```
     ///
-    /// Note that the `val` parameter must be specified correctly; if an option
-    /// expects an integer, it is advisable to pass in a `c_int`, not the default
-    /// of `i32`.
-    fn set_socket_option<T>(&self, level: c_int, name: c_int, val: &T) -> IoResult<()> {
-        let ret = unsafe {
-            libc::setsockopt(
-                self.as_raw_fd(),
-                level,
-                name,
-                val as *const _ as *const c_void,
-                size_of::<T>() as socklen_t,
-            )
-        };
-
-        match ret {
-            0 => Ok(()),
-            _ => Err(IoError::last_os_error()),
-        }
+    /// An option that is a single integer needs none of this: reach for
+    /// [`set_socket_option_int()`](Self::set_socket_option_int), which is safe.
+    /// This one is for a typed value the kernel expects as a struct.
+    ///
+    /// # Safety
+    ///
+    /// The value is sent as its raw bytes, so every byte of `T` must be
+    /// initialised: `T` must be a plain-data type with no padding, laid out
+    /// the way the kernel expects for this option — an integer, or a
+    /// `#[repr(C)]` struct of them.
+    unsafe fn set_socket_option<T>(&self, level: c_int, name: c_int, val: &T) -> IoResult<()> {
+        // SAFETY: the caller guarantees every byte of `T` is initialised. The
+        // slice is only read, and lives no longer than the borrow of `val`.
+        let buf = unsafe { as_bytes(val) };
+        self.set_socket_option_bytes(level, name, buf)
     }
 
     /// Sets a collection of multiple socket options with one call.
-    fn set_socket_option_mult<T>(&self, level: c_int, name: c_int, values: &[T]) -> IoResult<()> {
-        let ret = if values.is_empty() {
-            // can't pass in a ptr to a 0-len slice, pass a null ptr instead
-            unsafe { libc::setsockopt(self.as_raw_fd(), level, name, ptr::null(), 0) }
-        } else {
-            unsafe {
-                libc::setsockopt(
-                    self.as_raw_fd(),
-                    level,
-                    name,
-                    values.as_ptr().cast(),
-                    size_of_val(values) as socklen_t,
-                )
-            }
+    ///
+    /// An empty slice clears the option.
+    ///
+    /// # Safety
+    ///
+    /// The same requirement as [`set_socket_option()`](Self::set_socket_option):
+    /// every byte of `T` must be initialised, which for a slice means `T` has
+    /// no padding at all.
+    unsafe fn set_socket_option_mult<T>(
+        &self,
+        level: c_int,
+        name: c_int,
+        values: &[T],
+    ) -> IoResult<()> {
+        // SAFETY: the caller guarantees `T` has no uninitialised bytes, so the
+        // whole run is readable. `size_of_val` gives its exact extent.
+        let buf = unsafe {
+            std::slice::from_raw_parts(values.as_ptr().cast::<u8>(), size_of_val(values))
         };
-
-        match ret {
-            0 => Ok(()),
-            _ => Err(IoError::last_os_error()),
-        }
+        self.set_socket_option_bytes(level, name, buf)
     }
 
     /// Reads back a socket option that holds a single integer.
@@ -424,14 +457,15 @@ pub trait SocketOptions: AsRawFd {
     /// CAN packages received by SocketCAN are matched against these filters,
     /// only matching packets are returned by the interface.
     ///
-    /// See `CanFilter` for details on how filtering works. By default, all
+    /// See [`CanFilter`] for details on how filtering works. By default a
     /// single filter matching all incoming frames is installed.
     fn set_filters<F>(&self, filters: &[F]) -> IoResult<()>
     where
         F: Into<CanFilter> + Copy,
     {
         let filters: Vec<CanFilter> = filters.iter().map(|f| (*f).into()).collect();
-        self.set_socket_option_mult(SOL_CAN_RAW, CAN_RAW_FILTER, &filters)
+        // SAFETY: `CanFilter` wraps `libc::can_filter` with no padding
+        unsafe { self.set_socket_option_mult(SOL_CAN_RAW, CAN_RAW_FILTER, &filters) }
     }
 
     /// Disable reception of CAN frames.
@@ -439,7 +473,8 @@ pub trait SocketOptions: AsRawFd {
     /// Sets a completely empty filter; disabling all CAN frame reception.
     fn set_filter_drop_all(&self) -> IoResult<()> {
         let filters: &[CanFilter] = &[];
-        self.set_socket_option_mult(SOL_CAN_RAW, CAN_RAW_FILTER, filters)
+        // SAFETY: for an empty slice, the call sends a null ptrr with len zero.
+        unsafe { self.set_socket_option_mult(SOL_CAN_RAW, CAN_RAW_FILTER, filters) }
     }
 
     /// Accept all frames, disabling any kind of filtering.
@@ -458,7 +493,32 @@ pub trait SocketOptions: AsRawFd {
     /// setting `ERR_MASK_ALL` or another non-empty error mask causes the
     /// socket to receive notification about the specified conditions.
     fn set_error_filter(&self, mask: u32) -> IoResult<()> {
-        self.set_socket_option(SOL_CAN_RAW, CAN_RAW_ERR_FILTER, &mask)
+        // The mask is a `can_err_mask_t`, i.e. a `u32`, so it goes out as its
+        // bytes rather than through the `c_int` setter and a sign-changing cast.
+        self.set_socket_option_bytes(SOL_CAN_RAW, CAN_RAW_ERR_FILTER, &mask.to_ne_bytes())
+    }
+
+    /// Reads back the error mask on the socket.
+    ///
+    /// Zero — `ERR_MASK_NONE` — means no error conditions are reported as
+    /// error frames.
+    ///
+    /// Read as raw bytes rather than through
+    /// [`get_socket_option_int()`](Self::get_socket_option_int) for the same
+    /// reason [`set_error_filter()`](Self::set_error_filter) writes them: the
+    /// mask is a `can_err_mask_t`, a `u32`, and routing it through a `c_int`
+    /// would mean a sign-changing cast.
+    fn error_filter(&self) -> IoResult<u32> {
+        let mut buf = [0u8; size_of::<u32>()];
+        let n = self.get_socket_option_bytes(SOL_CAN_RAW, CAN_RAW_ERR_FILTER, &mut buf)?;
+
+        if n != buf.len() {
+            return Err(IoError::new(
+                IoErrorKind::InvalidData,
+                format!("error mask is {n} bytes, not a u32"),
+            ));
+        }
+        Ok(u32::from_ne_bytes(buf))
     }
 
     /// Sets the error mask on the socket to reject all errors.
@@ -483,6 +543,15 @@ pub trait SocketOptions: AsRawFd {
         self.set_error_filter(mask)
     }
 
+    /// Reads back the error mask on the socket.
+    ///
+    /// Another name for [`error_filter()`](Self::error_filter), pairing with
+    /// [`set_error_mask()`](Self::set_error_mask).
+    #[inline]
+    fn error_mask(&self) -> IoResult<u32> {
+        self.error_filter()
+    }
+
     /// Enable or disable loopback.
     ///
     /// By default, loopback is enabled, causing other applications that open
@@ -490,7 +559,12 @@ pub trait SocketOptions: AsRawFd {
     /// the same system.
     fn set_loopback(&self, enabled: bool) -> IoResult<()> {
         let loopback = c_int::from(enabled);
-        self.set_socket_option(SOL_CAN_RAW, CAN_RAW_LOOPBACK, &loopback)
+        self.set_socket_option_int(SOL_CAN_RAW, CAN_RAW_LOOPBACK, loopback)
+    }
+
+    /// Determines whether loopback is enabled.
+    fn loopback(&self) -> IoResult<bool> {
+        Ok(self.get_socket_option_int(SOL_CAN_RAW, CAN_RAW_LOOPBACK)? != 0)
     }
 
     /// Enable or disable receiving of own frames.
@@ -499,7 +573,12 @@ pub trait SocketOptions: AsRawFd {
     /// are received back immediately by sender. Default is off.
     fn set_recv_own_msgs(&self, enabled: bool) -> IoResult<()> {
         let recv_own_msgs = c_int::from(enabled);
-        self.set_socket_option(SOL_CAN_RAW, CAN_RAW_RECV_OWN_MSGS, &recv_own_msgs)
+        self.set_socket_option_int(SOL_CAN_RAW, CAN_RAW_RECV_OWN_MSGS, recv_own_msgs)
+    }
+
+    /// Determines whether the socket receives the frames it sends.
+    fn recv_own_msgs(&self) -> IoResult<bool> {
+        Ok(self.get_socket_option_int(SOL_CAN_RAW, CAN_RAW_RECV_OWN_MSGS)? != 0)
     }
 
     /// Enable or disable join filters.
@@ -509,7 +588,13 @@ pub trait SocketOptions: AsRawFd {
     /// _all_ filters to be accepted.
     fn set_join_filters(&self, enabled: bool) -> IoResult<()> {
         let join_filters = c_int::from(enabled);
-        self.set_socket_option(SOL_CAN_RAW, CAN_RAW_JOIN_FILTERS, &join_filters)
+        self.set_socket_option_int(SOL_CAN_RAW, CAN_RAW_JOIN_FILTERS, join_filters)
+    }
+
+    /// Determines whether a frame must match every filter, rather than any
+    /// of them, to be accepted.
+    fn join_filters(&self) -> IoResult<bool> {
+        Ok(self.get_socket_option_int(SOL_CAN_RAW, CAN_RAW_JOIN_FILTERS)? != 0)
     }
 
     /// Enable or disable `SO_TIMESTAMPNS` on the socket.
@@ -526,7 +611,7 @@ pub trait SocketOptions: AsRawFd {
     /// [`CanTimestamps`]: crate::CanTimestamps
     fn set_recv_timestamp(&self, enable: bool) -> IoResult<()> {
         let val = c_int::from(enable);
-        self.set_socket_option(SOL_SOCKET, libc::SO_TIMESTAMPNS, &val)
+        self.set_socket_option_int(SOL_SOCKET, libc::SO_TIMESTAMPNS, val)
     }
 
     /// Set `SO_TIMESTAMPING` flags on the socket.
@@ -558,7 +643,7 @@ pub trait SocketOptions: AsRawFd {
     /// [`SOF_TIMESTAMPING_RAW_HARDWARE`]: crate::SOF_TIMESTAMPING_RAW_HARDWARE
     fn set_timestamping(&self, flags: u32) -> IoResult<()> {
         let val = flags as c_int;
-        self.set_socket_option(SOL_SOCKET, libc::SO_TIMESTAMPING, &val)
+        self.set_socket_option_int(SOL_SOCKET, libc::SO_TIMESTAMPING, val)
     }
 }
 

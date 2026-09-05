@@ -104,6 +104,102 @@ fn vcan_other_protocols_bind_with_our_addr() {
     assert_eq!(isotp.tp_rx_id(), 0x123);
 }
 
+/// Every CAN option getter reports what its setter just wrote.
+///
+/// The kernel is the only authority on what a socket actually holds, so these
+/// go through it rather than caching anything on the Rust side.
+#[test]
+#[cfg(feature = "vcan_tests")]
+#[serial]
+fn vcan_option_getters_mirror_setters() {
+    let sock = CanSocket::open(VCAN).unwrap();
+
+    for on in [true, false] {
+        sock.set_loopback(on).unwrap();
+        assert_eq!(sock.loopback().unwrap(), on, "loopback {on}");
+
+        sock.set_recv_own_msgs(on).unwrap();
+        assert_eq!(sock.recv_own_msgs().unwrap(), on, "recv_own_msgs {on}");
+
+        sock.set_join_filters(on).unwrap();
+        assert_eq!(sock.join_filters().unwrap(), on, "join_filters {on}");
+    }
+
+    for mask in [ERR_MASK_ALL, ERR_MASK_NONE, 0x0000_0004] {
+        sock.set_error_filter(mask).unwrap();
+        assert_eq!(sock.error_filter().unwrap(), mask, "mask {mask:#x}");
+        // The alias pair reads the same option.
+        assert_eq!(sock.error_mask().unwrap(), mask);
+    }
+
+    // Defaults, as the kernel sets them for a fresh raw socket: loopback on,
+    // own messages off, no error frames.
+    let fresh = CanSocket::open(VCAN).unwrap();
+    assert!(fresh.loopback().unwrap());
+    assert!(!fresh.recv_own_msgs().unwrap());
+    assert_eq!(fresh.error_filter().unwrap(), ERR_MASK_NONE);
+}
+
+/// The three setters are three spellings of one `setsockopt()` call, and the
+/// empty-buffer case still clears an option rather than sending a dangling
+/// pointer.
+///
+/// `set_socket_option()` and `set_socket_option_mult()` delegate to
+/// `set_socket_option_bytes()`, so this checks the delegation end to end
+/// against what the kernel actually holds afterwards.
+#[test]
+#[cfg(feature = "vcan_tests")]
+#[serial]
+fn vcan_socket_option_setters_agree() {
+    use socketcan::socket::{CAN_RAW_ERR_FILTER, CAN_RAW_FILTER, CAN_RAW_LOOPBACK, SOL_CAN_RAW};
+
+    let sock = CanSocket::open(VCAN).unwrap();
+
+    // Typed, and as raw bytes: the same option, the same result.
+    //
+    // SAFETY: `c_int` has no padding, so every byte of the value is
+    // initialised — the contract `set_socket_option()` asks of its caller.
+    unsafe { sock.set_socket_option(SOL_CAN_RAW, CAN_RAW_LOOPBACK, &0i32) }.unwrap();
+    assert_eq!(
+        sock.get_socket_option_int(SOL_CAN_RAW, CAN_RAW_LOOPBACK)
+            .unwrap(),
+        0
+    );
+
+    sock.set_socket_option_bytes(SOL_CAN_RAW, CAN_RAW_LOOPBACK, &1i32.to_ne_bytes())
+        .unwrap();
+    assert_eq!(
+        sock.get_socket_option_int(SOL_CAN_RAW, CAN_RAW_LOOPBACK)
+            .unwrap(),
+        1
+    );
+
+    // And the safe scalar setter, which is what the crate's own wrappers use.
+    sock.set_socket_option_int(SOL_CAN_RAW, CAN_RAW_LOOPBACK, 0)
+        .unwrap();
+    assert_eq!(
+        sock.get_socket_option_int(SOL_CAN_RAW, CAN_RAW_LOOPBACK)
+            .unwrap(),
+        0
+    );
+
+    // A slice of values, read back through the byte getter.
+    sock.set_error_mask(ERR_MASK_ALL).unwrap();
+    let mut buf = [0u8; 4];
+    sock.get_socket_option_bytes(SOL_CAN_RAW, CAN_RAW_ERR_FILTER, &mut buf)
+        .unwrap();
+    assert_eq!(u32::from_ne_bytes(buf), ERR_MASK_ALL);
+
+    // Both empty cases must succeed: the primitive sends a null pointer with
+    // length 0 for them, which is how a filter list is cleared.
+    sock.set_filter_drop_all().unwrap();
+    sock.set_socket_option_bytes(SOL_CAN_RAW, CAN_RAW_FILTER, &[])
+        .unwrap();
+
+    // ... and the socket still works afterwards: filters accept frames again.
+    sock.set_filter_accept_all().unwrap();
+}
+
 /// A CAN socket option round-trips through the setter and the new getter.
 ///
 /// This is the shape a crate implementing another CAN protocol needs: set an
