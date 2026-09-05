@@ -636,11 +636,11 @@ pub trait SocketOptions: AsRawFd {
     /// Call this before using [`Socket::read_frame_with_timestamps`] or
     /// [`Socket::read_frame_with_hw_timestamp`].
     ///
-    /// [`SOF_TIMESTAMPING_OPT_CMSG`]: crate::SOF_TIMESTAMPING_OPT_CMSG
-    /// [`SOF_TIMESTAMPING_RX_SOFTWARE`]: crate::SOF_TIMESTAMPING_RX_SOFTWARE
-    /// [`SOF_TIMESTAMPING_SOFTWARE`]: crate::SOF_TIMESTAMPING_SOFTWARE
-    /// [`SOF_TIMESTAMPING_RX_HARDWARE`]: crate::SOF_TIMESTAMPING_RX_HARDWARE
-    /// [`SOF_TIMESTAMPING_RAW_HARDWARE`]: crate::SOF_TIMESTAMPING_RAW_HARDWARE
+    /// [`SOF_TIMESTAMPING_OPT_CMSG`]: crate::timestamp::SOF_TIMESTAMPING_OPT_CMSG
+    /// [`SOF_TIMESTAMPING_RX_SOFTWARE`]: crate::timestamp::SOF_TIMESTAMPING_RX_SOFTWARE
+    /// [`SOF_TIMESTAMPING_SOFTWARE`]: crate::timestamp::SOF_TIMESTAMPING_SOFTWARE
+    /// [`SOF_TIMESTAMPING_RX_HARDWARE`]: crate::timestamp::SOF_TIMESTAMPING_RX_HARDWARE
+    /// [`SOF_TIMESTAMPING_RAW_HARDWARE`]: crate::timestamp::SOF_TIMESTAMPING_RAW_HARDWARE
     fn set_timestamping(&self, flags: u32) -> IoResult<()> {
         let val = flags as c_int;
         self.set_socket_option_int(SOL_SOCKET, libc::SO_TIMESTAMPING, val)

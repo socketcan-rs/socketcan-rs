@@ -113,7 +113,8 @@ required-features = ["dump"]
 
 [[example]]
 name = "enumerate"
-required-features = ["enumerate"]
+# also queries each interface over netlink
+required-features = ["enumerate", "netlink"]
 
 [[example]]
 name = "tokio_send"

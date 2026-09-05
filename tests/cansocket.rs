@@ -11,14 +11,16 @@
 
 #[cfg(feature = "vcan_tests")]
 use socketcan::{
-    CanErrorFrame, CanFrame, CanSocket, EmbeddedFrame, ErrorCause, SOF_TIMESTAMPING_OPT_CMSG,
-    SOF_TIMESTAMPING_RX_SOFTWARE, SOF_TIMESTAMPING_SOFTWARE, ShouldRetry, Socket, SocketOptions,
-    StandardId,
+    CanErrorFrame, CanFrame, CanSocket, EmbeddedFrame, ErrorCause, ShouldRetry, Socket,
+    SocketOptions, StandardId,
     errors::{
         CAN_ERR_ACK, CAN_ERR_BUSERROR, CAN_ERR_CNT, CAN_ERR_CRTL, CAN_ERR_PROT, ControllerProblems,
         Location, ViolationTypes,
     },
     id::{ERR_MASK_ALL, ERR_MASK_NONE},
+    timestamp::{
+        SOF_TIMESTAMPING_OPT_CMSG, SOF_TIMESTAMPING_RX_SOFTWARE, SOF_TIMESTAMPING_SOFTWARE,
+    },
 };
 
 #[cfg(feature = "vcan_tests")]
@@ -102,6 +104,69 @@ fn vcan_other_protocols_bind_with_our_addr() {
     assert_eq!(j1939.j1939_pgn(), J1939_NO_PGN);
     assert_eq!(j1939.j1939_addr(), J1939_NO_ADDR);
     assert_eq!(isotp.tp_rx_id(), 0x123);
+}
+
+/// A real CAN controller reports which control modes it supports.
+///
+/// `IFLA_CAN_CTRLMODE_EXT` needs hardware: a `vcan` sends no CAN link
+/// information at all, so nothing in the rest of the suite exercises the
+/// nested-attribute path. Point `SOCKETCAN_FD_IFACE` at an FD-capable
+/// interface to run it — the interface may be down, and needs no bus:
+///
+/// ```text
+/// SOCKETCAN_FD_IFACE=can0 cargo test --features netlink -- --nocapture
+/// ```
+#[test]
+#[cfg(feature = "netlink")]
+fn hw_supported_ctrlmodes() {
+    use socketcan::{CanCtrlMode, CanInterface};
+
+    let Ok(name) = std::env::var("SOCKETCAN_FD_IFACE") else {
+        eprintln!("skipped: set SOCKETCAN_FD_IFACE to an FD-capable interface");
+        return;
+    };
+
+    let iface = CanInterface::open(&name).expect("interface should exist");
+    let supported = iface
+        .supported_ctrlmodes()
+        .expect("query should succeed")
+        .expect("an FD controller reports IFLA_CAN_CTRLMODE_EXT");
+
+    let named = [
+        (CanCtrlMode::Loopback, "LOOPBACK"),
+        (CanCtrlMode::ListenOnly, "LISTENONLY"),
+        (CanCtrlMode::TripleSampling, "3_SAMPLES"),
+        (CanCtrlMode::OneShot, "ONE_SHOT"),
+        (CanCtrlMode::BerrReporting, "BERR_REPORTING"),
+        (CanCtrlMode::Fd, "FD"),
+        (CanCtrlMode::PresumeAck, "PRESUME_ACK"),
+        (CanCtrlMode::NonIso, "FD_NON_ISO"),
+        (CanCtrlMode::CcLen8Dlc, "CC_LEN8_DLC"),
+    ];
+    let list: Vec<&str> = named
+        .iter()
+        .filter(|(m, _)| supported & m.mask() != 0)
+        .map(|(_, n)| *n)
+        .collect();
+    eprintln!("{name}: supported = {supported:#06X} {list:?}");
+
+    // The interface was named as FD-capable, so that bit must be set. This
+    // also proves the nested attribute was decoded rather than skipped: the
+    // kernel sends its type with NLA_F_NESTED set.
+    assert!(
+        supported & CanCtrlMode::Fd.mask() != 0,
+        "{name} reports {supported:#06X}, without CAN_CTRLMODE_FD"
+    );
+
+    // The same mask reaches the batch reader and the full details.
+    assert_eq!(
+        iface.can_params().unwrap().ctrl_mode_supported,
+        Some(supported)
+    );
+    assert_eq!(
+        iface.details().unwrap().can.ctrl_mode_supported,
+        Some(supported)
+    );
 }
 
 /// Every CAN option getter reports what its setter just wrote.

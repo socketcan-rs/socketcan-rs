@@ -15,9 +15,13 @@
 //   tokio_recvts [interface]     (default interface: can0)
 
 use socketcan::{
-    CanFrame, Frame, SOF_TIMESTAMPING_OPT_CMSG, SOF_TIMESTAMPING_RAW_HARDWARE,
-    SOF_TIMESTAMPING_RX_HARDWARE, SOF_TIMESTAMPING_RX_SOFTWARE, SOF_TIMESTAMPING_SOFTWARE,
-    SocketOptions, id::ERR_MASK_ALL, tokio::CanSocket,
+    CanFrame, Frame, SocketOptions,
+    id::ERR_MASK_ALL,
+    timestamp::{
+        SOF_TIMESTAMPING_OPT_CMSG, SOF_TIMESTAMPING_RAW_HARDWARE, SOF_TIMESTAMPING_RX_HARDWARE,
+        SOF_TIMESTAMPING_RX_SOFTWARE, SOF_TIMESTAMPING_SOFTWARE,
+    },
+    tokio::CanSocket,
 };
 use std::{env, time::UNIX_EPOCH};
 

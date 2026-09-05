@@ -141,6 +141,11 @@ pub struct can_ctrlmode {
 }
 
 /// u16 termination range: 1..65535 Ohms
+/// Netlink marks a nested attribute by setting this bit in its type field
+/// (`NLA_F_NESTED` from `linux/netlink.h`, which neither `libc` nor `neli`
+/// exposes). It must be masked off before the type is matched.
+pub const NLA_F_NESTED: u16 = 0x8000;
+
 pub const CAN_TERMINATION_DISABLED: u16 = 0;
 
 ///
@@ -160,6 +165,15 @@ pub struct can_device_stats {
 
 /// CAN netlink interface
 ///
+/// The attributes nested inside `IFLA_CAN_CTRLMODE_EXT`.
+#[neli_enum(serialized_type = "libc::c_ushort")]
+pub enum IflaCanCtrlModeExt {
+    Unspec = libc::IFLA_CAN_CTRLMODE_UNSPEC as u16,
+    Supported = libc::IFLA_CAN_CTRLMODE_SUPPORTED as u16,
+}
+
+impl RtaType for IflaCanCtrlModeExt {}
+
 #[neli_enum(serialized_type = "libc::c_ushort")]
 pub enum IflaCan {
     Unspec = libc::IFLA_CAN_UNSPEC as u16,

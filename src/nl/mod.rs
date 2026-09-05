@@ -69,7 +69,7 @@ use neli::{
     utils::Groups,
 };
 use nix::{self, net::if_::if_nametoindex};
-use rt::IflaCan;
+use rt::{IflaCan, IflaCanCtrlModeExt};
 use std::{ffi::CStr, fmt::Debug, io, os::raw::c_uint};
 
 #[cfg(feature = "serde")]
@@ -335,6 +335,19 @@ pub struct InterfaceCanParams {
     /// The CANbus termination resistance
     #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
     pub termination: Option<u16>,
+    /// The control modes the driver supports, as a mask of `CAN_CTRLMODE_*`
+    /// bits (read-only).
+    ///
+    /// Reported through `IFLA_CAN_CTRLMODE_EXT`, which the kernel has sent
+    /// since 6.0 for drivers that declare their supported modes. `None` means
+    /// the driver did not report it. Test a mode with
+    /// [`CanCtrlMode::mask()`](CanCtrlMode::mask):
+    ///
+    /// ```text
+    /// supported & CanCtrlMode::Fd.mask() != 0
+    /// ```
+    #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+    pub ctrl_mode_supported: Option<u32>,
 }
 
 impl InterfaceCanParams {
@@ -348,7 +361,11 @@ impl InterfaceCanParams {
         for info in link_info.get_attr_handle::<IflaInfo>()?.get_attrs() {
             if *info.rta_type() == IflaInfo::Data {
                 for attr in info.get_attr_handle::<IflaCan>()?.get_attrs() {
-                    match attr.rta_type() {
+                    // The kernel sets `NLA_F_NESTED` in the type field of a
+                    // nested attribute — `IFLA_CAN_CTRLMODE_EXT` arrives as
+                    // 0x8011, not 17 — so the flag comes off before matching.
+                    let attr_type = IflaCan::from(u16::from(attr.rta_type()) & !rt::NLA_F_NESTED);
+                    match &attr_type {
                         IflaCan::BitTiming => {
                             params.bit_timing = Some(attr.get_payload_as::<CanBitTiming>()?);
                         }
@@ -382,12 +399,29 @@ impl InterfaceCanParams {
                         IflaCan::Termination => {
                             params.termination = Some(attr.get_payload_as::<u16>()?);
                         }
+                        IflaCan::CtrlModeExt => {
+                            params.ctrl_mode_supported = Self::supported_from_nest(attr)?;
+                        }
                         _ => (),
                     }
                 }
             }
         }
         Ok(params)
+    }
+
+    /// Reads the supported control-mode mask out of an `IFLA_CAN_CTRLMODE_EXT`
+    /// attribute, which nests a single `IFLA_CAN_CTRLMODE_SUPPORTED` word.
+    ///
+    /// `None` if the nest is there but empty, which the kernel does not do
+    /// today; a driver that reports nothing omits the attribute entirely.
+    fn supported_from_nest(attr: &Rtattr<IflaCan, Buffer>) -> Result<Option<u32>> {
+        for inner in attr.get_attr_handle::<IflaCanCtrlModeExt>()?.get_attrs() {
+            if *inner.rta_type() == IflaCanCtrlModeExt::Supported {
+                return Ok(Some(inner.get_payload_as::<u32>()?));
+            }
+        }
+        Ok(None)
     }
 
     /// Renders the CAN parameters into a netlink attribute buffer.
@@ -1273,6 +1307,34 @@ impl CanInterface {
     ///
     pub fn set_termination(&self, termination: u16) -> Result<()> {
         self.set_can_param(IflaCan::Termination, termination)
+    }
+
+    /// Gets the control modes the driver supports, as a mask of
+    /// `CAN_CTRLMODE_*` bits.
+    ///
+    /// This is what the controller is *capable* of, as opposed to
+    /// [`ctrlmodes()`](Self::ctrlmodes), which reports what is currently
+    /// enabled. `None` if the driver does not report it — the kernel has sent
+    /// `IFLA_CAN_CTRLMODE_EXT` since 6.0, and a `vcan` never does.
+    ///
+    /// Test a single mode with [`CanCtrlMode::mask()`]:
+    ///
+    /// ```no_run
+    /// # use socketcan::{CanInterface, CanCtrlMode};
+    /// # fn main() -> socketcan::Result<()> {
+    /// let iface = CanInterface::open("can0")?;
+    /// if let Some(supported) = iface.supported_ctrlmodes()? {
+    ///     let fd = supported & CanCtrlMode::Fd.mask() != 0;
+    ///     println!("CAN FD supported: {fd}");
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// One netlink round trip; the mask is also in
+    /// [`can_params()`](Self::can_params) and [`details()`](Self::details).
+    pub fn supported_ctrlmodes(&self) -> Result<Option<u32>> {
+        Ok(self.can_params()?.ctrl_mode_supported)
     }
 
     /// Gets the CANbus termination for the interface

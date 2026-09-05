@@ -14,9 +14,12 @@
 //   can_recvts [interface]     (default interface: can0)
 
 use socketcan::{
-    CanFrame, CanSocket, Frame, SOF_TIMESTAMPING_OPT_CMSG, SOF_TIMESTAMPING_RAW_HARDWARE,
-    SOF_TIMESTAMPING_RX_HARDWARE, SOF_TIMESTAMPING_RX_SOFTWARE, SOF_TIMESTAMPING_SOFTWARE, Socket,
-    SocketOptions, id::ERR_MASK_ALL,
+    CanFrame, CanSocket, Frame, Socket, SocketOptions,
+    id::ERR_MASK_ALL,
+    timestamp::{
+        SOF_TIMESTAMPING_OPT_CMSG, SOF_TIMESTAMPING_RAW_HARDWARE, SOF_TIMESTAMPING_RX_HARDWARE,
+        SOF_TIMESTAMPING_RX_SOFTWARE, SOF_TIMESTAMPING_SOFTWARE,
+    },
 };
 use std::{env, time::UNIX_EPOCH};
 
