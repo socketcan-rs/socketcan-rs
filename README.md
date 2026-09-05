@@ -9,7 +9,7 @@ Please see the [documentation](https://docs.rs/socketcan) for details about the 
 
 ## Latest News
 
-A new major version, 4.0 is coming.
+A new major version, v4.0 is out!
 
 ### What's New in Version 4.0
 

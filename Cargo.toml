@@ -1,6 +1,6 @@
 [package]
 name = "socketcan"
-version = "4.0.0-pre.4"
+version = "4.0.0"
 edition = "2024"
 rust-version = "1.89"
 authors = [
@@ -18,9 +18,12 @@ Linux SocketCAN library. Send and receive CAN frames via CANbus on Linux.
 #
 # "netlink" (default) - Whether to include CAN interface configuration
 #     capabilities based on netlink kernel communications
+#
 # "dump" (default) - Whether to include 'candump' log file parsing
 #     capabilities.
+#
 # "enumerate" - Ability to enumerate the available CAN network interfaces
+#     (via udev)
 #
 # "utils" - Build the command-line utilities
 #
@@ -52,9 +55,6 @@ embedded-can = "0.4"
 nb = "1"
 log = "0.4"
 hex = "0.4"
-# 0.2.186 is where the `linux/can/netlink.h` bindings arrived: the
-# `CAN_STATE_*`, `CAN_CTRLMODE_*` and `IFLA_CAN_*` values are used from there
-# rather than being redefined in `src/nl/rt.rs`.
 libc = { version = "0.2.186", features = ["extra_traits"] }
 nix = { version="0.31", features = ["poll", "net"] }
 bitflags = "2.6"

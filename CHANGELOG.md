@@ -2,7 +2,7 @@
 
 The change log for the Rust [socketcan](https://crates.io/crates/socketcan) library.
 
-## Version 4.0.0  (Unreleased)
+## [Version 4.0.0](https://github.com/socketcan-rs/socketcan-rs/compare/v3.6.2..v4.0.0)  (2026-09-05)
 
 - Bumped MSRV to v1.89.0
 - Bumped Rust Edition to 2024
