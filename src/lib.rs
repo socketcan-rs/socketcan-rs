@@ -204,7 +204,9 @@ pub mod addr;
 pub use addr::CanAddr;
 
 pub mod id;
+pub mod j1939;
 pub use id::CanId;
+pub use j1939::J1939Id;
 
 pub mod frame;
 pub use frame::{
