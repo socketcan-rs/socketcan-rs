@@ -358,3 +358,98 @@ impl Sink<CanAnyFrame> for CanFdSocket {
         Ok(())
     }
 }
+
+// ===== CanIsoTpSocket =====
+
+/// An asynchronous ISO-TP socket for use with `smol` and `async-io`.
+#[derive(Debug)]
+pub struct CanIsoTpSocket(Async<crate::CanIsoTpSocket>);
+
+impl CanIsoTpSocket {
+    /// Opens an ISO-TP socket bound to the named interface and CAN identifiers.
+    pub fn open<R, T>(ifname: &str, rx_id: R, tx_id: T) -> io::Result<Self>
+    where
+        R: Into<embedded_can::Id>,
+        T: Into<embedded_can::Id>,
+    {
+        crate::CanIsoTpSocket::open(ifname, rx_id, tx_id)?.try_into()
+    }
+
+    /// Opens an ISO-TP socket from a [`CanAddr`].
+    pub fn open_addr(addr: &CanAddr) -> io::Result<Self> {
+        crate::CanIsoTpSocket::open_addr(addr)?.try_into()
+    }
+
+    /// Receives a reassembled ISO-TP payload asynchronously.
+    pub async fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
+        self.0.read_with(|fd| fd.recv(buf)).await
+    }
+
+    /// Transmits an arbitrary length payload over ISO-TP asynchronously.
+    pub async fn send(&self, buf: &[u8]) -> io::Result<usize> {
+        self.0.write_with(|fd| fd.send(buf)).await
+    }
+
+    /// Gets a shared reference to the underlying blocking socket.
+    pub fn get_ref(&self) -> &crate::CanIsoTpSocket {
+        self.0.get_ref()
+    }
+}
+
+impl SocketOptions for CanIsoTpSocket {}
+
+impl AsRawFd for CanIsoTpSocket {
+    fn as_raw_fd(&self) -> RawFd {
+        self.0.as_raw_fd()
+    }
+}
+
+impl TryFrom<crate::CanIsoTpSocket> for CanIsoTpSocket {
+    type Error = io::Error;
+
+    fn try_from(sock: crate::CanIsoTpSocket) -> io::Result<Self> {
+        Ok(Self(Async::new(sock)?))
+    }
+}
+
+impl futures::io::AsyncRead for CanIsoTpSocket {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut [u8],
+    ) -> Poll<io::Result<usize>> {
+        loop {
+            ready!(self.0.poll_readable(cx))?;
+            match self.0.get_ref().recv(buf) {
+                Ok(n) => return Poll::Ready(Ok(n)),
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => continue,
+                Err(e) => return Poll::Ready(Err(e)),
+            }
+        }
+    }
+}
+
+impl futures::io::AsyncWrite for CanIsoTpSocket {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        loop {
+            ready!(self.0.poll_writable(cx))?;
+            match self.0.get_ref().send(buf) {
+                Ok(n) => return Poll::Ready(Ok(n)),
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => continue,
+                Err(e) => return Poll::Ready(Err(e)),
+            }
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+}
