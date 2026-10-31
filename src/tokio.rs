@@ -445,6 +445,116 @@ impl AsyncWrite for CanFdSocket {
     }
 }
 
+// ===== CanIsoTpSocket =====
+
+/// An asynchronous ISO 15765-2 (ISO-TP) CAN transport socket for Tokio.
+#[derive(Debug)]
+pub struct AsyncCanIsoTpSocket(AsyncFd<crate::CanIsoTpSocket>);
+
+/// Type alias matching `CanSocket` and `CanFdSocket` naming conventions in the tokio module.
+pub type CanIsoTpSocket = AsyncCanIsoTpSocket;
+
+impl AsyncCanIsoTpSocket {
+    /// Opens an asynchronous ISO-TP socket bound to the named interface and CAN identifiers.
+    pub fn open<R, T>(ifname: &str, rx_id: R, tx_id: T) -> IoResult<Self>
+    where
+        R: Into<embedded_can::Id>,
+        T: Into<embedded_can::Id>,
+    {
+        let sock = crate::CanIsoTpSocket::open(ifname, rx_id, tx_id)?;
+        sock.set_nonblocking(true)?;
+        #[allow(deprecated)]
+        Ok(Self(AsyncFd::new(sock)?))
+    }
+
+    /// Opens an asynchronous ISO-TP socket from a [`CanAddr`].
+    pub fn open_addr(addr: &CanAddr) -> IoResult<Self> {
+        let sock = crate::CanIsoTpSocket::open_addr(addr)?;
+        sock.set_nonblocking(true)?;
+        #[allow(deprecated)]
+        Ok(Self(AsyncFd::new(sock)?))
+    }
+
+    /// Receives a reassembled ISO-TP payload asynchronously.
+    pub async fn recv(&self, buf: &mut [u8]) -> IoResult<usize> {
+        self.0
+            .async_io(Interest::READABLE, |inner| inner.recv(buf))
+            .await
+    }
+
+    /// Transmits an arbitrary length payload over ISO-TP asynchronously.
+    pub async fn send(&self, buf: &[u8]) -> IoResult<usize> {
+        self.0
+            .async_io(Interest::WRITABLE, |inner| inner.send(buf))
+            .await
+    }
+
+    /// Gets a reference to the underlying blocking socket.
+    pub fn get_ref(&self) -> &crate::CanIsoTpSocket {
+        self.0.get_ref()
+    }
+
+    /// Gets a mutable reference to the underlying blocking socket.
+    pub fn get_mut(&mut self) -> &mut crate::CanIsoTpSocket {
+        self.0.get_mut()
+    }
+}
+
+impl SocketOptions for AsyncCanIsoTpSocket {}
+
+impl AsRawFd for AsyncCanIsoTpSocket {
+    fn as_raw_fd(&self) -> RawFd {
+        self.0.as_raw_fd()
+    }
+}
+
+impl AsyncRead for AsyncCanIsoTpSocket {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<IoResult<()>> {
+        loop {
+            let mut guard = ready!(self.0.poll_read_ready_mut(cx))?;
+
+            let unfilled = buf.initialize_unfilled();
+            match guard.try_io(|inner| inner.get_mut().read(unfilled)) {
+                Ok(Ok(len)) => {
+                    buf.advance(len);
+                    return Poll::Ready(Ok(()));
+                }
+                Ok(Err(err)) => return Poll::Ready(Err(err)),
+                Err(_would_block) => continue,
+            }
+        }
+    }
+}
+
+impl AsyncWrite for AsyncCanIsoTpSocket {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<IoResult<usize>> {
+        loop {
+            let mut guard = ready!(self.0.poll_write_ready_mut(cx))?;
+
+            match guard.try_io(|inner| inner.get_mut().write(buf)) {
+                Ok(result) => return Poll::Ready(result),
+                Err(_would_block) => continue,
+            }
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<IoResult<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<IoResult<()>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
 /////////////////////////////////////////////////////////////////////////////
 
 #[cfg(feature = "vcan_tests")]

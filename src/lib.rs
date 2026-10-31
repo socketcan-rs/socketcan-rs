@@ -218,6 +218,14 @@ pub mod dump;
 pub mod socket;
 pub use socket::{CanFdSocket, CanFilter, CanSocket, ShouldRetry, Socket, SocketOptions};
 
+pub mod isotp;
+pub use isotp::{
+    CanIsoTpSocket, IsoTpFlags, IsoTpFlowControlOptions, IsoTpLinkLayerOptions, IsoTpOptions,
+    CAN_ISOTP_DEFAULT_FRAME_TXTIME, CAN_ISOTP_DEFAULT_PAD_CONTENT, CAN_ISOTP_FRAME_TXTIME_ZERO,
+    CAN_ISOTP_LL_OPTS, CAN_ISOTP_OPTS, CAN_ISOTP_RECV_FC, CAN_ISOTP_RX_STMIN, CAN_ISOTP_TX_STMIN,
+    SOL_CAN_ISOTP,
+};
+
 pub mod timestamp;
 // The `SOF_TIMESTAMPING_*` flags are deliberately not re-exported here: they
 // belong with the rest of the timestamping API, in `timestamp`.
